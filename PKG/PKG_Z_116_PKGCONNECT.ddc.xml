@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGCONNECT" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="35FBE169E1D387B2A346210915F4EF00">
+  <PKG 
+    NAME="Z_116_PKGCONNECT">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGCONNECT is
+/**
+* Пакет методов для инициализации сессии в АБС
+*
+* @author Анатолий Бондаренко
+* @version 1.0
+* @headcom
+*
+* Copyright (c) 2023 By Aloqabank. All Rights Reserved.
+*/
+
+/** Открытие соединения с заполнением системных данных
+* <br/><i>С версии 1.0</i>
+* @param pMachineName имя приложения  - Colvir или прочие, трогать нельзя, т.к. рухнет ручной импорт
+* @param pIPAddress IP для Citrix
+* @param piNotRegist Повторная инциализация
+* @param pdAssigned Дата операционного дня при повторной инициализации
+* @param piViaHttp Подключение с использованием сервера подключений
+* @param pTerminalName Имя машины
+* @param pP_LngCode Код желаемой языковой плоскости
+* @param pcUsrPos Код позиции
+*/
+procedure pOpen(pMachineName in varchar2 default null
+                , pIPAddress in varchar2 default null
+                , piNotRegist in integer default 0
+                , pdAssigned in date default null
+                , piViaHttp in integer default 0
+                , pTerminalName in varchar2 default null
+                , pP_LngCode in varchar2 default null --Kод желаемой языковой плоскости
+                , pcUsrPos in varchar2 default null --Код позиции
+                );
+
+
+end Z_116_PKGCONNECT;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGCONNECT is
+
+-- Открытие соединения с заполнением системных данных
+procedure pOpen(pMachineName in varchar2 default null
+                , pIPAddress in varchar2 default null
+                , piNotRegist in integer default 0
+                , pdAssigned in date default null
+                , piViaHttp in integer default 0
+                , pTerminalName in varchar2 default null
+                , pP_LngCode in varchar2 default null --Kод желаемой языковой плоскости
+                , pcUsrPos in varchar2 default null --Код позиции
+                ) is
+begin
+  -- если сессия уже инициализирована, то повторно делать этого не будем
+  if c_pkgsession.idUser is null then
+    c_pkgconnect.pOpen(MachineName  => pMachineName,
+                       IPAddress    => pIPAddress,
+                       iNotRegist   => piNotRegist,
+                       dAssigned    => pdAssigned,
+                       iViaHttp     => piViaHttp,
+                       TerminalName => pTerminalName,
+                       P_LngCode    => pP_LngCode,
+                       cUsrPos      => pcUsrPos);
+  end if;
+end pOpen;
+
+end Z_116_PKGCONNECT;
+]]>
+    </LOB_FIELD>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

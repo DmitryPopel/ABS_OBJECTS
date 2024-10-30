@@ -1,0 +1,478 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGMTS" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="E1766B72F1D5CC26414F0230F4E4E404">
+  <PKG 
+    NAME="Z_116_PKGMTS">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGMTS is
+/**
+* Пакет для реализации методов работы с СДП
+*
+* @author Бондаренко Анатолий
+* @version 1.0
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+  /** Создание входящего перевода СДП
+  * <br/><i>С версии 1.0</i>
+  * @param pInput параметры для создания входящего перевода
+  * @param pOutput выходные параметры
+  */
+  procedure pCreateMtsIn(pInput  in  Clob,
+                         pOutput out Clob);
+
+  /** Выплата входящего перевода СДП
+  * <br/><i>С версии 1.0</i>
+  * @param pInput параметры для выплаты входящего перевода
+  * @param pOutput выходные параметры
+  */
+  procedure pPayMtsIn(pInput  in  Clob,
+                      pOutput out Clob);
+
+
+  /** Справочник стран для переводов СДП
+  * <br/><i>С версии 1.0</i>
+  * @param pInput параметры для выплаты входящего перевода
+  * @param pOutput выходные параметры
+  */
+  procedure pCountryRef(pInput  in  Clob,
+                        pOutput out Clob);
+
+end Z_116_PKGMTS;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGMTS is
+
+  -- Создание входящего перевода СДП
+  procedure pCreateMtsIn(pInput  in  Clob,
+                         pOutput out Clob) is
+
+    ObjIn                JSON_OBJECT_T;
+    ObjRes               JSON_OBJECT_T;
+    cCliCode             G_CLI.CODE%type;
+    nCliDepId            G_CLI.DEP_ID%type;
+    nCliId               G_CLI.ID%type;
+    nSum                 number(18,2);
+    cValCode             T_VAL_STD.CODE%type;
+    cCountryCode         T_REG_STD.CODE%type;
+    cFname               varchar2(250);
+    cLname               varchar2(250);
+    cKNP                 varchar2(250);
+    cTxtPay              G_CLIHST.Longname%type;
+    nPassTypId           G_CLIHST.Passtyp_Id%type;
+    cPassOrg             G_CLIHST.Passorg%type;
+    cPassSer             G_CLIHST.Passser%type;
+    cPassN               G_CLIHST.PASSNUM%type;
+    dPassD               G_CLIHST.PASSDAT%type;
+    nCliRegId            G_CLIHST.Reg_Id%type;
+    cPname1              G_CLIHST.Pname1%type;
+    cPname2              G_CLIHST.Pname2%type;
+    cPname3              G_CLIHST.Pname3%type;
+    cDocNum              T_ORD.CODE%type;
+    nDeaDepId            T_ORD.DEP_ID%type;
+    nDeaId               T_ORD.ID%type;
+    nSesID               M_MTS_TRANSFER.SESS_ID%type;
+    nPayDepId            T_ORD.DEP_ID%type;
+    nPayId               T_ORD.ID%type;
+    nProcId              T_PROCESS.ID%type;
+    nPayRegId            T_REG_STD.ID%type;
+
+    iIDN_PINFL_ID        G_CLIIDN.ID%type := G_PKGIDN.fId('IDN_PRS_UZ');
+    nCashId              M_CSHDSC.ID%type := 121724992; -- идентификатор кассы
+
+  begin
+    Z_116_PKGCONNECT.pOpen();
+
+    ObjIn := JSON_OBJECT_T.parse(pInput);
+    -- входные параметры:
+    -- сумма, валюта, номер (11 символов), страна отправления, код клиента получателя, фамилия и имя отправителя, идентификаторы договора с СДП
+    cCliCode := ObjIn.get_String('clientId');
+    cDocNum := ObjIn.get_String('docNumber');
+    nSum := ObjIn.get_Number('amount');
+    cValCode := ObjIn.get_String('valCode');
+    cCountryCode := ObjIn.get_String('countryCode');
+    cFname := ObjIn.get_String('firstName');
+    cLname := ObjIn.get_String('lastName');
+    -- ид-ы догвоора СДП
+    nDeaDepId := ObjIn.get_Number('deaDepId');
+    nDeaId := ObjIn.get_Number('deaId');
+
+
+
+    -- соберем информацию по получателю
+    begin
+      select c.dep_id, c.id, ch.longname, ch.passtyp_id, ch.passorg, ch.passser, ch.passnum, ch.passdat, ch.reg_id,ch.pname1,ch.pname2,ch.pname3
+             into nCliDepId, nCliId, cTxtPay, nPassTypId, cPassOrg, cPassSer, cPassN, dPassD, nCliRegId, cPname1, cPname2, cPname3
+        from G_CLI c, G_CLIHST ch
+        where c.code = cCliCode
+          and c.dep_id = ch.dep_id and c.id = ch.id and p_operday between ch.fromdate and ch.todate;
+    exception
+      when no_data_found then
+        pOutput := Z_116_ELOAN_UTILS.fErr(sqlcode, 'Не найден клиент с кодом: %0:s', vargs(cCliCode));
+      when others then
+        pOutput := Z_116_ELOAN_UTILS.fErr(sqlcode, 'Ошибка подготовки информации по клиенту %1:s: %0:s', vargs(substr(sqlerrm,1,2000),cCliCode));
+    end;
+
+    -- информация по отправителю
+    nPayRegId := t_pkgreg.fCodeReg2Id(cCountryCode);
+    -- TP M_MTS_KNP для КНП
+    cKNP := c_pkgdectbl.fdecisionlist('M_MTS_KNP','COUNTRY_CODE,VAL_CODE,INFL', cCountryCode||','||cValCode||',1' ,0);
+
+    M_PKGMTSSERVICE.pSavePay(iSess          => nSesID,
+                             nDEP_ID        => nPayDepId,
+                             nID            => nPayId,
+                             sKSO_CODE      => '1066',
+                             sCHA_CODE      => '1202314',      -- банковская операция - константа?
+                             sAMOUNT        => to_money(nSum), -- сумма строкой в формате "Деньги"
+                             sVAL_CODE      => cValCode,       -- код валюты
+                             dDORD          => p_operday,
+                             dDVAL          => p_operday,
+                             sCODE_ACL      => '',
+                             sCODE_BCR      => '',
+                             sCODE_BCR_NAME => '',
+                             sCODE_ACR      => '',
+                             sRNN_CR        => '',
+                             sCODE_BC       => '',
+                             sTXT_DSCR      => 'Входящий перевод по системе Ria Money Transfer',
+                             sTXT_BEN       => '',
+                             nNOCMSFL       => null,
+                             sKNP           => cKNP,
+                             sCODE_OD       => '200',
+                             sCODE_BE       => '',
+                             sPRIM          => Localize('Создан из мобильного приложения'),
+                             idProc         => nProcId,
+                             sSPEEDFL       => '0',
+                             sInFl          => '1',
+                             -- номер перевода:
+                             sCODE          => cDocNum,
+                             sREFER         => cDocNum,
+                             sOUTREFER      => cDocNum,
+                             -- получатель:
+                             nCLIDEP_ID     => nCliDepId,
+                             nCLI_ID        => nCliId,
+                             nCLI_REG_ID    => nCliRegId,
+                             sTXTPAY        => cTxtPay,
+                             nPASSTYP_ID_CL => nPassTypId,
+                             sPASSORG_CL    => cPassOrg,
+                             sPASSSER_CL    => cPassSer,
+                             sPASSNUM_CL    => cPassN,
+                             sPASSDAT_CL    => dPassD,
+                             sPNAME1        => cPname1,
+                             sPNAME2        => cPname2,
+                             sPNAME3        => cPname3,
+                             sIDENT_NUM_CL  => G_PKGCLIIDN.fCliIDN(nCliDepId, nCliId, iIDN_PINFL_ID),
+                             --nCLIDEP_ID     => '2980', nCLI_ID => '5502026', -- получатель ид-ы как строка О_о
+                             --
+                             nREG_ID        => nPayRegId,  -- откуда перевод
+                             idCSH          => nCashId, -- касса
+                             -- это договор СДП RIA:
+                             nDEA_DEP_ID    => nDeaDepId,
+                             nDEA_ID        => nDeaId,
+                             -- обязательное инфо по отправителю:
+                             sPNAME1_CR     => cLname,
+                             sPNAME2_CR     => cFname
+                             );
+    t_log.debug('  Z_116_PKGMTS.pCreateMtsIn: process created successfully (%0:s,%1:s), id = %2:s',vargs(nPayDepId, nPayId, nProcId), 'PKG', 'Z_116_PKGMTS');
+
+    ObjRes := new JSON_OBJECT_T;
+    ObjRes.put('payDepId', nPayDepId);
+    ObjRes.put('payId', nPayId);
+    ObjRes.put('procId', nProcId);
+
+    pOutput := ObjRes.To_Clob;
+
+  exception
+    when others then
+      pOutput := Z_116_ELOAN_UTILS.fErr(sqlcode, 'Ошибка создания входящего перевода СДП по клиенту %1:s: %0:s', vargs(substr(sqlerrm,1,2000),cCliCode));
+  end pCreateMtsIn;
+
+
+  -- Выплата входящего перевода СДП
+  procedure pPayMtsIn(pInput  in  Clob,
+                      pOutput out Clob) is
+    ObjIn                JSON_OBJECT_T;
+    ObjRes               JSON_OBJECT_T;
+
+    nPayDepId            T_ORD.DEP_ID%type;
+    nPayId               T_ORD.ID%type;
+    --cTermId              N_SPRDEV.SYSCODE%type;
+
+    cAmnt                varchar2(50);
+    cVal                 T_VAL_STD.CODE%type;
+    nValId               T_VAL_STD.ID%type;
+    cAmntCms             varchar2(50);
+    cValCms              T_VAL_STD.CODE%type;
+    nValCmsId            T_VAL_STD.ID%type;
+    nCliDepId            G_CLI.DEP_ID%type;
+    nCliId               G_CLI.ID%type;
+    nChaId               T_OPRCHR_STD.ID%type;
+    nKSOId               S_ORDDSC_STD.ID%type;
+    cDeaCode             T_ORD.CODE%type;
+    cDeaName             M_TRANSFDEA.LONGNAME%type;
+    nLedAccId            LEDACC_STD.ID%type;
+    cInOutFl             char(1);
+    cNAAmnt              varchar2(50);
+    cNAAmntCms           varchar2(50);
+    cCmsFl               char(1);
+    cAmntPay             varchar2(50);
+    cValPay              T_VAL_STD.CODE%type;
+    cRate                varchar2(50);
+    --cCardIdn             N_CRD.Cardidn%type;
+
+    nAccDepID            G_ACCBLN.DEP_ID%type;
+    nAccID               G_ACCBLN.ID%type;
+    nAccValId            T_VAL_STD.ID%type;
+
+    cParOut              varchar2(4000);
+    lstTbl               C_PKGSTR.TPrmTBlLst;
+    nJr                  T_OPERJRN.NJRN%type;
+
+  begin
+    Z_116_PKGCONNECT.pOpen();
+
+    ObjIn := JSON_OBJECT_T.parse(pInput);
+    nPayDepId := ObjIn.get_Number('payDepId');
+    nPayId := ObjIn.get_Number('payId');
+    nAccDepID := ObjIn.get_Number('accDepId');
+    nAccID := ObjIn.get_Number('accId');
+
+    nAccValId := g_pkgaccbln.fVal_Id(nAccDepID, nAccID);
+    cValPay := t_pkgval.fGetCode(nAccValId);
+
+
+    -- подготовим созданный платеж для оплаты
+    -- TODO:
+    -- вероятно, нужно сделать вызов M_PKG_VAR_AMOUNT.pGetParamTransfer  || тут пока не очень
+    -- и M_PKG_VAR_AMOUNT.pClcVarAmountDtl                               || понятен порядок вызова
+    -- и INSERT INTO M_ORDPAY_VAR_AMOUNT  --> отсюда зачитывается инфа в следующей операции - в качестве счета выплаты записывать транзитный счет терминала
+    -- потом запуск операции "Принять к выплате"
+    M_PKG_VAR_AMOUNT.pGetParamTransfer(pDepId           => nPayDepId,
+                                       pOrdId           => nPayId,
+                                       pInAmount        => '1',
+                                       pRetFl           => '0',
+                                       pAmount          => cAmnt,
+                                       pValCode         => cVal,
+                                       pAmount_Cms      => cAmntCms,
+                                       pValCode_Cms     => cValCms,
+                                       pCLI_DEP_ID      => nCliDepId,
+                                       pCLI_ID          => nCliId,
+                                       pCHA_ID          => nChaId,
+                                       pKSO_ID          => nKSOId,
+                                       pValId           => nValId,
+                                       pValId_Cms       => nValCmsId,
+                                       pDeaCode         => cDeaCode,
+                                       pDeaName         => cDeaName,
+                                       pLED_TRN_ACC_ID  => nLedAccId,
+                                       pInFl            => cInOutFl,
+                                       pNotAllAmount    => cNAAmnt,
+                                       pNotAllAmountCms => cNAAmntCms,
+                                       pFlCms           => cCmsFl
+                                       );
+
+    M_PKG_VAR_AMOUNT.pClcVarAmountDtl('1', cVal, cNAAmnt, '1', '0', cValPay, cAmntPay, cRate);
+
+    -- вставка деталей платежа - имитация работы экранной формы в операции "Приянть к выплате"
+    INSERT INTO M_ORDPAY_VAR_AMOUNT
+        (DEP_ID, ID, NPP, VAR_AMOUNT, VAL_ID, AMOUNT, RATE, BASE_AMOUNT, DTL_AMOUNT,  -- VAR_AMOUNT - вариант выпоаты = '1' - значит выплата на счет
+         ACC_ID, ACC_DEP_ID, IN_AMOUNT, FLCMS, FLRET)
+      VALUES
+        (nPayDepId, nPayId, 1, '1', nAccValId, to_number(cAmntPay), to_number(cRate), to_number(cNAAmnt), g_pkgaccbln.fGetCodeAccByIdAcc(nAccID, nAccDepID),
+         nAccID, nAccDepID, cInOutFl, cCmsFl, '0');
+
+    -- выплата перевода
+    if T_PkgRunOprUtl.fOprAvailable(nPayDepId, nPayId, 'REG') = 2 then
+      T_PkgRunOprUtl.pRunOperation(nPayDepId, nPayId, 'REG', null, sOutOperParams => cParOut);
+      -- запомним NJRN выплаты для формирования ответа
+      C_PKGSTR.ParsePar2(sstr => cParOut, prmtbllst => lstTbl);
+      nJr := to_number(C_PKGSTR.fGetPrmVal(lstTbl, 'NJRN'));
+
+      T_PkgRunOprUtl.pRunOprByMainOrd(nPayDepId, nPayId, 'PAY');
+      T_PkgRunOprUtl.pRunOprByMainOrd(nPayDepId, nPayId, 'CONFIRM_PAY');
+    else
+      pOutput := z_116_eloan_utils.fErr(-20000, 'Операция выплаты перевода недоступна. Перевод в состоянии %0:s', vargs(T_PkgProcess.fGetStatCodeByMainOrd(nPayDepId, nPayId)));
+      return;
+    end if;
+
+    ObjRes := new JSON_OBJECT_T;
+    ObjRes.put('njrn', nJr);
+
+    pOutput := ObjRes.To_Clob;
+
+  exception
+    when others then
+      pOutput := Z_116_ELOAN_UTILS.fErr(sqlcode, 'Ошибка выплаты входящего перевода: %0:s', vargs(substr(sqlerrm,1,2000)));
+
+  end pPayMtsIn;
+
+  -- Справочник стран для переводов СДП
+  procedure pCountryRef(pInput  in  Clob,
+                        pOutput out Clob) is
+
+    ArrTmp           JSON_ARRAY_T;
+    ObjTmp           JSON_OBJECT_T;
+  begin
+    ArrTmp := new JSON_ARRAY_T;
+    for rec in (select  t.id,
+            t.code,
+            t.longname
+          from t_reg t
+          where t.countryfl = 1
+           and ARESTFL = 0  and ARCFL = 0
+           order by CODE asc) loop
+      ObjTmp := new JSON_OBJECT_T;
+      ObjTmp.put('id', rec.id);
+      ObjTmp.put('code', rec.code);
+      ObjTmp.put('name', rec.longname);
+      ArrTmp.append (ObjTmp);
+    end loop;
+
+    pOutput := ArrTmp.To_Clob;
+  end pCountryRef;
+
+end Z_116_PKGMTS;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIIDN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_CSHDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_MTS_TRANSFER"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_ORDPAY_VAR_AMOUNT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_TRANSFDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="S_ORDDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPRCHR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_REG"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_VAL"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="TO_MONEY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDECTBL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGSTR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGACCBLN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="M_PKGMTSSERVICE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="M_PKG_VAR_AMOUNT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGPROCESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGREG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGRUNOPRUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_ELOAN_UTILS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKGCONNECT"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

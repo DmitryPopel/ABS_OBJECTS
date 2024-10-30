@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGRPT_OVERDUE_DAYS" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="3C2043416EA794216DAC99020B6DC17F">
+  <PKG 
+    NAME="Z_116_PKGRPT_OVERDUE_DAYS">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGRPT_OVERDUE_DAYS is
+  /**
+  * Пакет подготовки данных для отчета Z_116_OVERDUE_DAYS - Просроченные дни (Кредитные договора, Кредитные линии)
+  *
+  * @author Сирож Самадов
+  * @version 1.0
+  */
+
+  /** Последний опер день предыдущего месяца */
+  procedure pPrevOperday(ret out varchar2);
+
+  /** Количество просроченных дней
+  * @param pDepId Идентификатор подразделения
+  * @param pId Идентификатор документа
+  * @param pDay Дата расчета
+  * @return Возвращает количество дней просрочки
+  */
+  function fGetOverdueDays
+  (
+    pDepId number,
+    pId    number,
+    pDay   varchar2
+  ) return number;
+end Z_116_PKGRPT_OVERDUE_DAYS;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGRPT_OVERDUE_DAYS is
+  -- Последний опер день предыдущего месяца
+  procedure pPrevOperday(ret out varchar2) is
+  begin
+    ret := C_PKGDATE.fPrevDate(trunc(P_OPERDAY, 'MM'));
+  end;
+
+  -- Количество просроченных дней
+  function fGetOverdueDays
+  (
+    pDepId number,
+    pId    number,
+    pDay   varchar2
+  ) return number is
+    result number;
+  begin
+    with INIT_TRN as
+     (select t.DOPER,
+             t.INCOMFL,
+             t.SDOK as BAL,
+             sum(decode(t.INCOMFL, '0', t.SDOK, 0)) over() TOTAL_CREDIT
+        from T_TRNDTL t, LEDACC_DET d, T_ACC a, G_ACCBLN ac
+       where ac.DEP_ID = a.DEP_ID
+         and ac.ID = a.ID
+         and d.DEP_ID = a.DEP_ID
+         and d.ACC_ID = a.ID
+         and d.SGN_ID = T_ASGN.fCode2Id('DEA')
+         and d.PK1 = to_char(pDepId)
+         and d.PK2 = to_char(pId)
+         and exists (select 1
+                from LEDACC_STD ls
+               where ls.ID = ac.CHA_ID
+                    -- Просроченные Планы счетов
+                 and ls.CODE in ('11103',
+                                 '11511',
+                                 '11515',
+                                 '12105',
+                                 '12305',
+                                 '12405',
+                                 '12505',
+                                 '12605',
+                                 '12705',
+                                 '12805',
+                                 '12905',
+                                 '13005',
+                                 '13105',
+                                 '13205',
+                                 '13305',
+                                 '15617'))
+         and t.DEP_ID = a.DEP_ID
+         and t.ACC_ID = a.ID
+         and t.DOPER <= to_date(pDay, 'dd.mm.yyyy')),
+
+    DEBITS as
+     (select t.*, row_number() over(order by t.DOPER) RNUM from INIT_TRN t where t.INCOMFL = 1),
+
+    REC_TRN (DOPER, TOTAL_CREDIT, BAL, RNUM) as
+     (select t.DOPER, t.TOTAL_CREDIT, t.BAL, t.RNUM
+        from DEBITS t
+       where t.RNUM = 1
+
+      union all
+
+      select t.DOPER, t.TOTAL_CREDIT, t.BAL + f.BAL as BAL, t.RNUM
+        from DEBITS t
+        join REC_TRN f
+          on t.RNUM = f.RNUM + 1
+         and t.TOTAL_CREDIT >= f.BAL)
+
+    select to_date(pDay, 'dd.mm.yyyy') - t.DOPER
+      into result
+      from REC_TRN t
+     where t.BAL > t.TOTAL_CREDIT;
+
+    return result;
+  exception
+    when no_data_found then
+      return null;
+  end;
+
+end Z_116_PKGRPT_OVERDUE_DAYS;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC_DET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNDTL"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDATE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_ASGN"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

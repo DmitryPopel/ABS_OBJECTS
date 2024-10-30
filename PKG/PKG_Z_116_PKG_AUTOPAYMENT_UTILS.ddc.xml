@@ -1,0 +1,765 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_AUTOPAYMENT_UTILS" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="9DB2817832FC7663A4CBDDA4FCAF0631">
+  <PKG 
+    NAME="Z_116_PKG_AUTOPAYMENT_UTILS">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_AUTOPAYMENT_UTILS is
+/**
+* Пакет для реализации методов автопогашений по техническому овердрафту
+*
+* @author Ахмеджанов Сардор
+* @version 3.0
+* @headcom
+*
+* Copyright (c) 2023 By Aloqabank. All Rights Reserved.
+*/
+
+/** Процедура создания мемориального ордера на карточный счет
+* <br/><i>С версии 1.0</i>
+* @param pDOp Уникальный номер транзакции
+* @param pCardAccount Номер карточного счета
+* @param pContractNo Номер контракта
+* @param pTransactionDate Дата транзакции
+* @param pAmount Сумма
+*/
+procedure pCreatePayment(pRrn             in varchar2,
+                         pCardAccount     in varchar2,
+                         pContractNo      in varchar2,
+                         pTransactionDate in date,
+                         pAmount          in number,
+                         pResult          out number,
+                         pMessage         out varchar2);
+
+/** Процедура создания мемориального ордера на карточный счет с указанием из какого счета начислять
+* <br/><i>С версии 1.0</i>
+* @param pDOp Уникальный номер транзакции
+* @param pCardAccount Номер карточного счета
+* @param pContractNo Номер контракта
+* @param pTransactionDate Дата транзакции
+* @param pAmount Сумма
+*/
+procedure pCreatePayment2(pRrn             in varchar2,
+                          pCardAccount     in varchar2,
+                          pFromAccount     in varchar2,
+                          pContractNo      in varchar2,
+                          pTransactionDate in date,
+                          pAmount          in number,
+                          pResult          out number,
+                          pMessage         out varchar2);
+
+/** Процедура возвращает баланс по счету
+* <br/><i>С версии 2.0</i>
+* @param pAccCode Номер счета
+* @param pAmount Баланс счета
+* @param pResult Результат выполнения, 1 - ошибка, 0 - успешно
+* @param pMessage Сообщение об ошибке
+*/
+procedure pGetAccountBalance(pAccCode in  varchar2,
+                             pAmount  out number,
+                             pResult  out number,
+                             pMessage out varchar2);
+
+/** Процедура создания мемориального ордера для перевода остатков на счетах клиента Uztelecom
+* <br/><i>С версии 1.0</i>
+*/
+procedure pUztelecomBalanceTransfer;
+
+end Z_116_PKG_AUTOPAYMENT_UTILS;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_AUTOPAYMENT_UTILS is
+
+procedure pGetAccountBalance(pAccCode in  varchar2,
+                             pAmount  out number,
+                             pResult  out number,
+                             pMessage out varchar2) is
+begin
+  c_pkgconnect.pOpen();
+  select T_PkgAccBal.fAccBal(acc.DEP_ID, acc.ID)
+  into   pAmount
+  from   G_ACCBLN acc
+  where  acc.code = pAccCode;
+  pResult := 1;
+  pMessage := '';
+exception
+  when no_data_found then
+    pResult := 0;
+    pMessage := 'Счет не найден';
+  when others then
+    pResult := 0;
+    pMessage := SQLERRM;
+end pGetAccountBalance;
+
+procedure pGetClientData(pAccCode    in varchar2,
+                         pExpireDate out date,
+                         pSrnn       out varchar2,
+                         pPnfl       out varchar2,
+                         pCliName    out varchar2) is
+begin
+  with acc as (
+    select ca.DEP_ID,
+           ca.ID,
+           da.ACC_DEP_ID,
+           da.ACC_ID
+    from   S_DEAACC da
+    join   N_CRDACC ca on ca.DEA_DEP_ID = da.DEP_ID and ca.DEA_ID = da.ID
+    join   G_ACCBLN a on a.DEP_ID = da.ACC_DEP_ID and a.ID = da.ACC_ID
+    where  a.code = pAccCode
+    union all
+    select ca.DEP_ID,
+           ca.ID,
+           da.ACC_DEP_ID,
+           da.ACC_ID
+    from   D_DEA da
+    join   N_CRDACC ca on ca.DEA_DEP_ID = da.DEP_ID and ca.DEA_ID = da.ID
+    join   G_ACCBLN a on a.DEP_ID = da.ACC_DEP_ID and a.ID = da.ACC_ID
+    where  a.code = pAccCode
+  )
+  select expiredt, nvl(taxcode, '000000000'), pnfl, longname
+  into   pExpireDate, pSrnn, pPnfl, pCliName
+  from  (select crd.expiredt,
+                g.taxcode,
+                G_PKGCLIIDN.fCliIdn(g.dep_id,
+                                    g.id,
+                                    G_PKGIDN.fId('IDN_PRS_UZ')) pnfl,
+                g.longname,
+                n.ACC_DEP_ID,
+                n.ACC_ID
+         from   acc n
+         join   N_CRD crd on crd.dep_id = n.DEP_ID and crd.id = n.ID
+         join   g_clihst g on g.dep_id = crd.holder_dep_id and g.id = crd.holder_id
+         where  p_operday between g.fromdate and g.todate
+         order by
+                crd.expiredt desc)
+  where rownum = 1;
+end pGetClientData;
+
+procedure pApplyPayment(pFromDate in date default null,
+                        pToDate   in date default null)
+is
+  id           float := null;
+  vRnnCr       varchar2(200);
+  err_msg      varchar2(200);
+  SERRMSG      VARCHAR2(200);
+  SCLIRNN      VARCHAR2(200);
+  SCLINAME     VARCHAR2(200);
+  SACCNAME     VARCHAR2(200);
+  SBAL         VARCHAR2(200);
+  SCOD         VARCHAR2(200);
+  SCOD_NAME    VARCHAR2(200);
+  STXTHEAD     VARCHAR2(200);
+  STXTBUCH     VARCHAR2(200);
+  NCLIDEPID    INTEGER;
+  NCLIID       INTEGER;
+  NCLIJURFL    INTEGER;
+  SVAL_CODE    VARCHAR2(200);
+  SACCVALCODE  VARCHAR2(200);
+  SVALNAME     VARCHAR2(200);
+  NDECPART     INTEGER;
+  NACC_ID      INTEGER;
+  NCLIPBOYULFL INTEGER;
+  ndep_id      number;
+  vPnfl        varchar2(100);
+  vCliname     varchar2(250);
+  vAccCode     varchar2(250) := '17409000200000401505';
+  vSksoCode    varchar2(10);
+  dexpir       date;
+begin
+  c_pkgconnect.pOpen();
+  for rec in (select sum(t.amount) as total_amount,
+                     t.acccode
+              from   temp_trans_data t
+              where  t.status <> 'S'
+              and    t.contract_no <> 'USD'
+              and    t.transaction_date between nvl(pFromDate, p_operday) and nvl(pToDate, p_operday)
+              group by
+                     t.acccode) loop
+    begin
+      pGetClientData(pAccCode    => rec.acccode,
+                     pExpireDate => dExpir,
+                     pSrnn       => vRnnCr,
+                     pPnfl       => vPnfl,
+                     pCliName    => vCliname);
+      if dExpir < p_operday then
+        vSksoCode := '600';
+      else
+        vSksoCode := '211';
+      end if;
+      id := S_BSPAY.PCHKACCCLI(NDEP_ID      => ndep_id,
+                               SBNK_CODE    => '00401',
+                               SACC_CODE    => vAccCode,
+                               SKSO_CODE    => vSksoCode,
+                               DDVAL        => p_operday,
+                               SERRMSG      => SERRMSG,
+                               SCLIRNN      => SCLIRNN,
+                               SCLINAME     => SCLINAME,
+                               SACCNAME     => SACCNAME,
+                               SBAL         => SBAL,
+                               SCOD         => SCOD,
+                               SCOD_NAME    => SCOD_NAME,
+                               STXTHEAD     => STXTHEAD,
+                               STXTBUCH     => STXTBUCH,
+                               NCLIDEPID    => NCLIDEPID,
+                               NCLIID       => NCLIID,
+                               NCLIJURFL    => NCLIJURFL,
+                               SVAL_CODE    => SVAL_CODE,
+                               IZO          => 0,
+                               SACCVALCODE  => SACCVALCODE,
+                               SVALNAME     => SVALNAME,
+                               NDECPART     => NDECPART,
+                               NACC_ID      => NACC_ID,
+                               NCLIPBOYULFL => NCLIPBOYULFL);
+      id := null;
+      -- Test statements here
+      s_bspay.PSAVE(NDEP_ID   => ndep_id,
+                    NID       => id,
+                    SKSO_CODE => vSksoCode,
+                    SCHA_CODE => '020600',
+                    SAMOUNT   => rec.total_amount,
+                    SVAL_CODE => 'UZS', -- TODO
+                    DDORD     => p_operday,
+                    DDVAL     => p_operday,
+                    SCODE_ACL => vAccCode,
+                    SCODE_BCR => '00401',
+                    SCODE_ACR => rec.acccode,
+                    SRNN_CR   => vRnnCr,
+                    SCODE_BC  => null,
+                    STXT_HEAD => '',
+                    STXT_BUCH => '',
+                    STXT_DSCR => 'покрыт тех оведафт автосписание суммы ' ||
+                                 vPnfl || ' ' || vCliname,
+                    STXT_BEN  => vCliname,
+                    NNOCMSFL  => 0,
+                    SKNP      => '00634',
+                    SCODE_OD  => '',
+                    SCODE_BE  => '',
+                    SPRIM     => '',
+                    SCODE     => null,
+                    NFLZO     => '0',
+                    SRNNCLI   => SCLIRNN,
+                    STXTPAY   => SCLINAME);
+
+      S_PKGDEALOC.pSAVE(idDep     => ndep_id,
+                        iID       => id,
+                        sADD_TIME => to_char(sysdate, 'HH24:MI:SS'));
+      S_PKGORDPAY.PSAVE(NDEP_ID => ndep_id, NID => id, NBAT_ID => null);
+
+      -- Оплатить
+      T_PkgRunOprUtl.pRunOprByMainOrd(ndep_id, id, 'PAY');
+
+      update temp_trans_data t
+      set    t.status = 'S'
+      where  t.acccode = rec.acccode;
+      commit;
+    exception
+      when others then
+        rollback;
+        err_msg := SUBSTR(SQLERRM, 1, 400);
+        update temp_trans_data t
+        set    t.status = 'E',
+               t.message = err_msg
+        where  t.status = 'W'
+        and    t.acccode = rec.acccode;
+        commit;
+    end;
+  end loop;
+end;
+
+procedure pApplyPaymentByRrn(pRrn in varchar2,
+                             pResult out number,
+                             pMessage out varchar2)
+is
+  id           float := null;
+  vRnnCr       varchar2(200);
+  err_msg      varchar2(200);
+  SERRMSG      VARCHAR2(200);
+  SCLIRNN      VARCHAR2(200);
+  SCLINAME     VARCHAR2(200);
+  SACCNAME     VARCHAR2(200);
+  SBAL         VARCHAR2(200);
+  SCOD         VARCHAR2(200);
+  SCOD_NAME    VARCHAR2(200);
+  STXTHEAD     VARCHAR2(200);
+  STXTBUCH     VARCHAR2(200);
+  NCLIDEPID    INTEGER;
+  NCLIID       INTEGER;
+  NCLIJURFL    INTEGER;
+  SVAL_CODE    VARCHAR2(200);
+  SACCVALCODE  VARCHAR2(200);
+  SVALNAME     VARCHAR2(200);
+  NDECPART     INTEGER;
+  NACC_ID      INTEGER;
+  NCLIPBOYULFL INTEGER;
+  ndep_id      number;
+  vPnfl        varchar2(100);
+  vCliname     varchar2(250);
+  vAccCode     varchar2(250) := '17409000200000401505';
+  vAccCode_From varchar2(250);
+  vSksoCode    varchar2(10);
+  dexpir       date;
+begin
+  pResult := 0;
+  pMessage := '';
+  if pRrn is null then
+    return;
+  end if;
+  c_pkgconnect.pOpen();
+  for rec in (select sum(t.amount) as total_amount,
+                     t.acccode,
+                     nvl(t.acccode_from, vAccCode) as acccode_from
+              from   temp_trans_data t
+              where  t.status <> 'S'
+              and    t.contract_no <> 'USD'
+              and    t.uniquenum = pRrn
+              group by
+                     t.acccode,
+                     t.acccode_from) loop
+    begin
+      pGetClientData(pAccCode    => rec.acccode,
+                     pExpireDate => dExpir,
+                     pSrnn       => vRnnCr,
+                     pPnfl       => vPnfl,
+                     pCliName    => vCliname);
+      if dExpir < p_operday then
+        vSksoCode := '600';
+      else
+        vSksoCode := '211';
+      end if;
+      vAccCode_From := rec.acccode_from;
+      id := S_BSPAY.PCHKACCCLI(NDEP_ID      => ndep_id,
+                               SBNK_CODE    => '00401',
+                               SACC_CODE    => vAccCode_From,
+                               SKSO_CODE    => vSksoCode,
+                               DDVAL        => p_operday,
+                               SERRMSG      => SERRMSG,
+                               SCLIRNN      => SCLIRNN,
+                               SCLINAME     => SCLINAME,
+                               SACCNAME     => SACCNAME,
+                               SBAL         => SBAL,
+                               SCOD         => SCOD,
+                               SCOD_NAME    => SCOD_NAME,
+                               STXTHEAD     => STXTHEAD,
+                               STXTBUCH     => STXTBUCH,
+                               NCLIDEPID    => NCLIDEPID,
+                               NCLIID       => NCLIID,
+                               NCLIJURFL    => NCLIJURFL,
+                               SVAL_CODE    => SVAL_CODE,
+                               IZO          => 0,
+                               SACCVALCODE  => SACCVALCODE,
+                               SVALNAME     => SVALNAME,
+                               NDECPART     => NDECPART,
+                               NACC_ID      => NACC_ID,
+                               NCLIPBOYULFL => NCLIPBOYULFL);
+      id := null;
+      -- Test statements here
+      s_bspay.PSAVE(NDEP_ID   => ndep_id,
+                    NID       => id,
+                    SKSO_CODE => vSksoCode,
+                    SCHA_CODE => '020600',
+                    SAMOUNT   => rec.total_amount,
+                    SVAL_CODE => 'UZS', -- TODO
+                    DDORD     => p_operday,
+                    DDVAL     => p_operday,
+                    SCODE_ACL => vAccCode_From,
+                    SCODE_BCR => '00401',
+                    SCODE_ACR => rec.acccode,
+                    SRNN_CR   => vRnnCr,
+                    SCODE_BC  => null,
+                    STXT_HEAD => '',
+                    STXT_BUCH => '',
+                    STXT_DSCR => 'покрыт тех оведафт автосписание суммы ' ||
+                                 vPnfl || ' ' || vCliname,
+                    STXT_BEN  => vCliname,
+                    NNOCMSFL  => 0,
+                    SKNP      => '00634',
+                    SCODE_OD  => '',
+                    SCODE_BE  => '',
+                    SPRIM     => '',
+                    SCODE     => null,
+                    NFLZO     => '0',
+                    SRNNCLI   => SCLIRNN,
+                    STXTPAY   => SCLINAME);
+
+      S_PKGDEALOC.pSAVE(idDep     => ndep_id,
+                        iID       => id,
+                        sADD_TIME => to_char(sysdate, 'HH24:MI:SS'));
+      S_PKGORDPAY.PSAVE(NDEP_ID => ndep_id, NID => id, NBAT_ID => null);
+
+      -- Оплатить
+      T_PkgRunOprUtl.pRunOprByMainOrd(ndep_id, id, 'PAY');
+
+      update temp_trans_data t
+      set    t.status = 'S'
+      where  t.acccode = rec.acccode;
+      commit;
+      pResult := 1;
+    exception
+      when others then
+        rollback;
+        err_msg := SUBSTR(SQLERRM, 1, 400);
+        update temp_trans_data t
+        set    t.status = 'E',
+               t.message = err_msg
+        where  t.status = 'W'
+        and    t.acccode = rec.acccode;
+        commit;
+        pResult := 0;
+        pMessage := err_msg;
+    end;
+  end loop;
+end pApplyPaymentByRrn;
+
+procedure pCreatePayment(pRrn              in varchar2,
+                          pCardAccount     in varchar2,
+                          pContractNo      in varchar2,
+                          pTransactionDate in date,
+                          pAmount          in number,
+                          pResult          out number,
+                          pMessage         out varchar2)
+is
+begin
+  pResult := 1;
+  pMessage := '';
+  insert into temp_trans_data(uniquenum,
+                              amount,
+                              acccode,
+                              message,
+                              contract_no,
+                              transaction_date)
+  values(pRrn,
+         pAmount,
+         pCardAccount,
+         null,
+         pContractNo,
+         pTransactionDate);
+  pApplyPaymentByRrn(pRrn, pResult, pMessage);
+  commit;
+exception
+  when others then
+    rollback;
+    pResult := 0;
+    pMessage := SQLERRM;
+end pCreatePayment;
+
+procedure pCreatePayment2(pRrn             in varchar2,
+                          pCardAccount     in varchar2,
+                          pFromAccount     in varchar2,
+                          pContractNo      in varchar2,
+                          pTransactionDate in date,
+                          pAmount          in number,
+                          pResult          out number,
+                          pMessage         out varchar2)
+is
+  rTransData temp_trans_data%rowtype;
+begin
+  pResult := 1;
+  pMessage := '';
+  if pCardAccount is null or pFromAccount is null then
+    pResult := 0;
+    pMessage := 'Card account or from account is null';
+    return;
+  end if;
+  begin
+    select t.*
+    into   rTransData
+    from   temp_trans_data t
+    where  t.uniquenum = pRrn;
+    if rTransData.Status = 'W' then
+      pResult := 0;
+      pMessage := 'Transaction in progress';
+    elsif rTransData.Status = 'S' then
+      pResult := 1;
+      pMessage := 'Transaction already finished';
+    elsif rTransData.Status = 'E' then
+      if rTransData.Amount = pAmount and rTransData.Acccode = pCardAccount and rTransData.Contract_No = pContractNo and rTransData.Transaction_Date = pTransactionDate then
+        update temp_trans_data t
+        set    t.status = 'W'
+        where  t.uniquenum = pRrn;
+        pApplyPaymentByRrn(pRrn, pResult, pMessage);
+        commit;
+      else
+        pResult := 1;
+        pMessage := 'Data is different';
+      end if;
+    end if;
+    return;
+  exception
+    when no_data_found then
+      null;
+  end;
+  insert into temp_trans_data(uniquenum,
+                              amount,
+                              acccode,
+                              acccode_from,
+                              message,
+                              contract_no,
+                              transaction_date)
+  values(pRrn,
+         pAmount,
+         pCardAccount,
+         pFromAccount,
+         null,
+         pContractNo,
+         pTransactionDate);
+  pApplyPaymentByRrn(pRrn, pResult, pMessage);
+  commit;
+exception
+  when others then
+    rollback;
+    pResult := 0;
+    pMessage := SQLERRM;
+end pCreatePayment2;
+
+procedure pUztelecomBalanceTransfer
+is
+  --------------------------------------------------
+  procedure createSordPay(vKsoCode     varchar2,
+                          vChaCode     varchar2,
+                          vFromAccCode varchar2,
+                          vToAccCode   varchar2,
+                          vKnp         varchar2,
+                          vTxtDscr     varchar2) is
+    id       float := null;
+    vRnnCr   varchar2(200);
+    err_msg  varchar2(200);
+    SCLIRNN  VARCHAR2(200);
+    SCLINAME VARCHAR2(200);
+    vCliname varchar2(250);
+    nAmount  number;
+    nDepId   number;
+    nAccId   number;
+    --------------------------------------------------
+    procedure getData(vAccCode  in varchar2,
+                      depId     in out varchar2,
+                      vSksoCode in varchar2,
+                      accid     out number,
+                      srnn      out varchar2,
+                      cliname   out varchar2) is
+      SERRMSG      VARCHAR2(100);
+      SACCNAME     VARCHAR2(100);
+      SBAL         VARCHAR2(100);
+      SCOD         VARCHAR2(100);
+      SCOD_NAME    VARCHAR2(100);
+      STXTHEAD     VARCHAR2(100);
+      STXTBUCH     VARCHAR2(100);
+      NCLIDEPID    INTEGER;
+      NCLIID       INTEGER;
+      NCLIJURFL    INTEGER;
+      SVAL_CODE    VARCHAR2(100);
+      SACCVALCODE  VARCHAR2(100);
+      SVALNAME     VARCHAR2(100);
+      NDECPART     INTEGER;
+      NACC_ID      INTEGER;
+      NCLIPBOYULFL INTEGER;
+      id           number;
+      sAccCode     varchar2(100) := trim(vAccCode);
+    begin
+      id := S_BSPAY.PCHKACCCLI(NDEP_ID      => depId,
+
+                               SBNK_CODE    => '00401',
+                               SACC_CODE    => sAccCode,
+                               SKSO_CODE    => vSksoCode,
+                               DDVAL        => p_operday,
+                               SERRMSG      => SERRMSG,
+                               SCLIRNN      => srnn,
+                               SCLINAME     => cliname,
+                               SACCNAME     => SACCNAME,
+                               SBAL         => SBAL,
+                               SCOD         => SCOD,
+                               SCOD_NAME    => SCOD_NAME,
+                               STXTHEAD     => STXTHEAD,
+                               STXTBUCH     => STXTBUCH,
+                               NCLIDEPID    => NCLIDEPID,
+                               NCLIID       => NCLIID,
+                               NCLIJURFL    => NCLIJURFL,
+                               SVAL_CODE    => SVAL_CODE,
+                               IZO          => 0,
+                               SACCVALCODE  => SACCVALCODE,
+                               SVALNAME     => SVALNAME,
+                               NDECPART     => NDECPART,
+                               NACC_ID      => NACC_ID,
+                               NCLIPBOYULFL => NCLIPBOYULFL);
+    end;
+
+    --------------------------------------------------
+    function getBal(vAccCode varchar2) return number is
+      result number;
+    begin
+      select T_PkgAccBal.fAddPln(A.DEP_ID, A.ID)
+        into result
+        from G_ACCBLN a
+       where a.code = trim(vAccCode);
+
+      return - result;
+    end;
+  begin
+    nAmount := getBal(vFromAccCode);
+
+    if nAmount > 0 then
+      getData(vAccCode  => vFromAccCode,
+              depId     => nDepId,
+              vSksoCode => vKsoCode,
+              accId     => nAccId,
+              srnn      => SCLIRNN,
+              cliname   => SCLINAME);
+      getData(vAccCode  => vToAccCode,
+              depId     => nDepId,
+              vSksoCode => vKsoCode,
+              accId     => nAccId,
+              srnn      => vRnnCr,
+              cliname   => vCliname);
+
+      id := null;
+      -- Test statements here
+      s_bspay.PSAVE(NDEP_ID   => nDepId,
+                    NID       => id,
+                    SKSO_CODE => vKsoCode,
+                    SCHA_CODE => vChaCode,
+                    SAMOUNT   => nAmount,
+                    SVAL_CODE => 'UZS', -- TODO
+                    DDORD     => p_operday,
+                    DDVAL     => p_operday,
+                    SCODE_ACL => trim(vFromAccCode),
+                    SCODE_BCR => '00401',
+                    SCODE_ACR => trim(vToAccCode),
+                    SRNN_CR   => vRnnCr,
+                    SCODE_BC  => null,
+                    STXT_HEAD => '',
+                    STXT_BUCH => '',
+                    STXT_DSCR => vTxtDscr,
+                    STXT_BEN  => vCliname,
+                    NNOCMSFL  => 0,
+                    SKNP      => vKnp,
+                    SCODE_OD  => '',
+                    SCODE_BE  => '',
+                    SPRIM     => '',
+                    SCODE     => null,
+                    NFLZO     => '0',
+                    SLIMFL    => 0,
+                    SRNNCLI   => SCLIRNN,
+                    STXTPAY   => SCLINAME);
+
+      S_PKGDEALOC.pSAVE(idDep     => nDepId,
+                        iID       => id,
+                        sADD_TIME => to_char(sysdate, 'HH24:MI:SS'));
+      S_PKGORDPAY.PSAVE(NDEP_ID => nDepId, NID => id, NBAT_ID => null);
+
+      -- ќплатить
+      T_PkgRunOprUtl.pRunOprByMainOrd(nDepId, id, 'PAY');
+    end if;
+
+    update Z_116_UZTELECOM_ACC_TRANSFER
+    set    last_amount = nAmount,
+           last_date = sysdate,
+           status = 'S',
+           message = null
+    where  from_acc_code = vFromAccCode
+    and    to_acc_code = vToAccCode;
+
+    commit;
+
+  exception
+    when others then
+      rollback;
+      err_msg := SUBSTR(SQLERRM, 1, 400);
+      update Z_116_UZTELECOM_ACC_TRANSFER t
+      set    t.status = 'E', t.message = err_msg
+      where  from_acc_code = vFromAccCode
+      and    to_acc_code = vToAccCode;
+      commit;
+  end;
+begin
+  c_pkgconnect.pOpen();
+  for rec in (select * from Z_116_UZTELECOM_ACC_TRANSFER where active = 1)
+  loop
+    createSordPay(vKsoCode     => trim(rec.skso_code),
+                  vChaCode     => trim(rec.scha_code),
+                  vFromAccCode => rec.from_acc_code,
+                  vToAccCode   => rec.to_acc_code,
+                  vKnp         => trim(rec.sknp),
+                  vTxtDscr     => rec.stxt_dscr);
+  end loop;
+end;
+
+end Z_116_PKG_AUTOPAYMENT_UTILS;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="S_BSPAY"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="D_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="S_DEAACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="TEMP_TRANS_DATA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_UZTELECOM_ACC_TRANSFER"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="S_PKGDEALOC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="S_PKGORDPAY"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCBAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGRUNOPRUTL"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

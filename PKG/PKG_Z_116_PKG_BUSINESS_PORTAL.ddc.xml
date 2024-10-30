@@ -1,0 +1,1566 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_BUSINESS_PORTAL" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="437AF8E4B5EB0FD93ADF6B0B94247EEC">
+  <PKG 
+    NAME="Z_116_PKG_BUSINESS_PORTAL">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_BUSINESS_PORTAL is
+  /**
+  * Пакет Business Portal
+  *
+  * @author Farziddin Nasriddinov
+  * @author Siroj Samadov
+  * @version 1.1
+  *
+  * Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+  **********************************************************************/
+  procedure pGetCli(pInput  in Clob,
+                    pOutput out Clob);
+  procedure pSaveApplications(pInput  in Clob,
+                              pOutput out Clob);
+  procedure pSaveDocuments(pInput  in Clob,
+                           pOutput out Clob);
+  procedure pSavePledges(pInput  in Clob,
+                         pOutput out Clob);
+  procedure pSaveLoan(pInput  in Clob,
+                      pOutput out Clob);
+  procedure pLastUpdateId(pInput  in Clob,
+                          pOutput out Clob);
+  -- Не завершенные заявки
+  procedure pGetNotFinishedApplications(pInput  in Clob,
+                                        pOutput out Clob);
+  procedure pApplicationList(pInput  in Clob,
+                             pOutput out Clob);
+  procedure pGetApplication(pInput  in Clob,
+                            pOutput out Clob);
+  procedure pLoanInfo(pInput  in clob,
+                      pOutput out clob);
+  procedure pPayDocsInfo(pInput  in clob,
+                         pOutput out clob);
+  procedure pSetCbsData(pInput  in clob,
+                        pOutput out clob);
+end Z_116_PKG_BUSINESS_PORTAL;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_BUSINESS_PORTAL is
+  gInputObj  JSON_OBJECT_T;
+  gOutputObj JSON_OBJECT_T;
+
+  --------------------------------------------------------------------------------
+  -- Инициализация входных и выходных параметров
+  procedure pInit(pInput clob) is
+  begin
+    gInputObj  := JSON_OBJECT_T.parse(pInput);
+    gOutputObj := new JSON_OBJECT_T();
+  end;
+
+  --------------------------------------------------------------------------------
+  -- Сохранение заявки из БРБ
+  function fSaveOriginalApp(mInput json_object_t)
+    return z_116_brb_all_apps%rowtype is
+    pragma autonomous_transaction;
+    result z_116_brb_all_apps%rowtype;
+    nId    number := mInput.get_number('id');
+  begin
+    begin
+      select * into result from z_116_brb_all_apps where id = nId;
+    exception
+      when no_data_found then
+        result.id           := nId;
+        result.created_date := sysdate;
+        nId                 := null;
+    end;
+
+    result.update_id   := mInput.get_number('update_id');
+    result.update_date := to_date(mInput.get_String('update_date'),
+                                  'dd.mm.yyyy');
+    result.client_id   := mInput.get_String('client_id');
+    result.doc_status  := mInput.get_String('doc_status');
+    result.json        := mInput.To_Clob;
+
+    begin
+      select '1'
+        into result.client_exists
+        from (select t.dep_id, t.id
+                from (select dep_id, id
+                        from G_CLIIDN
+                       where idn_num = result.client_id
+                         and idn_id in (select id
+                                          from G_IDNDSC_STD
+                                         where code = 'IDN_PRS_UZ')
+                         and p_operday between fromdate and todate
+                      union
+                      select dep_id, id
+                        from g_clihst
+                       where taxcode = result.client_id
+                         and p_operday between fromdate and todate) t,
+                     g_cli g
+               where g.dep_id = t.dep_id
+                 and g.id = t.id
+                 and g.typefl <> '1'
+               order by nullif(G_PKGCLIROLE.fGetCliMinStatus(g.DEP_ID, g.ID),
+                               '1') nulls first)
+       where rownum = 1;
+    exception
+      when no_data_found then
+        result.client_exists := '0';
+    end;
+
+    if nId is null then
+      insert into z_116_brb_all_apps values result;
+    else
+      update z_116_brb_all_apps set row = result where id = result.id;
+    end if;
+
+    commit;
+
+    return result;
+  end;
+
+  --------------------------------------------------------------------------------
+  -- Получение данных заемщика
+  procedure pGetCli(pInput  in Clob,
+                    pOutput out Clob) is
+    vNibbdCode       varchar2(250);
+    vPinfl           varchar2(250);
+    vInn             varchar2(250);
+    vBranchId        varchar2(250);
+    vMfo             varchar2(250);
+    vAccount         varchar2(250);
+    vAccountType     varchar2(250);
+    vAccountStatus   varchar2(250);
+    nTurnoverDb20208 varchar2(250);
+    nTurnoverCr20208 varchar2(250);
+    nTurnoverDb20218 varchar2(250);
+    nTurnoverCr20218 varchar2(250);
+    nTurnoverDb20212 varchar2(250);
+    nTurnoverCr20212 varchar2(250);
+    nSaldo90963      varchar2(250);
+    nDepId           number;
+    nId              number;
+    nObDt            number;
+    nObKt            number;
+  begin
+    pInit(pInput);
+
+    vNibbdCode := gInputObj.get_String('nibbdcode');
+    vPinfl     := gInputObj.get_String('pinfl');
+    vInn       := gInputObj.get_String('inn');
+
+    c_pkgconnect.popen();
+
+    begin
+      select dep_id, id
+        into nDepId, nId
+        from (select t.dep_id, t.id
+                from (select dep_id, id
+                        from G_CLIIDN
+                       where idn_num = vNibbdCode
+                         and idn_id in
+                             (select id
+                                from G_IDNDSC_STD
+                               where code like 'IDN_NIBBD%')
+                         and p_operday between fromdate and todate
+                      union
+                      select dep_id, id
+                        from G_CLIIDN
+                       where idn_num = vPinfl
+                         and idn_id in (select id
+                                          from G_IDNDSC_STD
+                                         where code = 'IDN_PRS_UZ')
+                         and p_operday between fromdate and todate
+                      union
+                      select dep_id, id
+                        from g_clihst
+                       where taxcode = vInn
+                         and p_operday between fromdate and todate) t,
+                     g_cli g
+               where g.dep_id = t.dep_id
+                 and g.id = t.id
+                 and g.typefl <> '1'
+               order by nullif(G_PKGCLIROLE.fGetCliMinStatus(g.DEP_ID, g.ID),
+                               '1') nulls first)
+       where rownum = 1;
+
+      if nId is not null then
+        select '00401' as mfo,
+               nvl(a.CODE_ACC,
+                   DECODE(a.MT202FL, '1', a.MID_CORR, a.BENACC_CODE)) as "account",
+               GL_Anl.fAccAnlValue(acc.dep_id, acc.id, 'DEPARTMENT') as branch_id,
+               1 as account_type, -- TODO
+               decode(st.code, 'OPENED', 0, 2) as account_status,
+               (case
+                 when T_ACC.CNTRZOFL = '0' then
+                  nvl(T_PKGACCMOV.FGETMOVACC(acc.dep_id,
+                                             acc.id,
+                                             add_months(p_operday, -24),
+                                             p_operday,
+                                             nvl(a.val_id, P_NATVAL),
+                                             0,
+                                             0,
+                                             0,
+                                             0),
+                      0) + --
+                  nvl(T_PKGACCMOV.FGETMOVACC(acc.dep_id,
+                                             acc.id,
+                                             add_months(p_operday, -24),
+                                             p_operday,
+                                             nvl(a.val_id, P_NATVAL),
+                                             0,
+                                             0,
+                                             0,
+                                             1),
+                      0) + --
+                  nvl(T_PKGACCMOV.FGETMOVACC(acc.dep_id,
+                                             acc.id,
+                                             add_months(p_operday, -24),
+                                             p_operday,
+                                             nvl(a.val_id, P_NATVAL),
+                                             1,
+                                             0,
+                                             0,
+                                             0),
+                      0) + --
+                  nvl(T_PKGACCMOV.FGETMOVACC(acc.dep_id,
+                                             acc.id,
+                                             add_months(p_operday, -24),
+                                             p_operday,
+                                             nvl(a.val_id, P_NATVAL),
+                                             1,
+                                             0,
+                                             0,
+                                             1),
+                      0)
+                 else
+                  nvl(T_PKGACCMOV.FGETMOVACC(acc.dep_id,
+                                             acc.id,
+                                             add_months(p_operday, -24),
+                                             p_operday,
+                                             nvl(a.val_id, P_NATVAL),
+                                             0,
+                                             0,
+                                             0,
+                                             0),
+                      0) + --
+                  nvl(T_PKGACCMOV.FGETMOVACC(acc.dep_id,
+                                             acc.id,
+                                             add_months(p_operday, -24),
+                                             p_operday,
+                                             nvl(a.val_id, P_NATVAL),
+                                             0,
+                                             0,
+                                             0,
+                                             1),
+                      0)
+               end) * 100 as OB_DT,
+               (case
+                 when T_ACC.CNTRZOFL = '0' then
+                  nvl(T_PKGACCMOV.FGETMOVACC(acc.dep_id,
+                                             acc.id,
+                                             add_months(p_operday, -24),
+                                             p_operday,
+                                             nvl(a.val_id, P_NATVAL),
+                                             0,
+                                             1,
+                                             0,
+                                             0),
+                      0) +
+                  nvl(T_PKGACCMOV.FGETMOVACC(acc.dep_id,
+                                             acc.id,
+                                             add_months(p_operday, -24),
+                                             p_operday,
+                                             nvl(a.val_id, P_NATVAL),
+                                             0,
+                                             1,
+                                             0,
+                                             1),
+                      0) +
+                  nvl(T_PKGACCMOV.FGETMOVACC(acc.dep_id,
+                                             acc.id,
+                                             add_months(p_operday, -24),
+                                             p_operday,
+                                             nvl(a.val_id, P_NATVAL),
+                                             1,
+                                             1,
+                                             0,
+                                             0),
+                      0) +
+                  nvl(T_PKGACCMOV.FGETMOVACC(acc.dep_id,
+                                             acc.id,
+                                             add_months(p_operday, -24),
+                                             p_operday,
+                                             nvl(a.val_id, P_NATVAL),
+                                             1,
+                                             1,
+                                             0,
+                                             1),
+                      0)
+                 else
+                  nvl(T_PKGACCMOV.FGETMOVACC(acc.dep_id,
+                                             acc.id,
+                                             add_months(p_operday, -24),
+                                             p_operday,
+                                             nvl(a.val_id, P_NATVAL),
+                                             0,
+                                             1,
+                                             0,
+                                             0),
+                      0) +
+                  nvl(T_PKGACCMOV.FGETMOVACC(acc.dep_id,
+                                             acc.id,
+                                             add_months(p_operday, -24),
+                                             p_operday,
+                                             nvl(a.val_id, P_NATVAL),
+                                             0,
+                                             1,
+                                             0,
+                                             1),
+                      0)
+               end) * 100 as OB_KT,
+               (select sum(T_PkgAccBal.fAccBal(a.dep_id, a.id)) * 100
+                  from G_ACCBLNHST AH, G_ACCBLN A
+                 where A.ID = AH.ID
+                   and A.DEP_ID = AH.DEP_ID
+                   and P_OPERDAY between AH.FROMDATE and AH.TODATE
+                   and (AH.DEP_ID, AH.ID) = any
+                 (select DEP_ID, ID
+                          from G_ACCBLNHST
+                         where CLIDEP_ID = nDepId
+                           and CLI_ID = nId
+                           and P_OPERDAY between FROMDATE and TODATE
+                        union
+                        select DEP_ID, ACC_ID
+                          from LEDACC_DET
+                         where SGN_ID in
+                               (select * from TABLE(GL_ACC.FCLIANLLST))
+                           and PK1 = to_char(nDepId)
+                           and PK2 = to_char(nId)
+                        union
+                        select m.DEP_ID, m.ID
+                          from G_ACCMANGR m, G_CLIAUTHPRS p
+                         where p.PRSDEP_ID = nDepId
+                           and p.PRS_ID = nId
+                           and m.MNGR_DEP_ID = p.DEP_ID
+                           and m.MNGR_ID = p.ID
+                           and m.NORD = p.NORD
+                           and p.NSIGN = C_SIGN_OWNER)
+                   and substr(a.code, 1, 5) = '90963') sold_90963
+          into vMfo,
+               vAccount,
+               vBranchId,
+               vAccountType,
+               vAccountStatus,
+               nObDt,
+               nObKt,
+               nSaldo90963
+          from g_clibnkatr a,
+               g_accbln    acc,
+               t_acc,
+               t_procmem   pm,
+               t_process   pr,
+               t_bop_stat  st
+         where a.DEP_ID = nDepId
+           and a.ID = nId
+           and acc.code = a.code_acc
+           and t_acc.dep_id = acc.dep_id
+           and t_acc.id = acc.id
+           and pm.ord_id = acc.ord_id
+           and pm.dep_id = acc.dep_id
+           and pr.id = pm.id
+           and st.id = pr.bop_id
+           and st.nord = pr.nstat
+           and pm.mainfl = '1'
+           and not exists (select 1
+                  from G_DBLJRN J, G_DBLJRNDTL JA
+                 where JA.NORD = a.nord
+                   and JA.JRN_ID = J.ID
+                   and JA.DEP_ID = a.DEP_ID
+                   and JA.ID = a.ID
+                   and JA.CODE like 'G_CLIBNKATRDBL%'
+                   and J.STATE in ('10', '20')
+                   and J.Oper_Usid = p_IDUS)
+         order by a.nord
+         fetch first 1 row only;
+
+        if substr(vAccount, 1, 5) = '20208' then
+          nTurnoverDb20208 := nObDt;
+          nTurnoverCr20208 := nObKt;
+        elsif substr(vAccount, 1, 5) = '20218' then
+          nTurnoverDb20218 := nObDt;
+          nTurnoverCr20218 := nObKt;
+        else
+          nTurnoverDb20212 := nObDt;
+          nTurnoverCr20212 := nObKt;
+        end if;
+      end if;
+
+    exception
+      when others then
+        null;
+    end;
+
+    gOutputObj.put('branch_id', vBranchId);
+    gOutputObj.put('mfo', vMfo);
+    gOutputObj.put('account', vAccount);
+    gOutputObj.put('account_type', vAccountType);
+    gOutputObj.put('account_status', vAccountStatus);
+    gOutputObj.put('turnover_db_20208', nvl(nTurnoverDb20208, 0));
+    gOutputObj.put('turnover_cr_20208', nvl(nTurnoverCr20208, 0));
+    gOutputObj.put('turnover_db_20218', nvl(nTurnoverDb20218, 0));
+    gOutputObj.put('turnover_cr_20218', nvl(nTurnoverCr20218, 0));
+    gOutputObj.put('turnover_db_20212', nvl(nTurnoverDb20212, 0));
+    gOutputObj.put('turnover_cr_20212', nvl(nTurnoverCr20212, 0));
+    gOutputObj.put('saldo_90963', nvl(nSaldo90963, 0));
+
+    pOutput := gOutputObj.To_Clob;
+  end;
+
+  --------------------------------------------------------------------------------
+  --
+  function fMakeApplicationJson(nCliDepId number,
+                                nCliId    number,
+                                mInput    json_object_t) return json_object_t is
+    mJson    json_object_t := new json_object_t;
+    mApp     json_object_t;
+    mClient  json_object_t;
+    sAppId   varchar2(50);
+    sAppCode varchar2(50);
+  begin
+    z_116_eloan_application.pGenerateApplicationId(sAppId);
+    z_116_eloan_application.pGenerateApplicationCode(sAppCode);
+
+    mApp := new json_object_t;
+    mApp.put('productCode', '');
+    mApp.put('appId', sAppId);
+    mApp.put('code', sAppCode);
+    mApp.put('amount', mInput.get_Number('credit_sum'));
+    mApp.put('duration', mInput.get_Number('credit_term'));
+    mApp.put('interest', mInput.get_Number('credit_percent'));
+    mApp.put('registrationDate',
+             to_char(to_date(mInput.get_string('doc_date'), 'dd.mm.yyyy'),
+                     'yyyy-mm-dd'));
+    mJson.put('app', mApp);
+
+    mClient := new json_object_t;
+    mClient.put('code', g_pkgcli.fGetCliCode(nCliDepId, nCliId));
+    mJson.put('client', mClient);
+
+    mJson.put('isExternal', true);
+    mJson.put('externalData', mInput);
+
+    return mJson;
+  end;
+
+  --------------------------------------------------------------------------------
+  --
+  procedure pAddApplication(mInput json_object_t) is
+    nDepId    number;
+    nAppId    number;
+    nCliDepId number;
+    nCliId    number;
+    rOriginal z_116_brb_all_apps%rowtype;
+    sJson     clob;
+  begin
+    rOriginal := fSaveOriginalApp(mInput);
+
+    nDepId := c_pkgdep.fGetIdDep(json_value(rOriginal.Json, '$.branch_id'));
+    nAppId := rOriginal.Id;
+
+    sJson := rOriginal.Json;
+
+    if rOriginal.doc_status = 'ACCEPTED' and rOriginal.Client_Exists = '1' then
+      begin
+        select dep_id, id
+          into nCliDepId, nCliId
+          from (select t.dep_id, t.id
+                  from (select dep_id, id
+                          from G_CLIIDN
+                         where idn_num = rOriginal.Client_Id
+                           and idn_id in
+                               (select id
+                                  from G_IDNDSC_STD
+                                 where code = 'IDN_PRS_UZ')
+                           and p_operday between fromdate and todate
+                        union
+                        select dep_id, id
+                          from g_clihst
+                         where taxcode = rOriginal.Client_Id
+                           and p_operday between fromdate and todate) t,
+                       g_cli g
+                 where g.dep_id = t.dep_id
+                   and g.id = t.id
+                   and g.typefl <> '1'
+                 order by nullif(G_PKGCLIROLE.fGetCliMinStatus(g.DEP_ID,
+                                                               g.ID),
+                                 '1') nulls first)
+         where rownum = 1;
+
+      exception
+        when no_data_found then
+          null;
+      end;
+
+      update z_116_brb_apps
+         set update_id   = rOriginal.Update_Id,
+             update_date = rOriginal.Update_Date,
+             dep_id      = nDepId,
+             cli_dep_id  = nCliDepId,
+             cli_id      = nCliId,
+             app_json    = sJson
+       where application_id = nAppId;
+
+      if sql%notfound then
+        insert into z_116_brb_apps
+          (application_id,
+           update_id,
+           update_date,
+           dep_id,
+           cli_dep_id,
+           cli_id,
+           doc_date,
+           app_json)
+        values
+          (nAppId,
+           rOriginal.Update_Id,
+           rOriginal.Update_Date,
+           nDepId,
+           nCliDepId,
+           nCliId,
+           rOriginal.Created_Date,
+           sJson);
+      end if;
+    else
+      delete z_116_brb_apps t where t.application_id = rOriginal.Id;
+    end if;
+  end;
+
+  --------------------------------------------------------------------------------
+  -- Сохранение новых заявок
+  procedure pSaveApplications(pInput  in Clob,
+                              pOutput out Clob) is
+    aApps json_array_t;
+  begin
+    c_pkgconnect.popen();
+    pInit(pInput);
+
+    aApps := gInputObj.get_Array('apps');
+
+    for i in 0 .. aApps.Get_Size() - 1
+    loop
+      pAddApplication(treat(aApps.get(i) as json_object_t));
+    end loop;
+
+    gOutputObj.put('success', true);
+    pOutput := gOutputObj.To_Clob;
+  end;
+
+  --------------------------------------------------------------------------------
+  -- Сохранение документов
+  procedure pSaveDocuments(pInput  in Clob,
+                           pOutput out Clob) is
+    nAppId number;
+    aFiles json_array_t;
+    mFile  json_object_t;
+    sType  varchar2(255);
+    sName  varchar2(255);
+    sFile  clob;
+  begin
+    pInit(pInput);
+
+    nAppId := gInputObj.get_Number('application_id');
+    aFiles := gInputObj.get_Array('files');
+
+    for i in 0 .. aFiles.Get_Size - 1
+    loop
+      mFile := treat(aFiles.get(i) as json_object_t);
+      sType := mFile.get_String('doc_type');
+      sName := mFile.get_String('doc_name');
+      sFile := mFile.get_Clob('doc_file');
+
+      begin
+        insert into z_116_brb_documents
+          (application_id, doc_type, doc_name, doc_file)
+        values
+          (nAppId, sType, sName, sFile);
+      exception
+        when dup_val_on_index then
+          null;
+      end;
+    end loop;
+
+    gOutputObj.put('success', true);
+    pOutput := gOutputObj.To_Clob;
+  end;
+
+  --------------------------------------------------------------------------------
+  -- Сохранение обеспечений
+  procedure pSavePledges(pInput  in Clob,
+                         pOutput out Clob) is
+    nAppId  number;
+    sPledge clob;
+  begin
+    pInit(pInput);
+
+    nAppId  := gInputObj.get_Number('application_id');
+    sPledge := gInputObj.get_Array('pledges').To_Clob;
+
+    update z_116_brb_apps t
+       set t.pledge_json = sPledge
+     where t.application_id = nAppId;
+
+    gOutputObj.put('success', true);
+    pOutput := gOutputObj.To_Clob;
+  end;
+
+  --------------------------------------------------------------------------------
+  -- Сохранение договора
+  procedure pSaveLoan(pInput  in Clob,
+                      pOutput out Clob) is
+    nAppId      number;
+    nContractId number;
+  begin
+    pInit(pInput);
+
+    nAppId      := gInputObj.get_number('application_id');
+    nContractId := gInputObj.get_Number('id');
+
+    if nContractId is not null then
+      update z_116_brb_apps t
+         set t.contract_id = nContractId,
+             t.loan_json   = pInput
+       where t.application_id = nAppId;
+    end if;
+
+    gOutputObj.put('success', true);
+    pOutput := gOutputObj.To_Clob;
+  end;
+
+  --------------------------------------------------------------------------------
+  -- Последнее значение update_id
+  procedure pLastUpdateId(pInput  in Clob,
+                          pOutput out Clob) is
+    nLastId number;
+  begin
+    pInit(pInput);
+
+    select nvl(max(t.update_id), 0) into nLastId from z_116_brb_all_apps t;
+
+    pOutput := to_clob(nLastId);
+  end;
+
+  --------------------------------------------------------------------------------
+  -- Не завершенные заявки
+  procedure pGetNotFinishedApplications(pInput  in Clob,
+                                        pOutput out Clob) is
+    aList json_array_t := new json_array_t;
+  begin
+    pInit(pInput);
+
+    for r in (select t.application_id
+                from z_116_brb_apps t
+               where t.contract_id is null)
+    loop
+      aList.append(r.application_id);
+    end loop;
+
+    gOutputObj.put('applications', aList);
+    pOutput := gOutputObj.To_Clob;
+  end;
+
+  --------------------------------------------------------------------------------
+  -- Получение списка заявок
+  procedure pApplicationList(pInput  in Clob,
+                             pOutput out Clob) is
+    aApps json_array_t := new json_array_t;
+    mApp  json_object_t;
+  begin
+    pInit(pInput);
+    c_pkgconnect.pOpen();
+
+    for r in (select *
+                from z_116_brb_apps t
+               where json_value(t.app_json, '$.doc_status') = 'ACCEPTED'
+                 and not exists
+               (select 1
+                        from z_116_brb_loans f
+                       where f.application_id = t.application_id))
+    loop
+      mApp := new json_object_t;
+      mApp.put('application_id', r.application_id);
+      mApp.put('dep_id', r.dep_id);
+      mApp.put('client', g_pkgcli.fGetCliLongName(r.cli_dep_id, r.cli_id));
+      aApps.append(mApp);
+    end loop;
+
+    pOutput := aApps.To_Clob;
+  end;
+
+  --------------------------------------------------------------------------------
+  -- Получение данных заявки
+  procedure pGetApplication(pInput  in Clob,
+                            pOutput out Clob) is
+    nAppId number;
+    rData  z_116_brb_apps%rowtype;
+    mFile  json_object_t;
+    aFiles json_array_t := new json_array_t;
+  begin
+    pInit(pInput);
+    c_pkgconnect.pOpen();
+
+    nAppId := gInputObj.get_Number('application_id');
+    select * into rData from z_116_brb_apps where application_id = nAppId;
+
+    gOutputObj.put('app', json_object_t.parse(rData.App_Json));
+
+    if rData.Pledge_Json is not null then
+      gOutputObj.put('pledges', json_array_t.parse(rData.Pledge_Json));
+    end if;
+
+    if rData.Loan_Json is not null then
+      gOutputObj.put('contract',
+                     json_object_t.parse(rData.Loan_Json).get_Object('contract'));
+    end if;
+
+    for f in (select *
+                from z_116_brb_documents t
+               where t.application_id = rData.application_Id)
+    loop
+      mFile := json_object_t.parse('{"doc_file":"' || f.doc_file || '"}');
+      mFile.put('doc_type', f.doc_type);
+      mFile.put('doc_name', f.doc_name);
+      aFiles.append(mFile);
+    end loop;
+
+    gOutputObj.put('files', aFiles);
+
+    pOutput := gOutputObj.To_Clob;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure pLoanInfo(pInput  in clob,
+                      pOutput out clob) is
+    jInput         json_object_t := json_object_t.parse(pInput);
+    jItem          json_object_t := json_object_t();
+    jOutput        json_object_t := json_object_t();
+    aItems         json_array_t := json_array_t();
+    nApplicationId number := jInput.get_Number('application_id');
+    nOverdue       number;
+    nNextAmount    number;
+    dOverdue       date;
+    sCreditAccount varchar2(400);
+
+    rBrb z_116_brb_apps%rowtype;
+    rDea lv_rptuzln_dea%rowtype;
+    rFj  LV_MAIN_FJ%rowtype;
+
+    --------------------------------------------------
+    function getBal(nDepId number,
+                    nId    number,
+                    vCode  varchar2) return number is
+      result number;
+    begin
+      select sum(T_PkgAccBal.fAccBal(a.dep_id, a.id) * 100)
+        into result
+        from ledacc_det ld, g_accbln a
+       where ld.sgn_id = t_asgn.fcode2id('DEA')
+         and ld.pk1 = to_char(nDepId)
+         and ld.pk2 = to_char(nId)
+         and ld.dep_id = a.dep_id
+         and ld.acc_id = a.id
+         and substr(a.code, 1, 5) = vCode;
+
+      return nvl(result, 0);
+    end;
+
+    --------------------------------------------------
+    function getAccCode(nDepId number,
+                        nId    number,
+                        vCode  varchar2) return varchar2 is
+      result varchar2(400);
+    begin
+      select a.code
+        into result
+        from ledacc_det ld, ledacc c, g_accbln a
+       where ld.sgn_id = t_asgn.fcode2id('DEA')
+         and ld.pk1 = to_char(nDepId)
+         and ld.pk2 = to_char(nId)
+         and ld.dep_id = a.dep_id
+         and ld.acc_id = a.id
+         and c.id = a.cha_id
+         and c.code = vCode
+         and rownum = 1;
+
+      return result;
+    exception
+      when no_data_found then
+        return null;
+    end;
+  begin
+    c_pkgconnect.popen();
+
+    begin
+      select *
+        into rBrb
+        from z_116_brb_apps t
+       where t.application_id = nApplicationId;
+    exception
+      when no_data_found then
+        jOutput.put('error', '0301004');
+        pOutput := jOutput.To_Clob;
+        return;
+    end;
+
+    for r in (select *
+                from z_116_brb_loans t
+               where t.application_id = rBrb.Application_Id
+                 and t.dea_id is not null)
+    loop
+      jItem := json_object_t();
+
+      select sum(decode(incomfl, 1, 1, -1) * 100 * sdok) sdok,
+             max(decode(incomfl, 1, doper)) doper
+        into nOverdue, dOverdue
+        from ANLACC_DET d, T_ACC a, T_TRNDTL t
+       where d.DEP_ID = a.DEP_ID
+         and d.ID = a.ID
+         and d.SIGN_ID = T_ASGN.fCode2Id('DEA')
+         and d.cha_id = (select id from T_ANCHART where code = 'CR_EXP_PD')
+         and (d.PK1, d.PK2) in (select to_char(r.dep_id), to_char(r.dea_id)
+                                  from dual
+                                union all
+                                select to_char(DEA_DEP_ID), to_char(DEA_ID)
+                                  from T_DEASRV
+                                 where DEP_ID = r.dep_id
+                                   and ID = r.dea_id)
+         and t.dep_id = a.dep_id
+         and t.acc_id = a.id;
+
+      select *
+        into rDea
+        from lv_rptuzln_dea
+       where dep_id = r.Dep_Id
+         and id = r.Dea_Id
+         and rownum = 1;
+
+      select *
+        into rFj
+        from LV_MAIN_FJ
+       where dep_id = r.Dep_Id
+         and id = r.Dea_Id;
+
+      jItem.put('mfo', '00401');
+      jItem.put('claim_id', r.App_Id);
+      jItem.put('region_id', json_value(rBrb.app_json, '$.region_code'));
+      jItem.put('district_id',
+                json_value(rBrb.app_json, '$.district_code'));
+      jItem.put('client_type',
+                case g_pkgcli.fgetTypeFl(rBrb.cli_dep_id, rBrb.cli_id) when '0' then
+                'LEGAL' else 'INDIVIDUAL' end);
+      jItem.put('client_name', rFj.CLI_NAME);
+
+      sCreditAccount := getAccCode(r.dep_id, r.dea_id, '29801-001');
+
+      if sCreditAccount is null then
+        begin
+          select REGEXP_SUBSTR(T_PkgPayAtr.fGetPayTypName(o.DEP_ID,
+                                                          o.ord_ID,
+                                                          o.pay_nord),
+                               '[0-9]{20}')
+            into sCreditAccount
+            from T_ARLDEA o, T_ARLCLC c, T_ARLDSC a
+           where o.DEP_ID = r.dep_id
+             and o.ord_ID = r.dea_id
+             and o.CLC_ID = c.ID
+             and c.ARL_ID = a.ID
+             and a.NOPAYFL = '0'
+             and a.code = 'CR_PD';
+        exception
+          when no_data_found then
+            sCreditAccount := null;
+        end;
+      end if;
+
+      jItem.put('credit_account', sCreditAccount);
+
+      jItem.put('overdue_debt_account',
+                getAccCode(r.dep_id, r.dea_id, '16309-POD'));
+      jItem.put('debt_sum',
+                nvl(t_PkgArlRun.fDeaAccBal(r.dep_id, r.dea_id, 'CR_BAL') * 100,
+                    0));
+      jItem.put('overdue_debt_sum', nvl(nOverdue, 0));
+
+      if nOverdue > 0 then
+        jItem.put('overdue_debt_date', to_char(dOverdue, 'dd.mm.yyyy'));
+        jItem.put('overdue_debt_day', trunc(sysdate) - dOverdue);
+      end if;
+
+      select sum(s.amount * 100)
+        into nNextAmount
+        from t_deashdpnt s, t_arlclc c, t_arldsc d
+       where s.clc_id = c.id
+         and c.arl_id = d.id
+         and s.dep_id = r.Dep_Id
+         and s.ord_id = r.Dea_Id
+         and d.code in ('CR_PD', 'CR_INTER')
+         and trunc(s.doper, 'month') = trunc(last_day(sysdate) + 1);
+
+      jItem.put('branch_id', rDea.DEPCODE);
+      jItem.put('id',
+                t_Pkgdeaprm.Fdeaparbycode(rDea.Id,
+                                          rDea.Dep_Id,
+                                          'L_UZ_UNIQNUM'));
+
+      -- state
+      if r.declined = '1' then
+        jItem.put('state', '-1');
+      elsif rFj.STATNAME in ('Погашен',
+                             'Закрытие счетов',
+                             'Завершение') then
+        jItem.put('state', 8);
+      elsif rFj.STATNAME in ('Графики рассчитаны',
+                             'Зарегистрирован') then
+        jItem.put('state', 0);
+      elsif rFj.STATNAME in ('Открытие счетов',
+                             'Подготовлен к актуализации') then
+        jItem.put('state', -3);
+      elsif rFj.STATNAME in ('Введен') then
+        jItem.put('state', -2);
+      elsif rFj.STATNAME in
+            ('Списан', 'Списан ОД', 'Списан ОД и %%') then
+        jItem.put('state', 7);
+      elsif rFj.STATNAME in ('Передан в суд',
+                             'Погашен по решению суда') then
+        jItem.put('state', 99);
+      elsif rFj.STATNAME in ('Актуален') then
+        jItem.put('state', 1);
+      else
+        jItem.put('state', 0); -- default
+      end if;
+
+      jItem.put('change_date', to_char(sysdate, 'dd.mm.yyyy'));
+      jItem.put('client_id', nvl(rDea.PINFL, rDea.CLIRNN));
+      jItem.put('credit_num', rDea.CODE);
+      jItem.put('credit_date', to_char(rFj.DORD, 'dd.mm.yyyy'));
+      jItem.put('credit_term_date', to_char(rFj.FROMDATE, 'dd.mm.yyyy'));
+      jItem.put('credit_sum',
+                nvl(to_number(replace(rDea.SDOK, ' ')) * 100, 0));
+      jItem.put('credit_percent', rDea.PCN);
+      jItem.put('credit_purpose_name', rDea.PURP_LINE);
+      jItem.put('first_pay_date', to_char(rFj.FROMDATE, 'dd.mm.yyyy'));
+      jItem.put('last_pay_date', to_char(rFj.TODATE, 'dd.mm.yyyy'));
+      jItem.put('total_pay_sum',
+                nvl(t_PkgArlRun.fDeaAccBal(r.dep_id, r.dea_id, 'CR_AMT') * 100,
+                    0));
+      jItem.put('next_month_pay_sum', nvl(nNextAmount, 0));
+      jItem.put('account_16309_sum', getBal(r.dep_id, r.dea_id, '16309'));
+      jItem.put('account_16323_sum', getBal(r.dep_id, r.dea_id, '16323'));
+      jItem.put('account_16377_sum', getBal(r.dep_id, r.dea_id, '16377'));
+      jItem.put('account_16379_sum', getBal(r.dep_id, r.dea_id, '16379'));
+      jItem.put('account_16405_sum', getBal(r.dep_id, r.dea_id, '16405'));
+      jItem.put('account_16413_sum', getBal(r.dep_id, r.dea_id, '16413'));
+
+      aItems.append(jItem);
+    end loop;
+
+    if aItems.Get_Size = 0 then
+      jOutput.put('error', '0107001');
+      pOutput := jOutput.To_Clob;
+    else
+      jOutput.put('details', aItems);
+      pOutput := jOutput.To_Clob;
+    end if;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure pPayDocsInfo(pInput  in clob,
+                         pOutput out clob) is
+    jInput   json_object_t := json_object_t.parse(pInput);
+    nLoanId  number := jInput.get_Number('loan_id');
+    dGetDate date := to_date(jInput.get_String('date'), 'DD.MM.YYYY');
+    jItem    json_object_t;
+    jItems   json_array_t := json_array_t();
+    jOutput  json_object_t := json_object_t();
+
+    rBrb  z_116_brb_apps%rowtype;
+    rLoan z_116_brb_loans%rowtype;
+  begin
+    begin
+      select *
+        into rLoan
+        from z_116_brb_loans t
+       where t_Pkgdeaprm.Fdeaparbycode(t.dea_Id, t.Dep_Id, 'L_UZ_UNIQNUM') =
+             nLoanId;
+
+      select *
+        into rBrb
+        from z_116_brb_apps t
+       where t.application_id = rLoan.Application_Id;
+    exception
+      when no_data_found then
+        jOutput.put('error', '0301004');
+        pOutput := jOutput.To_Clob;
+
+        return;
+    end;
+
+    if rLoan.Declined = '1' then
+      jOutput.put('error', '0107002');
+      pOutput := jOutput.To_Clob;
+
+      return;
+    end if;
+
+    for r in (with acc as
+                 (select a.dep_id, a.id
+                   from ledacc_det ld, ledacc c, g_accbln a
+                  where ld.sgn_id = t_asgn.fcode2id('DEA')
+                    and ld.pk1 = to_char(rLoan.Dep_Id)
+                    and ld.pk2 = to_char(rLoan.Dea_Id)
+                    and ld.dep_id = a.dep_id
+                    and ld.acc_id = a.id
+                    and c.id = a.cha_id
+                    and c.code = '29801-001'
+                    and rownum = 1),
+                ords as
+                 (select distinct nvl(J.ORD_ID,
+                                     (Select ORD_ID
+                                        from T_OPERJRN
+                                       where T_OPERJRN.id = OPERM.ID
+                                         and T_OPERJRN.NJRN = OPERM.NJRN)) as ID,
+                                 nvl(J.DEP_ID,
+                                     (Select DEP_ID
+                                        from T_OPERJRN
+                                       where T_OPERJRN.id = OPERM.ID
+                                         and T_OPERJRN.NJRN = OPERM.NJRN)) as DEP_ID,
+                                 j.tra_id
+                   from (select nvl(DT.ID, KT.ID) as ID,
+                                decode(T.INCOMFL, '0', KT.SDOK) as KT_SDOK,
+                                (Select TRA_ID
+                                   from T_OPERMOV
+                                  where TRA_ID = nvl(DT.ID, KT.ID)
+                                  group by TRA_ID
+                                 having count(*) = 1) as CONS_ID
+                           from T_TRNDTL DT,
+                                T_TRNDTL KT,
+                                (select td.ID,
+                                        nvl(td.NORD_HDR, td.NORD) NORD,
+                                        td.INCOMFL
+                                   from T_TRN t, t_trndtl td
+                                  where t.ID = any
+                                  (select id
+                                           from t_trn
+                                          where dep_id =
+                                                (select dep_id from acc)
+                                            and acc_id = (select id from acc))
+                                    and t.id = td.id) T
+                          where DT.ID(+) = T.ID
+                            and KT.ID(+) = T.ID
+                            and DT.INCOMFL(+) = '1'
+                            and KT.INCOMFL(+) = '0'
+                            and DT.NORD(+) = T.NORD
+                            and KT.NORD(+) = T.NORD
+                            and (DT.POSTFL <> '0' or DT.POSTFL is null)
+                            and (KT.POSTFL <> '0' or KT.POSTFL is null)) TRN,
+                        T_OPERMOV OPERM,
+                        T_OPERJRN J
+                  where J.TRA_ID(+) = TRN.ID
+                    and OPERM.TRA_ID(+) = TRN.CONS_ID
+                    and KT_SDOK > 0)
+                select case
+                         when ForeignFL <> '1' then
+                          nvl(G_PKGBNKGRP.fGetBnkCodeByCode(q.CODE_BCL,
+                                                            SRC_CODE),
+                              q.CODE_BCL)
+                         else
+                          q.CODE_BCL
+                       end as cl_mfo,
+                       q.CODE_ACL as cl_account,
+                       nvl(q.TXT_PAY,
+                           substr(G_PkgAccBln.fCodeBnkCodeAcc2LongNameAcc(q.CODE_BCL,
+                                                                          q.CODE_ACL),
+                                  1,
+                                  250)) as cl_name,
+                       q.RNN_CL as cl_id,
+                       case
+                         when ForeignFL <> '1' then
+                          nvl(G_PKGBNKGRP.fGetBnkCodeByCode(q.CODE_BCR,
+                                                            SRC_CODE),
+                              q.CODE_BCR)
+                         else
+                          q.CODE_BCR
+                       end as ca_mfo,
+                       q.CODE_ACR as ca_account,
+                       nvl(q.TXT_BEN,
+                           substr(G_PkgAccBln.fCodeBnkCodeAcc2LongNameAcc(q.CODE_BCR,
+                                                                          q.CODE_ACR),
+                                  1,
+                                  250)) as ca_name,
+                       q.RNN_CR as ca_id,
+                       q.tra_id as doc_id,
+                       q.doc_date,
+                       q.doc_num,
+                       q.SDOK as pay_sum,
+                       T_PkgOprChr.fCode(a.OPE_ID) as pay_code,
+                       q.doc_note as pay_note,
+                       ST.NAME as pay_state,
+                       q.pay_date
+                  from T_PROCMEM PM,
+                       T_PROCESS PR,
+                       T_BOP_STAT ST,
+                       (select J.DEP_ID,
+                               J.ID,
+                               j.sdok,
+                               J.TXT_DSCR || J.TXT_ADD as doc_note,
+                               o.code as doc_num,
+                               tra_id,
+                               to_char(o.dord, 'dd.mm.yyyy') as doc_date,
+                               to_char(O.CORRECTDT, 'dd.mm.yyyy') as pay_date,
+                               decode(j.INCOMFL, '1', j.CODE_BCR, j.CODE_BCL) as CODE_BCL,
+                               decode(j.INCOMFL, '1', j.CODE_ACR, j.CODE_ACL) as CODE_ACL,
+                               decode(j.INCOMFL, '1', j.TXT_BEN, j.TXT_PAY) as TXT_PAY,
+                               decode(j.INCOMFL, '1', j.RNN_CR, j.RNN_CL) as RNN_CL,
+                               decode(j.INCOMFL, '1', j.CODE_BCL, j.CODE_BCR) as CODE_BCR,
+                               decode(j.INCOMFL, '1', j.CODE_ACL, j.CODE_ACR) as CODE_ACR,
+                               decode(j.INCOMFL, '1', j.RNN_CL, j.RNN_CR) as RNN_CR,
+                               decode(j.INCOMFL, '1', j.TXT_PAY, j.TXT_BEN) as TXT_BEN,
+                               G_PKG_BIS_SYS.fGetSrcCode(P_PKGPAYSYST.fGetSrcIdBy_PSys(decode(J.INCOMFL,
+                                                                                              '1',
+                                                                                              j.PAYRCV_ID,
+                                                                                              j.PAYSND_ID))) SRC_CODE,
+                               G_PKG_BIS_SYS.fGetForeignFL(P_PKGPAYSYST.fGetSrcIdBy_PSys(decode(J.INCOMFL,
+                                                                                                '1',
+                                                                                                j.PAYRCV_ID,
+                                                                                                j.PAYSND_ID))) ForeignFL
+                          from P_ORD J, T_ORD O, ords
+                         where ords.dep_id = j.dep_id
+                           and ords.id = j.id
+                           and j.dep_id = o.dep_id
+                           and j.id = o.id
+                           and o.dord < dGetDate) q,
+                       T_TRNATR a
+                 where PM.DEP_ID = q.DEP_ID
+                   and PM.ORD_ID = q.ID
+                   and PR.ID = PM.ID
+                   and PM.MAINFL = '1'
+                   and ST.ID = PR.BOP_ID
+                   and ST.NORD = PR.NSTAT
+                   and a.id = q.tra_id)
+    loop
+      jItem := json_object_t();
+
+      jItem.put('cl_mfo', r.cl_mfo);
+      jItem.put('cl_account', r.cl_account);
+      jItem.put('cl_name', r.cl_name);
+      jItem.put('cl_id', r.cl_id);
+      jItem.put('ca_mfo', r.ca_mfo);
+      jItem.put('ca_account', r.ca_account);
+      jItem.put('ca_name', r.ca_name);
+      jItem.put('ca_id', r.ca_id);
+      jItem.put('doc_id', r.doc_id);
+      jItem.put('doc_date', r.doc_date);
+      jItem.put('doc_num', r.doc_num);
+      jItem.put('pay_sum', r.pay_sum);
+      jItem.put('pay_code', r.pay_code);
+      jItem.put('pay_note', r.pay_note);
+      jItem.put('pay_state', r.pay_state);
+      jItem.put('pay_date', r.pay_date);
+
+      jItems.append(jItem);
+    end loop;
+
+    jOutput.put('payments', jItems);
+    pOutput := jOutput.To_Clob;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure pSetCbsData(pInput  in clob,
+                        pOutput out clob) is
+    nDeaId     number;
+    sDeaState  varchar2(50);
+    sDeclined  varchar2(1);
+    nPQ306loan number := 25359; -- UZ.UL. П? - 306
+    nPQ306line number := 25459; -- UZ.UL.PQ.306
+    nTranche   number := 21239; -- UZ.UL.TRL.GKS
+  begin
+    for r in (select *
+                from z_116_brb_apps t
+               where json_value(t.app_json, '$.doc_status') = 'ACCEPTED')
+    loop
+      for d in (select t.dep_id,
+                       t.id,
+                       re.state,
+                       json_value(t.json, '$.dea.id') dea_id
+                  from L_REQDEA t, L_REQDEA_EXT re
+                 where exists (select 1
+                          from z_116_brb_loans f
+                         where f.application_id = r.application_id
+                           and f.dep_id = t.dep_id
+                           and f.app_id = t.id)
+                   and re.dep_id = t.dep_id
+                   and re.id = t.id
+                union
+                select t.dep_id,
+                       t.id,
+                       re.state,
+                       json_value(t.json, '$.dea.id') dea_id
+                  from L_REQDEA t, L_REQDEA_EXT re
+                 where t.clidep_id = r.cli_dep_id
+                   and t.cli_id = r.cli_id
+                   and re.dep_id = t.dep_id
+                   and re.id = t.id
+                   and not exists
+                 (select 1
+                          from z_116_brb_loans w
+                         where w.dep_id = t.dep_id
+                           and w.app_id = t.id
+                           and w.application_id != r.application_id)
+                   and (t.dcl_id = nPQ306loan or
+                       t.dcl_id = nTranche and exists
+                        (select 1
+                           from T_DEA f, T_DEA ff
+                          where f.dep_id = t.dep_id
+                            and f.id = json_value(t.json, '$.dea.id')
+                            and ff.dep_id = f.dea_dep_id
+                            and ff.id = f.dea_id
+                            and ff.dcl_id = nPQ306line)))
+      loop
+        begin
+          select d.dea_id,
+                 L_PkgAccReq.fProcAndAccState(s.CODE,
+                                              s.LONGNAME,
+                                              d.dep_id,
+                                              d.dea_id,
+                                              pRaise => 0)
+            into nDeaId, sDeaState
+            from T_PROCMEM m, T_PROCESS p, T_BOP_STAT s
+           where m.dep_id = d.dep_id
+             and m.ord_id = d.dea_id
+             and m.mainfl = '1'
+             and p.id = m.id
+             and s.ID = p.BOP_ID
+             and s.NORD = p.NSTAT
+             and t_Pkgdeaprm.Fdeaparbycode(d.dea_id,
+                                           d.dep_id,
+                                           'L_UZ_UNIQNUM') is not null;
+        exception
+          when no_data_found then
+            nDeaId    := null;
+            sDeaState := null;
+        end;
+
+        if d.state in ('CANCELED', 'REFUSAL_BANK', 'REFUSAL_CLI') or
+           sDeaState in ('Отказ',
+                         'Отказ (ожид. закрытие счетов)',
+                         'Отказан в покупке',
+                         'Ошибки при открытии счетов',
+                         'Удалён') then
+          sDeclined := '1';
+        else
+          sDeclined := '0';
+        end if;
+
+        update z_116_brb_loans bl
+           set bl.dep_id     = d.dep_id,
+               bl.app_status = d.state,
+               bl.dea_id     = nDeaId,
+               bl.dea_status = sDeaState,
+               bl.declined   = sDeclined
+         where bl.application_id = r.application_id
+           and bl.app_id = d.id;
+
+        if sql%notfound then
+          insert into z_116_brb_loans
+            (application_id,
+             dep_id,
+             app_id,
+             app_status,
+             dea_id,
+             dea_status,
+             declined)
+          values
+            (r.application_id,
+             d.dep_id,
+             d.id,
+             d.state,
+             nDeaId,
+             sDeaState,
+             sDeclined);
+        end if;
+      end loop;
+
+      delete z_116_brb_loans t
+       where t.application_id = r.application_id
+         and not exists (select 1
+                from l_reqdea f
+               where f.dep_id = t.dep_id
+                 and f.id = t.app_id);
+    end loop;
+
+    pOutput := 'null';
+  end;
+
+end Z_116_PKG_BUSINESS_PORTAL;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="ANLACC_DET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLNHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCMANGR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIAUTHPRS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIBNKATR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIIDN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_DBLJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_DBLJRNDTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_IDNDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC_DET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LV_MAIN_FJ"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LV_RPTUZLN_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REQDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REQDEA_EXT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="P_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ANCHART"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ARLCLC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ARLDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ARLDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEASHDPNT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEASRV"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERMOV"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNATR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNDTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_BRB_ALL_APPS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_BRB_APPS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_BRB_DOCUMENTS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_BRB_LOANS"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_IDUS"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_NATVAL"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDEP"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="GL_ACC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="GL_ANL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGACCBLN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGBNKGRP"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIROLE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKG_BIS_SYS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGACCREQ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="P_PKGPAYSYST"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_ASGN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCBAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCMOV"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARLRUN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGOPRCHR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGPAYATR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_ELOAN_APPLICATION"/>
+    </PKGDPNPKG>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="G_CLIPRS_NSIGN"/>
+    </PKGDPNDOM>
+  </PKG>
+</DDC>

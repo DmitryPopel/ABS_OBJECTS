@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_ELOAN_CARD" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="5E7A5B6702751281605D588FC9B84170">
+  <PKG 
+    NAME="Z_116_ELOAN_CARD">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_ELOAN_CARD is
+/**
+* Методы для кредитов по работе с ЗП картами, ЗП договорами, реестрами и т.д.
+*
+* @author Сардор Ахмеджанов
+* @author Бобур Норбоев
+* @version 2.0
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+/** Создание карточного счета
+* <br/><i>С версии 1.0</i>
+* @param pInput JSON
+* @param pOutput JSON
+*/
+procedure pCreateCardAccount(pInput in Clob, pOutput out Clob);
+
+/** Получение состояния рассмотрения заявки
+* <br/><i>С версии 1.0</i>
+* @param pInput JSON
+* @param pOutput JSON
+*/
+procedure pGetApplicationStatus(pInput in Clob, pOutput out Clob);
+
+/** Получение информации по карте UzCard
+* <br/><i>С версии 1.0</i>
+* @param pInput JSON
+* @param pOutput JSON
+*/
+procedure pGetUzcardInfo(pInput in Clob, pOutput out Clob);
+
+/** Включение услуги смс-информирования
+* <br/><i>С версии 2.0</i>
+* @param pInput JSON
+* @param pOutput JSON
+*/
+procedure pSetSmsInfo(pInput in Clob, pOutput out Clob);
+
+end Z_116_ELOAN_CARD;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_ELOAN_CARD is
+
+  function fErr(pErrCode in integer,
+                pMess    in varchar2,
+                pArgs    in vargs default vargs(null)) return CLOB is
+    ObjTmp JSON_OBJECT_T;
+    ObjR   JSON_OBJECT_T;
+  begin
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('code', pErrCode);
+    ObjTmp.put('message',
+               LocalFrmt(pMess || dbms_utility.format_error_backtrace,
+                         pArgs,
+                         'PKG',
+                         'Z_116_ELOAN_CARD'));
+    ObjR := new JSON_OBJECT_T;
+    ObjR.put('error', ObjTmp);
+    return ObjR.To_Clob;
+  end fErr;
+
+  procedure pCreateCardAccount(pInput in Clob, pOutput out Clob) is
+    v_result CESB_BASE.SParam;
+    ObjIn    JSON_OBJECT_T;
+    ObjB   JSON_OBJECT_T;
+    ObjCli JSON_OBJECT_T;
+  begin
+    z_116_pkgconnect.pOpen();
+    ObjCli := new JSON_OBJECT_T;
+    ObjCli.put('channel', 'camunda');
+    ObjB := new JSON_OBJECT_T;
+    ObjB.put('Cli', ObjCli);
+    ObjIn := JSON_OBJECT_T.parse(pInput);
+    v_result := CESB_PKGEXTREQ.fSave(B => ObjB.To_Clob(),
+                                     S => ObjIn.to_Clob());
+    pOutput := to_clob(v_result);
+    commit;
+  exception
+    when others then
+      pOutput := fErr(sqlcode, 'Ошибка: %0:s', vargs(substr(sqlerrm, 1, 2000)));
+  end pCreateCardAccount;
+
+  procedure pGetApplicationStatus(pInput in Clob, pOutput out Clob) is
+
+    v_result       CESB_BASE.SParam;
+    ObjB           JSON_OBJECT_T;
+    ObjC           JSON_OBJECT_T;
+    ObjIn          JSON_OBJECT_T;
+    p_crd_dep_id   VARCHAR2(500);
+    p_crd_id       VARCHAR2(500);
+    cardidn        VARCHAR2(500);
+    card_design    VARCHAR2(500);
+    ResJson        JSON_OBJECT_T;
+    responseJson   JSON_OBJECT_T;
+    v_parameters   JSON_ARRAY_T;
+    v_param_obj    JSON_OBJECT_T;
+    card_Code VARCHAR2(500);
+    cardExpiryDate VARCHAR2(500);
+    parsed_date    DATE;
+  begin
+    z_116_pkgconnect.pOpen();
+    ObjB         := new JSON_OBJECT_T;
+    ObjC         := new JSON_OBJECT_T;
+    ObjIn        := JSON_OBJECT_T.parse(pInput);
+    responseJson := new JSON_OBJECT_T;
+    ObjB.put('colvirReferenceId', ObjIn.get_String('colvirReferenceId'));
+    v_result := CESB_PKGEXTREQ.fLoadStatus(B => ObjC.To_Clob(),
+                                           S => ObjB.to_Clob());
+    ResJson := JSON_OBJECT_T.parse(v_result);
+    if (ResJson.get_Object('status').get_String('code') = 'FIN') then
+      v_parameters := ResJson.get_Array('parameters');
+      for i in 0 .. v_parameters.get_size() - 1 loop
+        v_param_obj := TREAT(v_parameters.get(i) as JSON_OBJECT_T); -- TREAT(addInfo.get(i) as JSON_OBJECT_T);
+        if v_param_obj.get_string('code') = 'CRD_DEP_ID' then
+          p_crd_dep_id := v_param_obj.get_string('value');
+        end if;
+        if v_param_obj.get_string('code') = 'CRD_ID' then
+          p_crd_id := v_param_obj.get_string('value');
+        end if;
+        if p_crd_dep_id is not null and p_crd_id is not null then
+          exit;
+        end if;
+      end loop;
+      select t.cardidn, t.design, t.cardcode, t.expiredt
+        into cardidn, card_design, card_Code, cardExpiryDate
+        from n_crd t
+       where t.DEP_ID = p_crd_dep_id
+         and t.ID = p_crd_id;
+      -- parse card expiry date to required MMYY format
+      parsed_date    := TO_DATE(cardExpiryDate, 'DD.MM.YYYY');
+      cardExpiryDate := TO_CHAR(parsed_date, 'MMYY');
+      responseJson.put('cardidn', cardidn);
+      responseJson.put('cardType', card_design);
+      responseJson.put('cardNumber', card_Code);
+      responseJson.put('expiryDate', cardExpiryDate);
+      pOutput := responseJson.to_clob();
+    else
+      pOutput := to_clob(v_result);
+    end if;
+  exception
+    when others then
+      pOutput := fErr(sqlcode, 'Ошибка при получении статус заявки: %0:s', vargs(substr(sqlerrm, 1, 2000)));
+  end pGetApplicationStatus;
+
+  procedure pGetUzcardInfo(pInput in Clob, pOutput out Clob) is
+    ObjIn           JSON_OBJECT_T;
+    responseJson    JSON_OBJECT_T;
+    cardidnInput    VARCHAR2(500);
+    cardDesignInput VARCHAR2(500);
+    cardCodeR       VARCHAR2(500);
+  begin
+    z_116_pkgconnect.pOpen();
+    responseJson    := new JSON_OBJECT_T;
+    ObjIn           := JSON_OBJECT_T.parse(pInput);
+    cardidnInput    := ObjIn.get_String('cardidn');
+    cardDesignInput := ObjIn.get_String('cardType');
+    -- get originalCardNumber and expiry date by cardIdn and design type (desig tpes => ['UZCARD',['HUMO'])
+    select t.cardcode
+      into cardCodeR
+      from n_crd t
+     where t.cardidn = cardidnInput
+       and t.design = cardDesignInput;
+    -- write parameters to output variable
+    responseJson.put('cardNumber', cardCodeR);
+    pOutput := responseJson.to_clob();
+  exception
+    when others then
+      pOutput := fErr(sqlcode, ': %0:s', vargs(substr(sqlerrm, 1, 2000)));
+  end pGetUzcardInfo;
+
+  procedure pSetSmsInfo(pInput in Clob, pOutput out Clob) is
+    ObjIn        JSON_OBJECT_T;
+    responseJson JSON_OBJECT_T;
+    sCardIdn     VARCHAR2(500);
+    sPhoneNumber VARCHAR2(500);
+    nDepId       n_crd.dep_id%type;
+    nId          n_crd.id%type;
+  begin
+    z_116_pkgconnect.pOpen();
+    responseJson := new JSON_OBJECT_T;
+    ObjIn        := JSON_OBJECT_T.parse(pInput);
+    sCardIdn     := ObjIn.get_String('cardidn');
+    sPhoneNumber := ObjIn.get_String('phoneNumber');
+    select t.dep_id,
+           t.id
+    into   nDepId,
+           nId
+    from   n_crd t
+    where  t.cardidn = sCardIdn;
+    if T_PkgRunOprUtl.fOprAvailable(nDepId, nId, 'SUPPLSERV') = 2 then
+      T_PkgRunOprUtl.pRunOprByMainOrd(nDepId, nId, 'SUPPLSERV', 'New_INFO_LANG=>''RU'', New_Ntelef_Oper=>''' || sPhoneNumber || ''', New_SMS_Oper_FL=>1');
+    end if;
+    responseJson.put('result', true);
+    pOutput := responseJson.to_clob();
+  exception
+    when others then
+      pOutput := fErr(sqlcode, ': %0:s', vargs(substr(sqlerrm, 1, 2000)));
+  end pSetSmsInfo;
+
+end Z_116_ELOAN_CARD;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRD"/>
+    </PKGDPNENT>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="CESB_BASE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="CESB_PKGEXTREQ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGRUNOPRUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKGCONNECT"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

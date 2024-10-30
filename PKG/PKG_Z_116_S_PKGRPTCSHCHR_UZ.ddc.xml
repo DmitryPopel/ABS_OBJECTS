@@ -1,0 +1,433 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_S_PKGRPTCSHCHR_UZ" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="B0E95E6E1CD372FC8042A1882AC99C95">
+  <PKG 
+    NAME="Z_116_S_PKGRPTCSHCHR_UZ">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_S_PKGRPTCSHCHR_UZ as
+/**
+*  Процедуры и функции для отчета Обороты по символам кассового плана и остаткам на счетах кассы C_116_TL_00_002
+*
+* @author Сергей Змушко
+* @author Галина Унковская
+* @version 1.2
+* @headcom
+*
+* Copyright (c) 2023 By Colvir Software Solutions. All Rights Reserved.
+*/
+
+  /** Получение наименования отчета
+  * @param p_dFrom Дата начала отчетного периода
+  * @param p_dTo Дата окончания отчетного периода
+  */
+  function fGetRepHeader(p_dFrom in date, p_dTo in date) return varchar2;
+
+  /** Получение имени листа отчета
+  * @param p_dFrom Дата начала отчетного периода
+  * @param p_dTo Дата окончания отчетного периода
+  */
+  function fGetSheetName(p_dFrom in date, p_dTo in date) return varchar2;
+
+  /** Получение идентификатора подразделения РЦКУ для переданного подразделения
+  * @param pDepId Идентификатор подразделения
+  * @return Идентификатор подразделения РЦКУ
+  */
+  function fGetRCKUDep(pDepId in C_DEP_STD.ID%type)
+    return C_DEP_STD.ID%type deterministic;
+
+
+  /** Процедура заполнения таблицы Z_116_S_TMPRPTCSHCHR для отчета C_116_TL_00_00
+  * @param p_DEP_ID Подразделение
+  * @param p_dFrom Дата начала отчетного периода
+  * @param p_dTo Дата окончания отчетного периода
+  */
+  procedure pFill(p_DEP_ID in number, p_dFrom in date, p_dTo in date, pSVOD in number);
+
+end Z_116_S_PKGRPTCSHCHR_UZ;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_S_PKGRPTCSHCHR_UZ as
+
+  cPkgName constant varchar2(64) := $$PLSQL_UNIT;
+
+  cMainDepId    constant C_DEP_STD.ID%type       := C_PkgDep.fGetIdDep(C_PKGPRM.fGetValPrm('GL_MAINDEP')); -- Головное подразделение
+  сTrnDetId     constant T_TRNDTL.DET_ID%type    := Bs_Dom.dVal('T_TRNDTL_DET', 'C_JRN_ANLACC'); -- Проводки по лицевым внебалансовым счетам
+  cAnlAccSignId constant ANLACC_DET.SIGN_ID%type := T_ASGN.fCode2Id('G_CSHCHR'); -- Аналитика "Символ кассплана"
+
+  -- константы для групповых колонок отчета
+  cGrRow1Id   constant integer := -1;
+  cGrRow2Id   constant integer := -2;
+  cGrRow3Id   constant integer := -3;
+  cGrRow4Id   constant integer := -4;
+  cGrRow5Id   constant integer := -5;
+  cGrRow1Code constant Z_116_S_TMPRPTCSHCHR.GR_CODE%type :='32%';
+  cGrRow1Name constant Z_116_S_TMPRPTCSHCHR.CODE%type    :='КИРИМ';
+  cGrRow2Code constant Z_116_S_TMPRPTCSHCHR.GR_CODE%type :='39%';
+  cGrRow2Name constant Z_116_S_TMPRPTCSHCHR.CODE%type    :='БАЛАНС';
+  cGrRow3Code constant Z_116_S_TMPRPTCSHCHR.GR_CODE%type :='59%';
+  cGrRow3Name constant Z_116_S_TMPRPTCSHCHR.CODE%type    :='ЧИКИМ';
+  cGrRow4Code constant Z_116_S_TMPRPTCSHCHR.GR_CODE%type :='73%';
+  cGrRow4Name constant Z_116_S_TMPRPTCSHCHR.CODE%type    :='Баланс';
+  cGrRow5Code constant Z_116_S_TMPRPTCSHCHR.GR_CODE%type :='99%';
+  cGrRow5Name constant Z_116_S_TMPRPTCSHCHR.CODE%type    :='Назорат';
+  /* Здесь и далее Localize не используется, но недопустимым решением это не является на основании
+     "Исключением являются следующие ситуации:
+     программный код заведомо относиться к определенной локализации
+     и не требует перевода (например, регуляторная отчетность);"  */
+
+  function fGetYearMonthName(p_Date in date) return varchar2 is
+  begin
+    return trim(to_char(p_Date,'yyyy')||' йил '||to_char(p_Date,'month', 'NLS_DATE_LANGUAGE=''CYRILLIC UZBEK'''));
+  end;
+
+  -- Получение наименования отчета
+  function fGetRepHeader(p_dFrom in date, p_dTo in date) return varchar2 as
+    res varchar2(1000) := C_PKGPRM.fGetValPrm('BANKNAME_RPT_OZ')||' банки буйича ';
+  begin
+    if last_day(p_dFrom) = p_dTo and trunc(p_dFrom,'MM') = p_dFrom then
+      -- отчет за месяц
+      res:=res||fGetYearMonthName(p_dFrom)||' оамалга оширилган 1312-шакл касса айланмалари хисоботи';
+    elsif last_day(p_dFrom) = last_day(p_dTo) and p_DFrom + 4 = p_dTo
+      and mod(extract(day from p_dTo),5) = 0 then
+      -- 5-ти дневный отчет формируется за каждые календарные 5 дней месяца
+      res := res||fGetYearMonthName(p_dFrom)||' ойи '||(trunc(extract(day from p_dFrom)/5)+1)||' - 5 кунлигида амалга оширилган 1302-шакл касса айланмалари хисоботи';
+    elsif p_dFrom = p_dTo then
+      -- отчет за дату не предусмотрен в требованиях к отчету поэтому просто вернем эту дату
+      res := res||to_char(p_dFrom,c_Short4YDateFormat)||' оамалга оширилган касса айланмалари хисоботи';
+    else
+      -- произвольный период не предусмотрен в требованиях к отчету поэтому просто вернем даты
+      res := res||to_char(p_dFrom,c_Short4YDateFormat)||' - '||to_char(p_dTo,c_Short4YDateFormat)||' оамалга оширилган касса айланмалари хисоботи';
+    end if;
+    return res;
+  end;
+
+  -- Получение имени листа отчета
+  function fGetSheetName(p_dFrom in date, p_dTo in date) return varchar2 as
+    res varchar2(30);
+  begin
+    if last_day(p_dFrom) = p_dTo and trunc(p_dFrom,'MM') = p_dFrom then
+      -- отчет за месяц
+      res := 'ойлик-1312';
+    elsif last_day(p_dFrom) = last_day(p_dTo) and p_DFrom + 4 = p_dTo
+      and mod(extract(day from p_dTo),5) = 0 then
+      -- 5-ти дневный отчет формируется за каждые календарные 5 дней месяца
+      res := (trunc(extract(day from p_dFrom)/5)+1)||'-5 кун';
+    else
+      res := 'хисоботи';
+    end if;
+    return res;
+  end;
+
+  -- Получение идентификатора подразделения РЦКУ для переданного подразделения
+  function fGetRCKUDep(pDepId in C_DEP_STD.ID%type)
+    return C_DEP_STD.ID%type deterministic as
+    nDepId C_DEP_STD.ID%type;
+  begin
+    select x.ID
+      into nDepId
+      from (select t.ID
+              from C_DEP_STD t
+             where t.NLEVEL = 1
+               and t.ID_HI = cMainDepId
+            connect by prior t.ID_HI = t.ID
+             start with t.ID = pDepId
+             order by level) x
+     where rownum = 1;
+    return nDepId;
+  exception
+    when NO_DATA_FOUND then
+      return pDepId;
+  end fGetRCKUDep;
+
+
+  --Процедура заполнения основной таблицы Z_116_S_TMPRPTCSHCHR для отчета C_116_TL_00_00
+  procedure pFill(
+    p_DEP_ID in number,
+    p_dFrom in date,
+    p_dTo in date,
+    pSVOD in number) as
+    nLvl C_DEP_STD.NLEVEL%type;
+  begin
+    t_log.debug('%0:s Z_116_S_PKGRPTCSHCHR_UZ.pFill started %1:s %2:s %3:s', vargs(to_char(sysdate, c_LongTimeFormat), p_DEP_ID, p_dFrom, p_dTo), sType => 'PKG', sCode => cPkgName);
+    savepoint BeginFillReport;
+    -- Удаляем предыдущие значения из временных таблиц
+    delete from Z_116_S_TMPRPTCSHCHR;
+    delete from Z_116_S_TMPRPTCSHDATA;
+
+    -- Вставка заголовков c наименованиями кассовых символов
+    insert into Z_116_S_TMPRPTCSHCHR (RNUM, GR_CODE, NLEVEL, CODE, ID, ID_HI, LONGNAME, CHA_ID)
+      select rownum, s.* from (
+        select substr(c.CODE,1,2) as GR_CODE, c.NLEVEL,
+          decode(c.GROUPFL, 1, substr(c.CODE,1,1)||' '||substr(c.CODE,2,1), substr(c.CODE,1,4)) as CODE,
+          c.ID as ID, decode(c.GROUPFL, 0, c.ID_HI) as ID_HI,
+          c.LONGNAME,
+          l.ID as CHA_ID
+        from G_CSHCHR c
+          left join LEDGER_STD lg
+            on lg.CODE = 'UZ' and lg.BRN_ID = P_LOCID
+          left join LEDACC_STD l -- привязка счетов ГК для балансовых символов
+            on l.LED_ID = lg.ID
+            and l.CODE = regexp_substr(c.LONGNAME,'[[:digit:]]+')
+            and c.BALANCEFL = 1
+            /*Добавления фильтр согласно FDD-694*/
+            and c.ARESTFL = 0
+        where nvl(c.VALUTFL,0) = 0
+          and c.NLEVEL > 0
+        union all
+          select cGrRow1Code, 0, cGrRow1Name, cGrRow1Id, null, null, null from dual
+        union all
+          select cGrRow2Code, 0, cGrRow2Name, cGrRow2Id, null, null, null from dual
+        union all
+          select cGrRow3Code, 0, cGrRow3Name, cGrRow3Id, null, null, null from dual
+        union all
+          select cGrRow4Code, 0, cGrRow4Name, cGrRow4Id, null, null, null from dual
+        union all
+          select cGrRow5Code, 0, cGrRow5Name, cGrRow5Id, null, null, null from dual
+        order by 1, 2 desc, 3) s;
+
+    -- обороты по аналитическим счетам CMS_C_PLAN касс, ЦКУ, открытых под РЦКУ по иерархии
+    -- алгоритм аналогичен скрипту из задачи https://cdp.colvir.ru/TrackStudio/app/task/1240837
+    nLvl := nvl(C_PKGDEP.fGetLvlDep(C_PKGDEP.fGetCodeDep(p_DEP_ID)),0);
+
+    insert into Z_116_S_TMPRPTCSHDATA (ID, DEP_ID, AMOUNT)
+      select
+        CHR_ID,
+        case when pSVOD = 0 then decode(nLvl,0,Z_116_S_PKGRPTCSHCHR_UZ.fGetRCKUDep(DEP_ID),1,Z_116_S_PKGRPTCSHCHR_UZ.fGetRCKUDep(DEP_ID),DEP_ID)
+          else DEP_ID end,
+        abs(trunc(sum(AMOUNT) / 1000)) as AMOUNT
+      from (
+        select d.PK1 as CHR_ID,
+               coalesce( -- подразделение из кассы документа
+                       (select csh.DEP_ID from S_ORDCASH s join M_CSHDSC csh on csh.ID = s.CSH_ID
+                         where s.DEP_ID = j.DEP_ID and s.ID = j.ORD_ID),
+                        j.DEP_TUS_ID) as DEP_ID,
+               decode(t.INCOMFL, '1', t.SDOK, -t.SDOK) as AMOUNT
+          from T_OPERJRN j, T_TRNDTL t, T_ACC ac, ANLACC a, ANLACC_DET d,  T_ANCHART_STD ah
+            where t.DET_ID = сTrnDetId -- Проводки по лицевым внебалансовым счетам
+              and t.POSTFL = '1' -- Только с признаком "Проведено"
+              and j.TRA_ID = t.ID
+              and t.DOPER between p_dFrom and p_dTo
+              and ac.ID = t.ACC_ID and ac.DEP_ID = t.DEP_ID
+              and a.ID = d.ID and a.DEP_ID = d.DEP_ID and d.SIGN_ID = cAnlAccSignId -- Аналитика "Символ кассплана"
+              and ah.CODE = 'CMS_C_PLAN'
+              and ac.ID = a.ID and ac.DEP_ID = a.DEP_ID
+              and a.CHA_ID = ah.ID
+              and t.VAL_ID = p_NatVal
+              and t.ACC_ID = a.ID
+           ) t
+        where (t.DEP_ID in (select ID from C_DEP_STD start with ID = p_DEP_ID connect by ID_HI = prior ID) or p_DEP_ID is null)
+        group by CHR_ID, DEP_ID;
+      t_log.debug('%0:s turnover %1:s rows inserted ', vargs(to_char(sysdate, c_LongTimeFormat), sql%rowcount), sType => 'PKG', sCode => cPkgName);
+
+      -- за ислючением символов 35 70, по которым отражаются входящие и исходящие остатки на счетах ГК
+      insert into Z_116_S_TMPRPTCSHDATA (ID, DEP_ID, AMOUNT)
+        select CHR_ID,
+               case when pSVOD = 0
+                 then decode(nLvl,0,Z_116_S_PKGRPTCSHCHR_UZ.fGetRCKUDep(DEP_ID),1,Z_116_S_PKGRPTCSHCHR_UZ.fGetRCKUDep(DEP_ID),DEP_ID)
+                 else DEP_ID end,
+               trunc(sum(AMOUNT)/1000) as AMOUNT
+          from (select c.ID as CHR_ID,
+                  dep.ID as DEP_ID, -- значение поля На подразделение
+                  case when c.GR_CODE = '35' then -- для символов 35% - Входящий остаток по указанным счетам ГК
+                    T_PkgAccBal.fAbs(bln.DEP_ID, bln.ID, dOp => p_DFrom, iInpBal => 1)
+                  else -- для символов 70% - Исходящий остаток по указанным счетам ГК
+                    T_PkgAccBal.fAbs(bln.DEP_ID, bln.ID, dOp => p_DTo, iInpBal => 0)
+                  end as AMOUNT
+                from Z_116_S_TMPRPTCSHCHR c
+                join G_ACCBLN bln on bln.CHA_ID = c.CHA_ID
+                left join G_ACCBLNHST hst on hst.DEP_ID = bln.DEP_ID and hst.ID = bln.ID and p_DTo between hst.FROMDATE and hst.TODATE
+                join C_DEP_STD dep on dep.CODE = GL_Anl.fAccAnlValue(bln.DEP_ID, bln.ID, 'DEPARTMENT')
+                where coalesce(hst.VAL_ID, P_NATVAL) = P_NATVAL -- только счета в нац. валюте
+                and (dep.ID in (select ID from C_DEP_STD start with ID = p_DEP_ID connect by ID_HI = prior ID ) or p_DEP_ID is null)
+                )
+        group by CHR_ID, DEP_ID having sum(AMOUNT)<>0;
+      t_log.debug('%0:s balance %1:s rows inserted ', vargs(to_char(sysdate, c_LongTimeFormat), sql%rowcount), sType => 'PKG', sCode => cPkgName);
+
+    -- Итоги по групповым колонкам
+    -- 1. КИРИМ итого по всем приходным символам кассового плана с 0100 по 3200
+    insert into Z_116_S_TMPRPTCSHDATA (ID, DEP_ID, AMOUNT)
+      select cGrRow1Id, dt.DEP_ID, SUM(dt.AMOUNT) as AMOUNT
+        from Z_116_S_TMPRPTCSHDATA dt
+        join Z_116_S_TMPRPTCSHCHR c on c.ID = dt.ID
+      where c.GR_CODE between '01' and '32'
+      group by dt.DEP_ID;
+
+    -- 2. БАЛАНС (после приходных символов) - отражается итого по всем приходным символам кассового плана с 3301 по 3907 -- н плюсом КИРИМ
+    insert into Z_116_S_TMPRPTCSHDATA (ID, DEP_ID, AMOUNT)
+      select cGrRow2Id, dt.DEP_ID, SUM( CASE WHEN c.code != '3506' THEN dt.AMOUNT ELSE 0 END ) as AMOUNT
+        from Z_116_S_TMPRPTCSHDATA dt
+        join Z_116_S_TMPRPTCSHCHR c on c.ID = dt.ID
+      where ((c.GR_CODE between '33' and '39') or (c.GR_CODE = cGrRow1Code))
+      group by dt.DEP_ID;
+
+    -- 3. ЧИКИМ итого по всем расходным символам кассового плана с 4001 по 5902
+    insert into Z_116_S_TMPRPTCSHDATA (ID, DEP_ID, AMOUNT)
+      select cGrRow3Id, dt.DEP_ID, SUM(dt.AMOUNT) as AMOUNT
+        from Z_116_S_TMPRPTCSHDATA dt
+        join Z_116_S_TMPRPTCSHCHR c on c.ID = dt.ID
+      where c.GR_CODE between '40' and '59'
+      group by dt.DEP_ID;
+
+    -- 4. Баланс (после расходных символов) - отражается итого по всем расходным символам кассового плана с 6001 по 7302 -- н плюсом ЧИКИМ
+    insert into Z_116_S_TMPRPTCSHDATA (ID, DEP_ID, AMOUNT)
+      select cGrRow4Id, dt.DEP_ID, SUM( CASE WHEN c.code != '7006' THEN dt.AMOUNT ELSE 0 END )  as AMOUNT
+        from Z_116_S_TMPRPTCSHDATA dt
+        join Z_116_S_TMPRPTCSHCHR c on c.ID = dt.ID
+      where ((c.GR_CODE between '60' and '73') or (c.GR_CODE = cGrRow3Code))
+      group by dt.DEP_ID;
+
+    -- 5.Назорат разница между двумя столбцами Баланс - Баланс
+    insert into Z_116_S_TMPRPTCSHDATA (ID, DEP_ID, AMOUNT)
+      select cGrRow5Id, dt.DEP_ID, SUM(case when dt.ID=cGrRow2Id then dt.AMOUNT else -dt.AMOUNT end) as AMOUNT
+        from Z_116_S_TMPRPTCSHDATA dt
+      where dt.ID in (cGrRow2Id, cGrRow4Id)
+      group by dt.DEP_ID;
+
+    -- итоги по групповым кассовым символам
+    insert into Z_116_S_TMPRPTCSHDATA (ID, DEP_ID, AMOUNT)
+      select ch.ID, dt.DEP_ID, SUM(dt.AMOUNT) as AMOUNT
+        from Z_116_S_TMPRPTCSHCHR ch
+        join G_CSHCHR_STD chr on chr.ID = ch.ID and chr.GROUPFL = 1
+        join Z_116_S_TMPRPTCSHCHR c on c.ID_HI = chr.ID
+        join  Z_116_S_TMPRPTCSHDATA dt on dt.ID = c.ID
+      group by ch.ID, dt.DEP_ID;
+    t_log.debug('%0:s totals %1:s rows inserted ', vargs(to_char(sysdate, c_LongTimeFormat), sql%rowcount), sType => 'PKG', sCode => cPkgName);
+
+  -- удалить архивные символы касс. плана, по которым нет данных
+    delete from Z_116_S_TMPRPTCSHCHR c
+      where c.ID in (
+        select ID from G_CSHCHR_STD chr
+        where chr.ARCFL = 1 or chr.ARESTFL = 1
+      )
+      and not exists (select 1 from Z_116_S_TMPRPTCSHDATA d where d.ID = c.ID);
+    t_log.debug('%0:s archive %1:s rows deleted, finished.', vargs(to_char(sysdate, c_LongTimeFormat), sql%rowcount), sType => 'PKG', sCode => cPkgName);
+
+    exception
+      when OTHERS then
+        t_log.debug(dbms_utility.format_error_stack, sType => 'PKG', sCode => cPkgName);
+        t_log.debug(dbms_utility.format_error_backtrace, sType => 'PKG', sCode => cPkgName);
+        rollback to BeginFillReport;
+        raise;
+  end pFill;
+
+end Z_116_S_PKGRPTCSHCHR_UZ;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_DOM"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="ANLACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="ANLACC_DET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLNHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CSHCHR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDGER"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_CSHDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="S_ORDCASH"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ANCHART"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNDTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_S_TMPRPTCSHCHR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_S_TMPRPTCSHDATA"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="C_LONGTIMEFORMAT"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="C_SHORT4YDATEFORMAT"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_LOCID"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_NATVAL"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDEP"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="GL_ANL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_ASGN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCBAL"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

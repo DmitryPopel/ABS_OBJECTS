@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PROCESS_DATA_HR" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="41B81B3DD8B968DDC60EB21FD82E9160">
+  <PKG 
+    NAME="Z_116_PROCESS_DATA_HR">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PROCESS_DATA_HR is
+  /**
+  * Пакет подготовки данных для отчета L_UZ_LN00_015 - Выданные кредиты за период.
+  *
+  * @author Хакимов Муроджон
+  * @version 1.3
+  * @headcom
+  *
+  * Copyright (c) 2023 By Colvir Software Solutions. All Rights Reserved.
+  */
+  --   Информация о Сотрудниках
+  PROCEDURE process_data(curr_dep_codes IN VARCHAR2);
+
+end Z_116_PROCESS_DATA_HR;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PROCESS_DATA_HR is
+
+  PROCEDURE process_data(curr_dep_codes IN VARCHAR2) IS
+    v_degree_and_study  CLOB;
+    v_asd               CLOB;
+    v_degree_and_studys CLOB;
+
+  BEGIN
+    execute immediate 'truncate table Z_116_C_TABLE';
+    execute immediate 'truncate table Z_116_D_TABLE';
+
+    insert into Z_116_D_TABLE
+      select hv.FULL_NAME,
+             hv.TAB_NUMBER,
+             d.NAME1 || '  ' || d.NAME2 || '  ' || d.NAME3 as NAMES,
+             substr(G_PKGCLIFAM.fLongname(d.FAM_ID, 0), 1, 250) as FAMILY_NM,
+             d.BIRDATE,
+             nvl(d.WORKORG, d.DOLGNOST) as Work_place,
+             hv.CURR_DEP_CODE,
+             hv.STAT_NAME
+        from HV_PERSON hv
+        left join G_CLIFAMILY d
+          on hv.cli_dep_id = d.dep_id
+         and hv.cli_id = d.id
+       where hv.curr_dep_code = curr_dep_codes;
+    commit;
+
+    FOR rec IN (SELECT DISTINCT hv.FULL_NAME,
+                                ll.LANG,
+                                ll.LANG_LEVEL,
+                                hv.TAB_NUMBER,
+                                hv.PN_UZ,
+                                hv.ALTER_TAXCODE,
+                                hv.STAT_NAME,
+                                a.PASSSER,
+                                a.PASSNUM,
+                                SUBSTR(TO_CHAR(a.PASSDAT, 'YYYY-MM-DD'),
+                                       1,
+                                       10) AS PASSDAT,
+                                hv.BIRTH_PLACE,
+
+                                hv.cli_dep_id,
+                                hv.cli_id
+                  FROM HV_PERSON hv
+                  LEFT JOIN G_CLIDOC a
+                    ON hv.cli_dep_id = a.dep_id
+                   AND hv.cli_id = a.id
+                   AND a.Arcfl != '1'
+                  left join hv_lang ll
+                    ON hv.cli_dep_id = ll.CLI_DEP_ID
+                   AND hv.cli_id = ll.CLI_ID
+                 WHERE HV.TAB_NUMBER IN
+                       (SELECT DISTINCT hv.tab_number
+                          FROM HV_PERSON hv
+                         WHERE hv.curr_dep_code = curr_dep_codes)) LOOP
+      -- Initialize the CLOB variables
+      v_degree_and_study  := '';
+      v_asd               := '';
+      v_degree_and_studys := '';
+
+      -- Concatenate DEGREE_AND_STUDY
+      FOR edu_rec IN (SELECT DISTINCT ORG_NAME || ' - ' || DEGREE_TYPE ||
+                                      ' - ' || QUAL_NAME || ' - (' ||
+                                      FROMDATE || ' - ' || TODATE || ')' AS degree_info
+                        FROM hv_edu
+                       WHERE CLI_DEP_ID = rec.cli_dep_id
+                         AND CLI_ID = rec.cli_id) LOOP
+        v_degree_and_study := v_degree_and_study || edu_rec.degree_info || ', ';
+      END LOOP;
+
+      -- Concatenate asd
+      FOR asd_rec IN (SELECT DISTINCT l.Longname /*|| ' - ' ||
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              DECODE(v.dec_id, NULL, '0', '1') ||
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              ' - ' ||
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              DECODE(l.drp_id, NULL, '0', '1') ||
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              ' - ' || l.PRESENTEDFL */ AS asd_info
+                        FROM T_DOCLST l
+                        JOIN T_DOCFRMVER v
+                          ON v.ID = l.ID
+                        JOIN T_DOCDOS ds
+                          ON ds.ID = l.ID
+                       WHERE ds.cli_dep_id = rec.cli_dep_id
+                         AND ds.cli_id = rec.cli_id) LOOP
+        v_asd := v_asd || asd_rec.asd_info || ', ';
+      END LOOP;
+
+      -- Concatenate DEGREE_AND_STUDYS
+      FOR exp_rec IN (SELECT DISTINCT ff.ORGNAME || ' - ' || ff.POSITION ||
+                                      ' - (' || ff.FROMDATE || ' - ' ||
+                                      ff.TODATE || ')' AS exp_info
+                        FROM hv_exp ff
+                       WHERE ff.cli_dep_id = rec.cli_dep_id
+                         AND ff.cli_id = rec.cli_id) LOOP
+        v_degree_and_studys := v_degree_and_studys || exp_rec.exp_info || ', ';
+      END LOOP;
+
+      -- Remove trailing commas
+      v_degree_and_study  := RTRIM(v_degree_and_study, ', ');
+      v_asd               := RTRIM(v_asd, ', ');
+      v_degree_and_studys := RTRIM(v_degree_and_studys, ', ');
+
+      -- Insert into table Z_116_C_TABLE
+      INSERT INTO Z_116_C_TABLE
+        (FULL_NAME,
+         LANG,
+         LANG_LEVEL,
+         TAB_NUMBER,
+         PN_UZ,
+         ALTER_TAXCODE,
+         STAT_NAME,
+         PASSSER,
+         PASSNUM,
+         PASSDAT,
+         BIRTH_PLACE,
+         DEGREE_AND_STUDY,
+         asd,
+
+         cli_dep_id,
+         cli_id,
+         DEGREE_AND_STUDYS)
+      VALUES
+        (rec.FULL_NAME,
+         rec.LANG,
+         rec.LANG_LEVEL,
+         rec.TAB_NUMBER,
+         rec.PN_UZ,
+         rec.ALTER_TAXCODE,
+         rec.STAT_NAME,
+         rec.PASSSER,
+         rec.PASSNUM,
+         TO_DATE(rec.PASSDAT, 'YYYY-MM-DD'),
+         rec.BIRTH_PLACE,
+         v_degree_and_study,
+         v_asd,
+
+         rec.cli_dep_id,
+         rec.cli_id,
+         v_degree_and_studys);
+    END LOOP;
+    COMMIT;
+  EXCEPTION
+    WHEN OTHERS THEN
+      DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+  END;
+
+end Z_116_PROCESS_DATA_HR;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIDOC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIFAMILY"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="HV_EDU"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="HV_EXP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="HV_LANG"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="HV_PERSON"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCDOS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCFRMVER"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCLST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_C_TABLE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_D_TABLE"/>
+    </PKGDPNENT>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIFAM"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

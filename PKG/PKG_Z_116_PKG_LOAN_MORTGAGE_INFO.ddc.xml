@@ -1,0 +1,961 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_LOAN_MORTGAGE_INFO" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="D5FE54CD48EEFEB4C6D6549807AAC7A2">
+  <PKG 
+    NAME="Z_116_PKG_LOAN_MORTGAGE_INFO">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_LOAN_MORTGAGE_INFO is
+  ----------------------------------------------------------------------------------------------------
+  procedure Prepare_Loans(pInput  in clob,
+                          pOutput out clob);
+  ----------------------------------------------------------------------------------------------------
+  procedure Get_Mortgage_List(pInput  clob,
+                              pOutput out clob);
+  ----------------------------------------------------------------------------------------------------
+  procedure Update_Ban_Number(pInput  clob,
+                              pOutput out clob);
+  ----------------------------------------------------------------------------------------------------
+  Procedure Get_Loans(Pinput  in clob,
+                      Poutput out clob);
+  ----------------------------------------------------------------------------------------------------
+  Procedure Get_Mortgage_Info(Pinput  in clob,
+                              Poutput out clob);
+  ----------------------------------------------------------------------------------------------------
+  Procedure Update_Mortgage_Remove_Ban_Info(Pinput  in clob,
+                                            Poutput out clob);
+  ----------------------------------------------------------------------------------------------------
+  procedure Get_Mortgages_By_Uniqnum(pInput  clob,
+                                     pOutput out clob);
+  ----------------------------------------------------------------------------------------------------
+  procedure Add_New_Mortgage_Info(pInput  clob,
+                                  pOutput out clob);
+  ----------------------------------------------------------------------------------------------------
+  Procedure Save_File(Pinput  in clob,
+                      Poutput out clob);
+  ----------------------------------------------------------------------------------------------------
+  Procedure Save_File_To_Loan(Pinput  in clob,
+                              Poutput out clob);
+  ----------------------------------------------------------------------------------------------------
+  procedure Save_Garov_Mortgage_By_Uniqnum(sUniqnum in varchar2);
+  ----------------------------------------------------------------------------------------------------
+  Procedure Get_Garov_Mortgages(pInput  in clob,
+                                pOutput out clob);
+  ----------------------------------------------------------------------------------------------------
+  procedure Update_Garov_Mortgage(pInput clob);
+end Z_116_PKG_LOAN_MORTGAGE_INFO;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_LOAN_MORTGAGE_INFO is
+  ----------------------------------------------------------------------------------------------------
+  Function Base64Decode(p_Clob clob) return blob is
+    l_Blob   blob;
+    l_Raw    raw(32767);
+    l_Amt    number := 7700;
+    l_Offset number := 1;
+    l_Temp   varchar2(32767);
+  begin
+    begin
+      Dbms_Lob.Createtemporary(l_Blob, false, Dbms_Lob.Call);
+
+      loop
+        Dbms_Lob.Read(p_Clob, l_Amt, l_Offset, l_Temp);
+        l_Offset := l_Offset + l_Amt;
+        l_Raw    := Utl_Encode.Base64_Decode(Utl_Raw.Cast_To_Raw(l_Temp));
+        Dbms_Lob.Append(l_Blob, To_Blob(l_Raw));
+      end loop;
+    exception
+      when No_Data_Found then
+        null;
+    end;
+
+    return l_Blob;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  function Remove_Ban_Number return varchar2 is
+  begin
+    return '35-04/' || lpad(z_116_Loan_Mortgage_Info_Sq.Nextval, 6, '0');
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure Add_Mortgage_Info(rRow in out z_116_loan_mortgage_info%rowtype) is
+  begin
+    select max(Lm.Value)
+      into rRow.Basis_Ban_Number
+      from l_Mortgage_Add Lm
+     where Lm.Dep_Id = rRow.Mrt_Dep_Id
+       and Lm.Id = rRow.Mrt_Id
+       and Lm.Code = 'BASIS_BAN_NUMBER';
+
+    select max(Lm.Value)
+      into rRow.Basis_Ban_Date
+      from l_Mortgage_Add Lm
+     where Lm.Dep_Id = rRow.Mrt_Dep_Id
+       and Lm.Id = rRow.Mrt_Id
+       and Lm.Code = 'DATEDOG';
+
+    if rRow.Basis_Ban_Number is not null and
+       Coalesce(rRow.Regsign,
+                rRow.Body_Num,
+                rRow.Chassis_Num,
+                rRow.Engine_Num) is not null then
+      rRow.Remove_Ban_Number := remove_ban_number();
+    end if;
+
+    rRow.State           := 'NEW';
+    rRow.Remove_Ban_Date := trunc(sysdate);
+
+    insert into z_116_Loan_Mortgage_Info values rRow;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure Prepare_Loans(pInput  in clob,
+                          pOutput out clob) is
+    dYesterday date := trunc(sysdate) - 1;
+    rRow       z_116_loan_mortgage_info%rowtype;
+  begin
+    c_pkgconnect.popen();
+    pOutput := pInput;
+
+    insert into z_116_Ban_Loans
+      with Loan as
+       (select --+  materialize use_nl(td o ld p m ) leading(td) parallel(8)
+         Td.Id, Td.Dep_Id
+          from t_Dea Td, t_Ord o, l_Dea Ld, t_Process p, t_Procmem m
+         where o.Dep_Id = Td.Dep_Id
+           and o.Id = Td.Id
+           and Ld.Dep_Id = Td.Dep_Id
+           and Ld.Id = Td.Id
+           and m.Dep_Id = Td.Dep_Id
+           and m.Ord_Id = Td.Id
+           and p.Id = m.Id
+           and m.Mainfl = '1'
+           and td.Fromdate > '01.01.2019'
+           and td.Todate >= dYesterday
+           and (Td.dep_id, Td.id) in
+               (select t.Dea_Dep_Id as Dep_Id, t.Dea_Id as Id
+                  from l_Mrtdea t, l_Mortgage w, l_Ensdsc_Std e
+                 where t.Mrt_Dep_Id = w.dep_id
+                   and t.Mrt_Id = w.Id
+                   and w.Ens_Id = e.id
+                   and e.styp in ('AUTO', 'REALTY', 'EQUIP')))
+      select /*+ ordered */
+      distinct t.dep_id, t.id, dYesterday
+        from Loan t, Ledacc_Det Det, g_Accbln a
+       where t.Id = to_char(Det.Pk2)
+         and t.Dep_Id = to_char(Det.Pk1)
+         and Det.Sgn_Id = t_Asgn.Fcode2id('DEA')
+         and a.Id = Det.Acc_Id
+         and a.Dep_Id = Det.Dep_Id
+         and t_Pkgaccbal.Faccbal(Iddep   => a.Dep_Id,
+                                 Idobj   => a.Id,
+                                 dOp     => dYesterday,
+                                 Iinpbal => 1) > 0
+         and t_Pkgaccbal.Faccbal(Iddep => a.Dep_Id,
+                                 Idobj => a.Id,
+                                 dOp   => dYesterday) = 0
+         and g_Pkgacc.Faccinbps2(Iddepacc => a.Dep_Id,
+                                 Idacc    => a.Id,
+                                 Slist    => '03101,03102,03105,03106,03105D,03105S,03121,0313101,03101100,03105S,031109,0311081') = 1
+         and g_Pkgacc.Faccinbps2(Iddepacc => a.Dep_Id,
+                                 Idacc    => a.Id,
+                                 Slist    => '031109,0311081') = 1;
+
+    for w in (select * from z_116_Ban_Loans t where t.o_date = dYesterday)
+    loop
+      for r in (select m.Dep_Id as Mrt_Dep_Id,
+                       m.Id as Mrt_Id,
+                       v.Regsign,
+                       v.Body_Num,
+                       v.Chassis_Num,
+                       v.Engine_Num,
+                       (select STYP from L_ENSDSC_STD where ID = m.ens_id) as mrt_type
+                  from l_Mrtdea Md
+                  join l_Mortgage m
+                    on m.Dep_Id = Md.Mrt_Dep_Id
+                   and m.Id = Md.Mrt_Id
+                  left join l_Vehicle v
+                    on v.Dep_Id = m.Dep_Id
+                   and v.Id = m.Id
+                 where Md.Dea_Dep_Id = w.dep_Id
+                   and Md.Dea_Id = w.id
+                   and m.Ens_Id in
+                       (select ID
+                          from L_ENSDSC_STD
+                         where STYP in ('REALTY', 'AUTO', 'EQUIP'))
+                   and not exists (select 1
+                          from z_116_Loan_Mortgage_Info t
+                         where t.Dep_Id = Md.Dea_Dep_Id
+                           and t.Id = Md.Dea_Id
+                           and t.Mrt_Dep_Id = Md.Mrt_Dep_Id
+                           and t.Mrt_Id = Md.Mrt_Id))
+      loop
+        rRow             := null;
+        rRow.Dep_Id      := w.dep_id;
+        rRow.Id          := w.id;
+        rRow.Mrt_Dep_Id  := r.mrt_dep_id;
+        rRow.Mrt_Id      := r.mrt_id;
+        rRow.Regsign     := r.regsign;
+        rRow.Body_Num    := r.body_num;
+        rRow.Chassis_Num := r.chassis_num;
+        rRow.Engine_Num  := r.engine_num;
+        rRow.Mrt_Type    := r.mrt_type;
+
+        Add_Mortgage_Info(rRow);
+      end loop;
+    end loop;
+
+    commit;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure Get_Mortgage_List(pInput  clob,
+                              pOutput out clob) is
+    jInput    Json_Object_t := Json_Object_t.Parse(pInput);
+    nPageSize number := jInput.Get_Number('page_size');
+    nPage     number := jInput.Get_Number('page');
+    jResult   json_object_t := new json_object_t();
+    sList     clob;
+    nTotal    number;
+    nCount    number;
+
+    jFilter     json_object_t := jInput.get_Object('filter');
+    sUniqnum    varchar2(100);
+    sStates     varchar2(500);
+    dClosedDate date;
+  begin
+    c_pkgconnect.popen();
+
+    if jFilter is not null then
+      sUniqnum    := jFilter.get_String('uniqnum');
+      sStates     := jFilter.get_String('state');
+      dClosedDate := jFilter.get_String('closed_date');
+    end if;
+
+    select json_arrayagg(json_object('uniqnum' value t.uniqnum,
+                                     'dep_id' value t.dep_id,
+                                     'id' value t.id,
+                                     'dep_code' value t.dep_code,
+                                     'clicode' value t.clicode,
+                                     'cliname' value t.cliname,
+                                     'mrt_dep_id' value t.mrt_dep_id,
+                                     'mrt_id' value t.mrt_id,
+                                     'mrt_type' value t.mrt_type,
+                                     'mrt_name' value t.mrt_name,
+                                     'state' value t.state,
+                                     'closed_date' value
+                                     to_char(t.closed_date),
+                                     'ban_date' value to_char(t.ban_date),
+                                     'ban_number' value t.ban_number,
+                                     'remove_ban_date' value
+                                     to_char(t.remove_ban_date),
+                                     'remove_ban_number' value
+                                     t.remove_ban_number,
+                                     'mark' value t.mark,
+                                     'description' value t.description,
+                                     'mortgage_cost' value t.mortgage_cost,
+                                     'error_message' value t.error_message,
+                                     'cancel_note' value t.cancel_note)
+                         returning clob),
+           max(t.total),
+           count(1)
+      into sList, nTotal, nCount
+      from (select t.*, count(1) over() as total
+              from (select rownum as rn,
+                           t_pkgdeaprm.fParByCode(t.id,
+                                                  t.dep_id,
+                                                  'L_UZ_UNIQNUM') as uniqnum,
+                           f.dep_id,
+                           f.id,
+                           c_pkgdep.fGetCodeDep(f.dep_id) as dep_code,
+                           g_pkgcli.fGetCliCode(d.cli_dep_id, d.cli_id) as clicode,
+                           g_pkgcli.fGetCliLongName(d.cli_dep_id,
+                                                    d.cli_id,
+                                                    d.fromdate) as cliname,
+                           f.mrt_dep_id,
+                           f.mrt_id,
+                           f.mrt_type,
+                           f.state,
+                           t.o_date as closed_date,
+                           f.basis_ban_date as ban_date,
+                           f.basis_ban_number as ban_number,
+                           f.remove_ban_date,
+                           f.remove_ban_number,
+                           (select ma.value
+                              from L_MORTGAGE_ADD ma
+                             where ma.dep_id = f.mrt_dep_id
+                               and ma.id = f.mrt_id
+                               and ma.code = 'NAMEZAL') as mrt_name,
+                           v.mark,
+                           m.dscr as description,
+                           m.mortg_cost as mortgage_cost,
+                           f.cancel_note,
+                           nvl(json_value(f.json, '$.error.data'),
+                               json_value(f.json, '$.error.message')) as error_message
+                      from z_116_Ban_Loans          t,
+                           t_dea                    d,
+                           z_116_loan_mortgage_info f,
+                           l_mortgage               m,
+                           l_vehicle                v
+                     where t.dep_id = d.dep_id
+                       and t.id = d.id
+                       and t.dep_id = f.dep_id
+                       and t.id = f.id
+                       and m.dep_id = f.mrt_dep_id
+                       and m.id = f.mrt_id
+                       and v.dep_id(+) = m.dep_id
+                       and v.id(+) = m.id
+                       and t.o_date = nvl(dClosedDate, t.o_date)
+                       and (sStates is null or
+                           f.state in
+                           (select regexp_substr(sStates,
+                                                  '([^, ]+)',
+                                                  1,
+                                                  level)
+                               from dual
+                             connect by regexp_substr(sStates,
+                                                      '([^, ]+)',
+                                                      1,
+                                                      level) is not null))
+                       and (sUniqnum is null or (t.dep_id, t.id) = any
+                            (select w.dep_id, w.id
+                               from T_DEAPRM w
+                              where w.parvalue like sUniqnum || '%'
+                                and w.dea_id =
+                                    (select id
+                                       from T_DEAPRMDSC_STD
+                                      where code = 'L_UZ_UNIQNUM')))) t) t
+     where t.rn between (nPage - 1) * nPageSize + 1 and nPage * nPageSize;
+
+    jResult.put('total_count', nvl(nTotal, 0));
+    jResult.put('page', nPage);
+    jResult.put('results', json_array_t.parse(nvl(sList, '[]')));
+
+    pOutput := jResult.To_Clob;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure Update_Mortgage_Attr(nMrtDepId number,
+                                 nMrtId    number,
+                                 sCode     L_MORTGAGE_ADD.Code%type,
+                                 sValue    L_MORTGAGE_ADD.Value%type) is
+  begin
+    update L_MORTGAGE_ADD
+       set value = sValue
+     where code = sCode
+       and id = nMrtId
+       and dep_id = nMrtDepId;
+
+    if sql%notfound and sValue is not null then
+      insert into L_MORTGAGE_ADD
+        (dep_id, id, value, code)
+      values
+        (nMrtDepId, nMrtId, sValue, sCode);
+    end if;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure Update_Ban_Number(pInput  clob,
+                              pOutput out clob) is
+    jInput     json_object_t := json_object_t.parse(pInput);
+    nMrtDepId  number := jInput.get_Number('mrt_dep_id');
+    nMrtId     number := jInput.get_Number('mrt_id');
+    sBanNumber L_MORTGAGE_ADD.Value%type := jInput.get_String('ban_number');
+    dBanDate   L_MORTGAGE_ADD.Value%type := jInput.get_String('ban_date');
+  begin
+    Update_Mortgage_Attr(nMrtDepId, nMrtId, 'BASIS_BAN_NUMBER', sBanNumber);
+    Update_Mortgage_Attr(nMrtDepId, nMrtId, 'DATEDOG', dBanDate);
+
+    update z_116_loan_mortgage_info t
+       set t.basis_ban_number = sBanNumber,
+           t.basis_ban_date   = dBanDate
+     where t.mrt_dep_id = nMrtDepId
+       and t.mrt_id = nMrtId;
+
+    pOutput := '1';
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  Procedure Get_Loans(pInput  in clob,
+                      pOutput out clob) is
+  begin
+    if pInput is not null then
+      null;
+    end if;
+
+    select json_arrayagg(json_object('dep_id' value f.dep_id,
+                                     'id' value f.id,
+                                     'mrt_dep_id' value f.mrt_dep_id,
+                                     'mrt_id' value f.mrt_id) returning clob)
+      into pOutput
+      from z_116_loan_mortgage_info f
+     where f.state in ('NEW', 'ERROR');
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  Procedure Get_Mortgage_Info(pInput  in clob,
+                              pOutput out clob) is
+    Jinput    Json_Object_t := Json_Object_t.Parse(pInput);
+    nMrtDepId number := Jinput.Get_Number('mrt_dep_id');
+    nMrtId    number := Jinput.Get_Number('mrt_id');
+    v_Object  Json_Object_t := Json_Object_t();
+    rMrtInfo  z_116_Loan_Mortgage_Info%rowtype;
+  begin
+    select *
+      into rMrtInfo
+      from z_116_Loan_Mortgage_Info t
+     where t.Mrt_Dep_Id = nMrtDepId
+       and t.Mrt_Id = nMrtId
+       and t.state in ('NEW', 'ERROR', 'BAN_REMOVED');
+
+    if rMrtInfo.basis_ban_number is null then
+      select Lm.Value
+        into rMrtInfo.basis_ban_number
+        from l_Mortgage_Add Lm
+       where Lm.Dep_Id = rMrtInfo.Mrt_Dep_Id
+         and Lm.Id = rMrtInfo.Mrt_Id
+         and Lm.Code = 'BASIS_BAN_NUMBER';
+    end if;
+
+    if rMrtInfo.remove_ban_number is null then
+      rMrtInfo.remove_ban_number := remove_ban_number();
+
+      update z_116_loan_mortgage_info t
+         set row = rMrtInfo
+       where t.mrt_dep_id = rMrtInfo.Mrt_Dep_Id
+         and t.mrt_id = rMrtInfo.Mrt_Id;
+    end if;
+
+    v_Object.Put('mrt_dep_id', rMrtInfo.Mrt_Dep_Id);
+    v_Object.Put('mrt_id', rMrtInfo.Mrt_Id);
+    v_Object.Put('mrt_type', rMrtInfo.Mrt_Type);
+    v_Object.Put('regsign', rMrtInfo.Regsign);
+    v_Object.Put('body_num', rMrtInfo.Body_Num);
+    v_Object.Put('chassis_num', rMrtInfo.Chassis_Num);
+    v_Object.Put('engine_num', rMrtInfo.Engine_Num);
+    v_Object.Put('remove_ban_number', rMrtInfo.Remove_Ban_Number);
+    v_Object.Put('basis_ban_number', rMrtInfo.Basis_Ban_Number);
+    v_Object.Put('remove_ban_date',
+                 to_char(rMrtInfo.Remove_Ban_Date, 'yyyy-mm-dd'));
+
+    pOutput := v_Object.To_Clob;
+
+  exception
+    when no_data_found then
+      pOutput := '{}';
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  Procedure Update_Mortgage_Remove_Ban_Info(pInput  in clob,
+                                            pOutput out clob) is
+    jInput      Json_Object_t := Json_Object_t.Parse(pInput);
+    nMrt_Dep_Id number := jInput.Get_Number('mrt_dep_id');
+    nMrt_Id     number := jInput.Get_Number('mrt_id');
+    sState      varchar2(1) := jInput.get_String('state');
+    cJson       clob;
+    sNote       z_116_Loan_Mortgage_Info.Cancel_Note%type;
+  begin
+    if sState != 'C' then
+      cJson := jInput.Get_Clob('json');
+      update z_116_Loan_Mortgage_Info
+         set state = decode(sState, 'S', 'BAN_REMOVED', 'ERROR'),
+             json  = cJson
+       where Mrt_Dep_Id = nMrt_Dep_Id
+         and Mrt_Id = nMrt_Id;
+    else
+      sNote := jInput.get_String('cancel_note');
+      update z_116_Loan_Mortgage_Info
+         set state       = 'CANCELED',
+             cancel_note = sNote
+       where Mrt_Dep_Id = nMrt_Dep_Id
+         and Mrt_Id = nMrt_Id;
+    end if;
+
+    commit;
+
+    pOutput := 'null';
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure Get_Mortgages_By_Uniqnum(pInput  clob,
+                                     pOutput out clob) is
+    jInput   Json_Object_t := Json_Object_t.Parse(pInput);
+    sUniqnum t_deaprm.parvalue%type := jInput.get_String('uniqnum');
+    nDepId   number;
+    nId      number;
+  begin
+    c_pkgconnect.popen();
+
+    select w.dep_id, w.id
+      into nDepId, nId
+      from T_DEAPRM w
+     where w.parvalue = sUniqnum
+       and w.dea_id =
+           (select id from T_DEAPRMDSC_STD where code = 'L_UZ_UNIQNUM');
+
+    select json_arrayagg(json_object('mrt_dep_id' value m.Dep_Id,
+                                     'mrt_id' value m.Id,
+                                     'state' value m.state,
+                                     'client' value m.client,
+                                     'mrt_type' value m.mrt_type,
+                                     'mrt_name' value m.mrt_name,
+                                     'mark' value m.mark,
+                                     'mortgage_cost' value m.mortg_cost,
+                                     'description' value m.dscr) returning clob)
+      into pOutput
+      from (select m.Dep_Id,
+                   m.Id,
+                   mi.state,
+                   (select g_pkgcli.fGetCliLongName(td.cli_dep_id, td.cli_id)
+                      from t_dea td
+                     where td.dep_id = nDepId
+                       and td.id = nId) as client,
+                   (select STYP from L_ENSDSC_STD where ID = m.ens_id) as mrt_type,
+                   (select ma.value
+                      from L_MORTGAGE_ADD ma
+                     where ma.dep_id = md.mrt_dep_id
+                       and ma.id = md.mrt_id
+                       and ma.code = 'NAMEZAL') as mrt_name,
+                   v.mark,
+                   m.mortg_cost,
+                   m.dscr
+              from l_Mrtdea Md
+              join l_Mortgage m
+                on m.Dep_Id = Md.Mrt_Dep_Id
+               and m.Id = Md.Mrt_Id
+              left join l_Vehicle v
+                on v.Dep_Id = m.Dep_Id
+               and v.Id = m.Id
+              left join z_116_loan_mortgage_info mi
+                on mi.mrt_dep_id = md.mrt_dep_id
+               and mi.mrt_id = md.mrt_id
+             where Md.Dea_Dep_Id = nDepId
+               and Md.Dea_Id = nId
+               and m.Ens_Id in
+                   (select ID
+                      from L_ENSDSC_STD
+                     where STYP in ('REALTY', 'AUTO', 'EQUIP'))) m
+     order by m.state nulls first;
+
+  exception
+    when no_data_found then
+      pOutput := '[]';
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure Add_New_Mortgage_Info(pInput  clob,
+                                  pOutput out clob) is
+    jInput     Json_Object_t := Json_Object_t.Parse(pInput);
+    aMortgages json_array_t := jInput.get_Array('mortgages');
+    jMrt       Json_Object_t;
+    nMrtDepId  number;
+    nMrtId     number;
+    rRow       z_116_loan_mortgage_info%rowtype;
+  begin
+    for i in 0 .. aMortgages.Get_Size() - 1
+    loop
+      jMrt      := treat(aMortgages.get(i) as json_object_t);
+      nMrtDepId := jMrt.Get_Number('mrt_dep_id');
+      nMrtId    := jMrt.Get_Number('mrt_id');
+      rRow      := null;
+
+      select md.dea_dep_id,
+             md.dea_id,
+             md.Mrt_Dep_Id,
+             md.Mrt_Id,
+             e.styp,
+             v.Regsign,
+             v.Body_Num,
+             v.Chassis_Num,
+             v.Engine_Num
+        into rRow.Dep_Id,
+             rRow.Id,
+             rRow.Mrt_Dep_Id,
+             rRow.Mrt_Id,
+             rRow.Mrt_Type,
+             rRow.Regsign,
+             rRow.Body_Num,
+             rRow.Chassis_Num,
+             rRow.Engine_Num
+        from l_Mrtdea Md, l_mortgage m, l_ensdsc_std e, l_Vehicle v
+       where Md.Mrt_Dep_Id = nMrtDepId
+         and Md.Mrt_Id = nMrtId
+         and m.dep_id = md.mrt_dep_id
+         and m.id = md.mrt_id
+         and e.id = m.ens_id
+         and v.Dep_Id(+) = Md.Mrt_Dep_Id
+         and v.Id(+) = Md.Mrt_Id;
+
+      Add_Mortgage_Info(rRow);
+    end loop;
+
+    begin
+      insert into z_116_ban_loans
+        (dep_id, id, o_date)
+      values
+        (rRow.Dep_Id, rRow.Id, trunc(sysdate));
+    exception
+      when dup_val_on_index then
+        null;
+    end;
+
+    pOutput := '1';
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  Procedure Save_File(pInput  in clob,
+                      pOutput out clob) is
+    Jinput     Json_Object_t := Json_Object_t.Parse(pInput);
+    Nblob      blob;
+    Ndep_Id    number := Jinput.Get_Number('dep_id');
+    Nid        number := Jinput.Get_Number('id');
+    Nfile_Name varchar2(250) := Jinput.Get_String('file_name');
+    Nfile      clob := Jinput.Get_Clob('file');
+    Dt         t_Deadoc%rowtype;
+  begin
+    c_Pkgconnect.Popen();
+
+    begin
+      select * into Dt from t_Deadoc where Code = 'DOC.CRED.ZAPR';
+    exception
+      when No_Data_Found then
+        Raise_Application_Error(-20000,
+                                Localfrmt('Тип документа %%0:s не существует',
+                                          Vargs('DOC.CRED.ZAPR')));
+    end;
+
+    Nblob := Base64Decode(Nfile);
+
+    update l_Reqdeados
+       set Datablob = Nblob,
+           Extfile  = Nfile_Name
+     where Dep_Id = Ndep_Id
+       and Id = Nid
+       and Doctype = Dt.Id;
+
+    if sql%notfound then
+      insert into l_Reqdeados
+        (Dep_Id, Id, Doctype, Datablob, Extfile)
+      values
+        (Ndep_Id, Nid, Dt.Id, Nblob, Nfile_Name);
+    end if;
+
+    commit;
+
+    pOutput := 'null';
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  Procedure Save_File_To_Doc(i_New_Doc_Id number,
+                             i_File_Name  varchar2,
+                             p_Blob       blob) is
+    v_Pid        number;
+    Lobobj       blob;
+    sExt         varchar2(10) := REGEXP_SUBSTR(i_File_Name, '\.\w+$');
+    sDocType     T_DEADOC_STD.ID%TYPE;
+    v_New_Doc_Id number := i_New_Doc_Id;
+    v_New_Nord   number;
+    v_New_Nver   number;
+    v_Real_Nord  number;
+  begin
+    select ID into sDocType from T_DEADOC_STD where CODE = 'DOC.CRED.ZAPR';
+
+    -- 1-step
+    t_Pkgdocdos.Pnewdoclst(Pid        => v_New_Doc_Id,
+                           Pnord      => v_New_Nord,
+                           Pnver      => v_New_Nver,
+                           Pdoctype   => sDocType,
+                           Pdrf_Id    => null,
+                           Plongname  => i_File_Name,
+                           Pdocdate   => null,
+                           Pdocnum    => '',
+                           Pcopyfl    => '0',
+                           Pdoccpycnt => 1,
+                           Pexpdate   => null,
+                           Pdocpubl   => '',
+                           Pdocdsc    => '',
+                           Pnotifyfl  => '0',
+                           Pstorage   => '',
+                           Preal_Nord => v_Real_Nord);
+
+    -- 2-step
+    insert into t_Docecpy
+      (Dbfl, Fullpath, Docblb, Fileext)
+    values
+      ('1', null, p_Blob, sExt)
+    returning Id, Docblb into v_Pid, Lobobj;
+
+    update t_Doccliver
+       set Dec_Id = v_Pid
+     where Id = v_New_Doc_Id
+       and Nord = v_New_Nord
+       and Nver = v_New_Nver;
+
+    --  t_Pkgdocdosext.Copyecopytoextdb(v_Pid);
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  Procedure Save_File_To_Loan(pInput  in clob,
+                              pOutput out clob) is
+    Jinput      Json_Object_t := Json_Object_t.Parse(pInput);
+    v_Dep_Id    number := Jinput.Get_Number('dep_id');
+    v_Id        number := Jinput.Get_Number('id');
+    v_File_Name varchar2(250) := Jinput.Get_String('file_name');
+    v_Clob      clob := Jinput.Get_Clob('file');
+    v_Blob      blob;
+    v_Doc_Id    number;
+  begin
+    c_Pkgconnect.Popen();
+
+    select Ds.Id
+      into v_Doc_Id
+      from t_Docdos Ds
+     where Ds.Dep_Id = v_Dep_Id
+       and Ds.Ord_Id = v_Id;
+
+    v_Blob := Base64Decode(v_Clob);
+
+    Save_File_To_Doc(v_Doc_Id, v_File_Name, v_Blob);
+
+    pOutput := 'null';
+  exception
+    when others then
+      Raise_Application_Error(-20001,
+                              'Error during Save File to Document: ' ||
+                              sqlerrm);
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure Save_Garov_Mortgage_By_Uniqnum(sUniqnum in varchar2) is
+    nDepId number;
+    nId    number;
+  begin
+    c_pkgconnect.popen();
+
+    select w.dep_id, w.id
+      into nDepId, nId
+      from T_DEAPRM w
+     where w.parvalue = trim(sUniqnum)
+       and w.dea_id =
+           (select id from T_DEAPRMDSC_STD where code = 'L_UZ_UNIQNUM');
+
+    insert into z_116_garov_mortgage
+      (dep_id, id, mrt_dep_id, mrt_id, uniqnum, state, reg_code)
+      select nDepId,
+             nId,
+             Md.Mrt_Dep_Id,
+             Md.Mrt_Id,
+             trim(sUniqnum),
+             'NEW',
+             json_value(L_PKGENSIMP.fGetBodyJson300FromSql(Md.Mrt_Dep_Id,
+                                                           Md.Mrt_Id),
+                        '$.code')
+        from l_Mrtdea Md
+        join l_mortgage m
+          on m.dep_id = Md.Mrt_Dep_Id
+         and m.id = Md.Mrt_Id
+       where Md.Dea_Dep_Id = nDepId
+         and Md.Dea_Id = nId
+         and m.Ens_Id in
+             (select ID from L_ENSDSC_STD where STYP in ('REALTY', 'AUTO'));
+
+  exception
+    when no_data_found then
+      insert into z_116_garov_not_found (uniqnum) values (trim(sUniqnum));
+
+    when dup_val_on_index then
+      null;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  Procedure Get_Garov_Mortgages(pInput  in clob,
+                                pOutput out clob) is
+  begin
+    if pInput is not null then
+      null;
+    end if;
+
+    select json_arrayagg(json_object('dep_id' value f.dep_id,
+                                     'id' value f.id,
+                                     'mrt_dep_id' value f.mrt_dep_id,
+                                     'mrt_id' value f.mrt_id,
+                                     'reg_code' value f.reg_code) returning clob)
+      into pOutput
+      from z_116_garov_mortgage f
+     where f.state = 'NEW'
+       and f.reg_code is not null
+       and rownum < 20000;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure Update_Garov_Mortgage(pInput clob) is
+    jInput    Json_Object_t := Json_Object_t.Parse(pInput);
+    nDepId    number := jInput.get_Number('dep_id');
+    nId       number := jInput.get_Number('id');
+    nMrtDepId number := jInput.get_Number('mrt_dep_id');
+    nMrtId    number := jInput.get_Number('mrt_id');
+    sState    z_116_garov_mortgage.state%type := jInput.get_String('state');
+    jGarov    Json_Object_t := jInput.get_Object('garov_json');
+    sGarov    z_116_garov_mortgage.garov_json%type;
+  begin
+    c_pkgconnect.popen();
+
+    if jGarov is not null then
+      sGarov := jGarov.To_String;
+    end if;
+
+    update z_116_garov_mortgage
+       set garov_json = sGarov,
+           state      = sState,
+           updated_at = sysdate
+     where dep_id = nDepId
+       and id = nId
+       and mrt_dep_id = nMrtDepId
+       and mrt_id = nMrtId;
+  end;
+
+end Z_116_PKG_LOAN_MORTGAGE_INFO;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC_DET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_ENSDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MORTGAGE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MORTGAGE_ADD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MRTDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REQDEADOS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_VEHICLE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEADOC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPRM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPRMDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCCLIVER"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCDOS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCECPY"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_BAN_LOANS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_GAROV_MORTGAGE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_GAROV_NOT_FOUND"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_LOAN_MORTGAGE_INFO"/>
+    </PKGDPNENT>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDEP"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGACC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGENSIMP"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_ASGN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCBAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDOCDOS"/>
+    </PKGDPNPKG>
+    <PKGDPNSEQ>
+      <LINK:SEQ 
+        REF_NAME="Z_116_LOAN_MORTGAGE_INFO_SQ"/>
+    </PKGDPNSEQ>
+  </PKG>
+</DDC>

@@ -1,0 +1,440 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_S_SVD_001" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="0DB6C247F50F13B047FEEEB30952237A">
+  <PKG 
+    NAME="Z_116_PKG_S_SVD_001">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_S_SVD_001 is
+
+  /* Основая процедура для предподготовки данных */
+  procedure pEXEC( pDFROM date, pDEP_ID number, pDEP2_CODE VARCHAR2,
+                   pVAL_CODE VARCHAR2, pVAL_ID number, pSTATE VARCHAR2,
+                   pUSFL number, pMFL number, pCSHFL number,
+                   pUS VARCHAR2, pIDTUS number, pPart number,
+                   pIsRecalc  number
+  );
+
+end Z_116_PKG_S_SVD_001;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_S_SVD_001 is
+
+  /* Функция проверки существования данных за день */
+  function fIsExistsDataByDate(pDoper date) return boolean
+  is
+   vIsExists number;
+  begin
+
+    select count(*)
+      into vIsExists
+      from Z_116_TB_S_SVD_001_DATA d
+     where d.doper = pDoper
+       and rownum = 1;
+
+    if (vIsExists != 0) then
+      return true;
+    else
+      return false;
+    end if;
+
+  end fIsExistsDataByDate;
+
+  procedure prepareDataForReport(pDoper date) is
+    vAnlCut number := T_ASGN.FCODE2ID('DEPARTMENT');
+    vLockUser varchar2(400);
+    vLoclSid number;
+
+    RESOURCE_BUSY EXCEPTION;
+    PRAGMA EXCEPTION_INIT(RESOURCE_BUSY, -54);
+  begin
+
+    begin
+
+      if ( fIsExistsDataByDate(pDoper) ) then
+         execute immediate 'alter table Z_116_TB_S_SVD_001_DATA truncate partition for( to_date('''|| to_char(pDoper,'dd.mm.yyyy') ||''',''dd.mm.yyyy'') )';
+      end if;
+
+      execute immediate 'lock table Z_116_TB_S_SVD_001_DATA
+                              partition for( to_date('''|| to_char(pDoper,'dd.mm.yyyy') ||''',''dd.mm.yyyy'') )
+                              in exclusive mode nowait';
+
+      exception
+        when RESOURCE_BUSY then
+          RAISE_APPLICATION_ERROR(-20001,
+                                LOCALIZE('Запущен пересчет данных за: ' || to_char(pDoper, 'dd.mm.yyyy') ||
+                                                            ', другим пользователем. Пожалуйста, дождитесь окончания пересчета данных за эту дату.',
+                                         'PKG',
+                                         'Z_116_PKG_S_SVD_001'));
+    end;
+
+    insert into Z_116_TB_S_SVD_001_DATA
+      (doper, fl, n, docnum,
+       lcode, docstate, usr_id, accdb,
+       executor, sdok, nat_sdok, val_code,
+       doctype, fldep_id1, fldep_id2, flval_id,
+       flonpod1, flonpod2, flstate, flmfl,
+       flcshfl, flusrid, x_ID, j_ID,
+       j_BOP_ID, j_NOPER, rn)
+      with X as
+       (select /*+ materialize use_hash(t d) full(t) index_ffs(d PK_LEDACC_DET) parallel(8) ordered */
+        distinct t.ID, t.NORD
+          from T_TRNDTL t
+          join LEDACC_DET d
+            on d.DEP_ID = t.DEP_ID
+           and d.ACC_ID = t.ACC_ID
+         where t.POSTFL = 1
+           and t.DET_ID in (1, 2)
+           and t.DOPER = pDoper
+           and d.SGN_ID = vAnlCut)
+      select pDoper,
+             fl,
+             1 as n,
+             code,
+             lcode,
+             state,
+             usr_id,
+             accdt,
+             c_pkgusr.fcode(usr_id) as US,
+             /*decode( pUSFL,0,'0',c_pkgusr.fcode(usr_id) ) as US1,*/
+             To_Money(sdok) as sdok,
+             To_Money(nat_sdok) as nat_sdok,
+             t_pkgval.fGetCode(val_id) as val_code,
+             doctype,
+             /*dep2,*/
+             flDep_Id1,
+             flDep_Id2,
+             flVal_Id,
+             flOnPod1,
+             flOnPod2,
+             flState,
+             flMFL,
+             flCSHFL,
+             usr_id as flusrid,
+             x_ID,
+             j_ID,
+             j_BOP_ID,
+             j_NOPER,
+             row_number() over (order by ACCDT,usr_id,FL,val_id, doctype, sdok) as rn
+        from (select L.PART_CODE as FL,
+                     nvl(o.CODE, at1.CODE) as CODE,
+                     substr(L.CODE, 1, 5) as LCODE,
+                     (select S.Longname
+                        from T_BOP_STAT_STD S, T_PROCESS P, T_PROCMEM M
+                       where M.DEP_ID = o.DEP_ID
+                         and M.ORD_ID = o.ID
+                         and M.MAINFL = '1'
+                         and P.ID = M.ID
+                         and S.ID = P.BOP_ID
+                         and S.NORD = P.NSTAT
+                         and ROWNUM = 1) as STATE,
+                     null as doctype,
+                     /* as filter too where (pUS is null or pIDTUS = usr_id)*/
+                     coalesce(at1.TUS_ID,
+                              j.TUS_ID,
+                              (select j2.TUS_ID
+                                 from T_OPERMOV m1, T_OPERJRN j2
+                                where m1.TRA_ID = x.ID
+                                  and j2.ID = m1.ID
+                                  and j2.NJRN = m1.NJRN
+                                  and rownum = 1)) as USR_ID,
+                     A.CODE as ACCDT,
+                     nvl(D1.SDOK, D0.SDOK) as SDOK,
+                     nvl(nvl(D1.NAT_SDOK, D0.NAT_SDOK),
+                     nvl(D1.SDOK, D0.SDOK)) as NAT_SDOK,
+                     nvl(D1.VAL_ID, D0.VAL_ID) as VAL_ID,
+                     /*nvl(pDEP2_CODE,c_pkgdep.fGetCodeDep(DT.PK1)) DEP2,*/
+
+                     /* фильтры */
+
+                     /*1 and t.DEP_ID = pDEP_ID*/
+                     D0.Dep_Id as flDep_Id1,
+                     D1.Dep_Id as flDep_Id2,
+
+                     /*2 and (pVAL_CODE is null or pVAL_ID = T.VAL_ID) */
+                     D0.Val_Id as flVal_Id,
+
+                     /*3 and (pDEP2_CODE is null or to_char(c_pkgdep.fGetIdDep(pDEP2_CODE)) = d.PK1)*/
+
+                     (select tmp.pk1 from LEDACC_DET tmp where tmp.dep_id = d0.dep_id and tmp.ACC_ID = d0.acc_id and tmp.SGN_ID = vAnlCut) as flOnPod1,
+                     (select tmp.pk1 from LEDACC_DET tmp where tmp.dep_id = d1.dep_id and tmp.ACC_ID = d1.acc_id and tmp.SGN_ID = vAnlCut) as flOnPod2,
+
+                     /*4 and (pSTATE is null or T_PKGRUNOPRUTL.fStatCodeByOrd(o.DEP_ID,o.ID) = pSTATE)*/
+                     (select S.CODE
+                        from T_BOP_STAT_STD S, T_PROCESS P, T_PROCMEM M
+                       where M.DEP_ID = o.DEP_ID
+                         and M.ORD_ID = o.ID
+                         and M.MAINFL = '1'
+                         and P.ID = M.ID
+                         and S.ID = P.BOP_ID
+                         and S.NORD = P.NSTAT
+                         and ROWNUM = 1) as flState,
+
+                     /*5 and (pMFL is null or pMFL = (select decode(count(*),0,0,1) from T_MASJRNDET where PRO_ID = j.ID and PRO_NJRN = j.NJRN)) */
+                     (select decode(count(*), 0, 0, 1)
+                        from T_MASJRNDET
+                       where PRO_ID = j.ID
+                         and PRO_NJRN = j.NJRN) as flMFL,
+
+                     /*6 and (pCSHFL = 0 or o.ORD_ID+0 <> c_pkgEntity.fID('S_ORDCASH'))*/
+                     o.ORD_ID + 0 as flCSHFL,
+                     /* + дополнительные столбцы для расчета doctype*/
+
+                     x.ID as x_ID ,
+                     j.ID as j_ID,
+                     j.BOP_ID as j_BOP_ID,
+                     j.NOPER as j_NOPER
+                from X
+                left join T_TRNDTL D0
+                  on D0.ID = X.ID
+                 and D0.NORD = X.NORD
+                 and D0.INCOMFL = '0'
+                left join T_TRNDTL D1
+                  on D1.ID = X.ID
+                 and D1.NORD = X.NORD
+                 and D1.INCOMFL = '1'
+                join G_ACCBLN A
+                  on A.DEP_ID = nvl(D1.DEP_ID, D0.DEP_ID)
+                 and A.ID = nvl(D1.ACC_ID, D0.ACC_ID)
+                join LEDACC_STD L
+                  on L.ID = A.CHA_ID
+                left join LEDACC_DET DT
+                  on DT.DEP_ID = A.DEP_ID
+                 and DT.ACC_ID = A.ID
+                 and DT.SGN_ID = vAnlCut
+                left join T_OPERJRN J
+                  on J.TRA_ID = x.ID
+                left join T_ORD o
+                  on o.DEP_ID = j.DEP_ID
+                 and o.ID = J.ORD_ID
+                left join T_TRNATR at1
+                  on at1.ID = X.ID
+                 and at1.NORD = X.NORD);
+    commit;
+  end prepareDataForReport;
+
+  procedure pInsertDataByFilter(pDFROM     date,
+                               pDEP_ID    number,
+                               pDEP2_CODE VARCHAR2,
+                               pVAL_CODE  VARCHAR2,
+                               pVAL_ID    number,
+                               pSTATE     VARCHAR2,
+                               pUSFL      number,
+                               pMFL       number,
+                               pCSHFL     number,
+                               pUS        VARCHAR2,
+                               pIDTUS     number,
+                               pPart      number)
+  is
+    cRespRows CONSTANT PLS_INTEGER DEFAULT 1000000;
+    vFlOnPodTrans LEDACC_DET.PK1%type := to_char(c_pkgdep.fGetIdDep(pDEP2_CODE));
+    v_sql VARCHAR2(4000);
+  begin
+
+    execute immediate 'truncate table Z_116_TB_S_SVD_001';
+
+    v_sql := 'insert into Z_116_TB_S_SVD_001 ';
+
+    v_sql := v_sql ||
+             '
+             select d.fl,
+                     d.n,
+                     d.docnum as code,
+                     d.lcode,
+                     d.docstate as state,
+                     coalesce((select U_PKGRPT_TYPEDOC.fGetDocTypeName(nvl(h.PARENT_ID,d.j_ID)) as RKO_NAME
+                           from T_PROCINH h
+                           where h.CHILD_ID(+) = d.j_ID
+                             and rownum = 1)
+                     ,decode(j_BOP_ID, BS_BOP.fGetBopID(''ACC_GL'')
+                            , BS_SCEN.fGetScenName(j_BOP_ID,j_NOPER,1)
+                            , BS_BOP.fGetBopName(j_BOP_ID))
+                     ,(select BS_BOP.fGetBopName(j2.BOP_ID)
+                         from T_OPERMOV m1, T_OPERJRN j2
+                        where m1.TRA_ID = x_ID
+                          and j2.ID = m1.ID and j2.NJRN = m1.NJRN
+                          and rownum = 1)
+                      ) as doctype,
+                     d.usr_id,
+                     d.accdb as accdt,
+                     d.executor as US,
+                     decode( ' || pUSFL || ' ,0,''0'',c_pkgusr.fcode(usr_id)) as US1,
+                     d.sdok,
+                     d.nat_sdok,
+                     d.val_code
+                from Z_116_TB_S_SVD_001_DATA d';
+
+     /* + filter */
+
+     /* обязательные условия */
+
+     v_sql := v_sql || ' where d.doper = to_date(''' || to_char(pDFROM,'dd.mm.yyyy') || ''', ''dd.mm.yyyy'')'
+                    || ' and d.flDep_Id1 = ' || pDEP_ID || ' and d.flDep_Id2 = ' || pDEP_ID
+                    || ' and (' || vFlOnPodTrans || ' = d.flOnPod1
+                           or ' || vFlOnPodTrans || ' = d.flOnPod2)'
+                    || ' and d.rn <= ' || pPart * cRespRows;
+
+     /* не обязательные условия */
+
+     /*2 and (pVAL_CODE is null or pVAL_ID = T.VAL_ID) */
+     if trim(pVAL_CODE) is not null then
+       v_sql := v_sql || ' and d.flVal_Id = ' || pVAL_ID;
+     end if;
+
+     /*4 and (pSTATE is null or T_PKGRUNOPRUTL.fStatCodeByOrd(o.DEP_ID,o.ID) = pSTATE)*/
+     if trim(pSTATE) is not null then
+       v_sql := v_sql || ' and d.flState = ''' || pSTATE || '''';
+     end if;
+
+     /*5 and (pMFL is null or pMFL = (select decode(count(*),0,0,1) from T_MASJRNDET where PRO_ID = j.ID and PRO_NJRN = j.NJRN)) */
+     if trim(pMFL) is not null then
+       v_sql := v_sql || ' and d.flMFL = ' || pMFL;
+     end if;
+
+     /*6 and (pCSHFL = 0 or o.ORD_ID+0 <> c_pkgEntity.fID('S_ORDCASH'))*/
+     if trim(pCSHFL) != 0 then
+       v_sql := v_sql || ' and d.flCSHFL <> ' || c_pkgEntity.fID('S_ORDCASH');
+     end if;
+
+     /* as filter too where (pUS is null or pIDTUS = usr_id)*/
+     if trim(pUS) is not null then
+       v_sql := v_sql || ' and d.flusrid = ' || pIDTUS;
+     end if;
+
+     EXECUTE IMMEDIATE v_sql;
+
+  end pInsertDataByFilter;
+
+
+  /* pDFROM - Дата, за
+     pDEP_ID - ID подразделения
+     pVAL_CODE - Код валюты
+     pVAL_ID - Идентификатор валюты
+     pDEP2_CODE - На подразделение
+     pUSFL - В разрезе исполнителей
+     pSTATE - Состояние
+     pMFL - Учет документов, порожденных массовыми операциями (логич 3 позиции)
+     pCSHFL - Исключить кассовые документы (логич 2 позиции)
+     pUS - Код исполнителя
+     pIDTUS - Идентификатор исполнителя
+     pIsRecalc - Признак пересчета отчета */
+
+  procedure pEXEC(pDFROM     date,
+                  pDEP_ID    number,
+                  pDEP2_CODE VARCHAR2,
+                  pVAL_CODE  VARCHAR2,
+                  pVAL_ID    number,
+                  pSTATE     VARCHAR2,
+                  pUSFL      number,
+                  pMFL       number,
+                  pCSHFL     number,
+                  pUS        VARCHAR2,
+                  pIDTUS     number,
+                  pPart      number,
+                  pIsRecalc  number) is
+
+  begin
+
+   if( pIsRecalc = 1 or fIsExistsDataByDate( pDFROM ) = false ) then
+       /* Либо запущен признак пересчета, либо нет данных за этот день */
+       prepareDataForReport( pDFROM );
+   end if;
+
+   pInsertDataByFilter( pDFROM,
+                        pDEP_ID,
+                        pDEP2_CODE,
+                        pVAL_CODE,
+                        pVAL_ID,
+                        pSTATE,
+                        pUSFL,
+                        pMFL,
+                        pCSHFL,
+                        pUS,
+                        pIDTUS,
+                        pPart );
+
+  end pEXEC;
+end Z_116_PKG_S_SVD_001;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC_DET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_MASJRNDET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERMOV"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNATR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNDTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_TB_S_SVD_001_DATA"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="TO_MONEY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDEP"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGUSR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_ASGN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

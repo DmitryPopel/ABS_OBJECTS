@@ -1,0 +1,415 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGTRNACC" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="1CC2F4D72FD372390F491EB9C7A6AA9D">
+  <PKG 
+    NAME="Z_116_PKGTRNACC">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGTRNACC is
+/**
+*  Пакет методов обработки транзакций по счетам
+*
+* @author Анатолий Бондаренко
+* @version 1.2
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+  /** Функция-селектор - проверка необходимости обработки проводки
+  * <br/><i>С версии 1.0</i>
+  * @param lsKey набор значений для параметров
+  * @param cNTF ММС (код)
+  * @param cRCV Получатель (код)
+  * @param idProc Процесс получателя (если известен)
+  * @return признак необходимости обработки (1-необходимо обработать; 0-пропустить)
+  */
+  function fChkPost(lsKey in C_PkgStr.TPrmTBlLst
+                    ,cNTF in varchar2
+                    ,cRCV in varchar2
+                    ,idProc in number
+                  ) return integer;
+
+  /** Обработка проводки по счетам
+  * <br/><i>С версии 1.0</i>
+  * @param rHdr заголовок сообщения
+  * @param lsKey набор значений для параметров
+  * @param idProc Процесс получателя (если известен)
+  * @param iNJrn номер по журналу процесса отправителя
+  * @param cErrMsg Процесс отправител
+  * @return признак обработки
+  */
+  function fPost(
+     rHdr C_PkgNtf.TMsgHdr
+    ,lsKey in C_PkgStr.TPrmTBlLst
+    ,idProc in out number
+    ,iNJrn out number
+    ,cErrMsg out varchar2
+  ) return integer;
+
+  /** Функция-селектор - проверка необходимости обработки отката проводки
+  * <br/><i>С версии 1.0</i>
+  * @param lsKey набор значений для параметров
+  * @param cNTF ММС (код)
+  * @param cRCV Получатель (код)
+  * @param idProc Процесс получателя (если известен)
+  * @return признак необходимости обработки (1-необходимо обработать; 0-пропустить)
+  */
+  function fChkDel(
+     lsKey in C_PkgStr.TPrmTBlLst
+    ,cNTF in varchar2
+    ,cRCV in varchar2
+    ,idProc in number
+  ) return integer;
+
+  /**  Обработка отката проводки
+  * <br/><i>С версии 1.0</i>
+  * @param rHdr заголовок сообщения
+  * @param lsKey набор значений для параметров
+  * @param idProc Процесс получателя (если известен)
+  * @param iNJrn номер по журналу процесса отправителя
+  * @param cErrMsg Процесс отправител
+  * @return признак обработки
+  */
+  function fDel(
+     rHdr C_PkgNtf.TMsgHdr
+    ,lsKey in C_PkgStr.TPrmTBlLst
+    ,idProc in out number
+    ,iNJrn out number
+    ,cErrMsg out varchar2
+  ) return integer;
+
+end Z_116_PKGTRNACC;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGTRNACC is
+
+  --Объявление типов и переменных
+  idBopDEVOPR T_BOP_DSCR_STD.ID%type := bs_bop.fGetBopId('DEVOPR');
+
+
+------------------------------------------------------------
+
+  ----------------------------------------------------------------------
+  -- Подготовка информации по транзакции
+  ----------------------------------------------------------------------
+  function fGetTrnInf(r in out Z_116_EXPTRNACC%rowtype) return Z_116_EXPTRNACC%rowtype is
+    nCnt pls_integer;
+  begin
+
+    select  td.id,
+            td.nord,
+            td.incomfl,
+            td.doper,
+            td.dep_id,
+            td.acc_id,
+            b.code,
+            td.sdok,
+            td.val_id,
+            nvl(a.dscr, j.dscr),
+            t.id,
+            t.refer,
+            t.acqref_nr,
+            t.paysystem,
+            0
+          into
+            r.id,
+            r.nord,
+            r.incomfl,
+            r.doper,
+            r.acc_dep_id,
+            r.acc_id,
+            r.acc_code,
+            r.amount,
+            r.val_id,
+            r.dscr,
+            r.trn_id,
+            r.refer,
+            r.acqref_nr,
+            r.paysystem,
+            r.uploadfl
+          from t_trndtl td, T_OPERJRN j, n_devopr o, N_CRDINEKV t , T_TRNATR a, G_ACCBLN b
+          where td.id = r.id and td.nord = r.nord and td.incomfl = '1'
+            and td.id = j.tra_id
+            and j.dep_id = o.dep_id and j.ord_id = o.id
+            and o.trn_id = t.id
+            and a.id(+) = td.id
+            and a.nord(+) = td.nord
+            and td.dep_id = b.dep_id and td.acc_id = b.id;
+    return r;
+  exception
+    when NO_DATA_FOUND then
+      r.ID := null;
+      return r;
+
+  end fGetTrnInf;
+
+  -- Функция-селектор - проверка необходимости обработки проводки
+  function fChkPost(lsKey in C_PkgStr.TPrmTBlLst
+                    ,cNTF in varchar2
+                    ,cRCV in varchar2
+                    ,idProc in number
+                  ) return integer is
+    rInf  Z_116_EXPTRNACC%rowtype;
+    iCnt  integer;
+    idBop T_BOP_DSCR_STD.ID%type;
+  begin
+    -- проверим, что экспорт транзакций не выключен
+    if nvl(C_PKGPRM.fGetValPrm('Z_116_EXPTRNACCFL'), '0') = '0' then
+      if t_log.IsEnabled then
+        t_log.debug('Экспорт транзакций отключен в сиспаре Z_116_EXPTRNACCFL.', sType=>'PKG', sCode=>'Z_116_PKGTRNACC');
+      end if;
+      return 0;
+    end if;
+
+    -- Обрабатываем только проводки по балансовым счетам
+    if C_PkgNtf.fGetAttr(lsKey,'TRNTYP') <> C_JRN_ACCBLN then
+      return 0;
+    end if;
+    rInf.ID   := C_PkgNtf.fGetAttr(lsKey,'ID');
+    rInf.NORD := C_PkgNtf.fGetAttr(lsKey,'NORD');
+
+
+    -- проверим, что счет в проводке нас интересует
+    select count(1) into iCnt
+      from G_ACCBLN a, /*G_ACCBLNHST ah,*/ T_TRNDTL td1
+      where td1.ID = rInf.ID and td1.NORD = rInf.NORD and td1.sdok <> 0 and td1.INCOMFL = '1'  -- смотрим только дебетовые
+        and a.DEP_ID = td1.DEP_ID and a.ID = td1.ACC_ID
+        --and a.DEP_ID = ah.DEP_ID and a.ID = ah.ID and P_OPERDAY between ah.FROMDATE and ah.TODATE
+        and C_PKGPRM.fInList(a.code,'Z_116_EXPTRNACCLST') = 1;
+    if iCnt = 0 then
+      if t_log.IsEnabled then
+        t_log.debug('Транзакцию не экспортируем.', sType=>'PKG', sCode=>'Z_116_PKGTRNACC');
+      end if;
+      return 0;
+    end if;
+
+    -- Исключаем переоценку
+    select count(t.id) into iCnt
+      from t_trndtl t
+      where t.id = rInf.ID and t.nord = rInf.NORD
+        and nvl(t.sdok,0) = 0 and t.nat_sdok <> 0
+        and nvl(t.val_id,p_natval) <> p_natval;
+    if iCnt > 0 then
+      if t_log.IsEnabled then
+        t_log.debug('Транзакции переоценки не экспортируем.', sType=>'PKG', sCode=>'Z_116_PKGTRNACC');
+      end if;
+      return 0;
+    end if;
+
+    -- Проверим что транзакция инициирована при загрузке файла
+    begin
+      select BOP_ID into idBop from T_OPERJRN where TRA_ID=rInf.ID;
+    exception
+      when NO_DATA_FOUND then
+        t_log.debug('Транзакцию пропускаем.', sType=>'PKG', sCode=>'Z_116_PKGTRNACC');
+        return 0;
+    end;
+
+    --- если BOP_ID не DEVOPR, то пропускаем
+    if idBop != idBopDEVOPR then  --------------- !!!!!!!!!!!!!!!!!!! DEBUG
+      t_log.debug('Транзакция по счету инициирована не при загрузке файла.', sType=>'PKG', sCode=>'Z_116_PKGTRNACC');
+      return 0;
+    end if;
+
+    if t_log.IsEnabled then
+      t_log.debug('Экспорт транзакции подтвержден.', sType=>'PKG', sCode=>'Z_116_PKGTRNACC');
+    end if;
+    return 1;
+
+  end fChkPost;
+
+  -- Обработка проводки по счетам
+  function fPost(
+     rHdr C_PkgNtf.TMsgHdr
+    ,lsKey in C_PkgStr.TPrmTBlLst
+    ,idProc in out number
+    ,iNJrn out number
+    ,cErrMsg out varchar2
+  ) return integer is
+    rInf Z_116_EXPTRNACC%rowtype;
+
+  begin
+    rInf.ID   := C_PkgNtf.fGetAttr(lsKey,'ID');
+    rInf.NORD := C_PkgNtf.fGetAttr(lsKey,'NORD');
+
+    rInf := fGetTrnInf(rInf);
+
+    if t_log.IsEnabled then
+      t_log.debug('Атрибуты сообщения:', sType=>'PKG', sCode=>'Z_116_PKGTRNACC');
+      C_PkgStr.pTblLog(lsKey);
+    end if;
+
+    if rInf.Id is not null then
+      insert into Z_116_EXPTRNACC values rInf;
+    else
+      raise_application_error(-20000, Localize('Не найдена информация по транзакции при экспорте. Отключить экспорт можно в сиспаре Z_116_EXPTRNACCFL', 'PKG', 'Z_116_PKGTRNACC'));
+      return 2;
+    end if;
+
+    if t_log.IsEnabled then
+      t_log.debug('Экспорт транзакции выполнен.', sType=>'PKG', sCode=>'Z_116_PKGTRNACC');
+    end if;
+    return 1;
+
+  end fPost;
+
+  -- Проверка необходимости обработки отката проводки
+  function fChkDel(
+     lsKey in C_PkgStr.TPrmTBlLst
+    ,cNTF in varchar2
+    ,cRCV in varchar2
+    ,idProc in number
+  ) return integer is
+    rInf Z_116_EXPTRNACC%rowtype;
+    nCnt pls_integer;
+  begin
+    -- проверим, что экспорт транзакций не выключен? tckb
+    if nvl(C_PKGPRM.fGetValPrm('Z_116_EXPTRNACCFL'), '0') = '0' then
+      if t_log.IsEnabled then
+        t_log.debug('Экспорт транзакций отключен в сиспаре Z_116_EXPTRNACCFL. Обрабатывать отмену  транзакций тоже не будем.', sType=>'PKG', sCode=>'Z_116_PKGTRNACC');
+      end if;
+      return 0;
+    end if;
+
+    -- Обрабатываем только проводки по балансовым счетам
+    if C_PkgNtf.fGetAttr(lsKey,'TRNTYP') <> C_JRN_ACCBLN then
+      return 0;
+    end if;
+    rInf.ID   := C_PkgNtf.fGetAttr(lsKey,'ID');
+    rInf.NORD := C_PkgNtf.fGetAttr(lsKey,'NORD');
+
+    if t_log.IsEnabled then
+      t_log.debug('Z_116_PKGTRNACC.fChkDel. Атрибуты сообщения:', sType=>'PKG', sCode=>'Z_116_PKGTRNACC');
+      C_PkgStr.pTblLog(lsKey);
+    end if;
+
+    select sign(count(1)) into nCnt
+      from Z_116_EXPTRNACC z
+      where z.id = rInf.ID and z.nord = rInf.NORD;
+    if t_log.IsEnabled then
+      t_log.debug('Z_116_PKGTRNACC.fChkDel: nCnt = %0:s', vargs(nCnt), 'PKG', 'Z_116_PKGTRNACC');
+    end if;
+
+    return nCnt;
+  end fChkDel;
+
+  -- Обработка отката проводки
+  function fDel(
+     rHdr C_PkgNtf.TMsgHdr
+    ,lsKey in C_PkgStr.TPrmTBlLst
+    ,idProc in out number
+    ,iNJrn out number
+    ,cErrMsg out varchar2
+  ) return integer is
+    rInf Z_116_EXPTRNACC%rowtype;
+    nCnt pls_integer;
+  begin
+
+    rInf.ID   := C_PkgNtf.fGetAttr(lsKey,'ID');
+    rInf.NORD := C_PkgNtf.fGetAttr(lsKey,'NORD');
+
+  /*  select sign(count(1)) into nCnt
+      from Z_116_EXPTRNACC z
+        where z.id = rInf.ID and z.nord = rInf.NORD;
+    t_log.debug('Z_116_PKGTRNACC.fDel: nCnt = %0:s', vargs(nCnt), 'PKG', 'Z_116_PKGTRNACC');
+    if nCnt = 0 then
+      if t_log.IsEnabled then
+        t_log.debug('Z_116_PKGTRNACC.fDel: nCnt = %0:s', vargs(nCnt), 'PKG', 'Z_116_PKGTRNACC');
+      end if;
+    end if;
+*/
+    t_log.debug('Z_116_PKGTRNACC.fDel: tt 1 = %0:s', vargs(to_char(sysdate,'dd.mm.yyyy hh24:mi:ss')), 'PKG', 'Z_116_PKGTRNACC');
+    begin
+      update Z_116_EXPTRNACC z set z.uploadfl = z.uploadfl + 2
+        where z.id = rInf.ID and z.nord = rInf.NORD
+          and bitand(z.uploadfl, 2) = 0;
+
+      t_log.debug('Z_116_PKGTRNACC.fDel: rowcount = %0:s', vargs(sql%rowcount), 'PKG', 'Z_116_PKGTRNACC');
+      t_log.debug('Z_116_PKGTRNACC.fDel: tt 2 = %0:s', vargs(to_char(sysdate,'dd.mm.yyyy hh24:mi:ss')), 'PKG', 'Z_116_PKGTRNACC');
+    exception
+      when OTHERS then
+        raise_application_error(-20000, LocalFrmt('Ошибка отмены экспортируемой транзакции: ',vargs(substr(SQLERRM,1,250)),'PKG', 'Z_116_PKGTRNACC'));
+        return 2;
+    end;
+
+    t_log.debug('Z_116_PKGTRNACC.fDel: tt 3 = %0:s', vargs(to_char(sysdate,'dd.mm.yyyy hh24:mi:ss')), 'PKG', 'Z_116_PKGTRNACC');
+    return 1;
+  end fDel;
+
+end Z_116_PKGTRNACC;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_BOP"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDINEKV"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_DEVOPR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_DSCR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNATR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNDTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_EXPTRNACC"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_LOCID"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_NATVAL"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGNTF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGSTR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="T_TRNDTL_DET"/>
+    </PKGDPNDOM>
+  </PKG>
+</DDC>

@@ -1,0 +1,269 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PRC" 
+  KEY="Z_116_PRC_PROLONGATIONCREDIT" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="F2E961E9F5B19751A90227805F51808F">
+  <PRC 
+    NAME="Z_116_PRC_PROLONGATIONCREDIT">
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace procedure COLVIR.Z_116_PRC_PROLONGATIONCREDIT (pDop date, pDepCode varchar2, pDepId number,pProp number)
+
+as
+  nMainSID number:= sys_context('USERENV','SID');
+/*FDD-852*/
+
+begin
+
+  delete from Z_116_ProLongationLOAN where SID = nMainSID;
+    --удалить не существующие
+  delete from Z_116_ProLongationLOAN where SID not in (SELECT t.SID FROM v$session t);
+
+  delete from Z_116_ProlongationLOAN_Itog where SID = nMainSID;
+    --удалить не существующие
+  delete from Z_116_ProlongationLOAN_Itog where SID not in (SELECT t.SID FROM v$session t);
+
+  commit;
+
+ -- debug_pda('start1:' || to_char(sysdate,'dd/mm/yyyy hh24:mi:ss'));
+
+  if pDepCode is null or pDepCode = '00401' then
+
+  insert --+ parallel(8)
+   into Z_116_ProlongationLOAN
+ With dea as
+(select /*+ materialize use_nl(ld td o) */
+         1 as credittype,
+         ld.id,
+         ld.dep_id,
+         o.code,
+         null,
+         td.srv_dep_id,
+         td.todate
+
+    from l_dea ld, t_dea td, t_ord o
+   where ld.dep_id = td.dep_id
+     and ld.id = td.id
+     and o.dep_id = td.dep_id
+     and o.id = td.id)
+    select --+ use_nl(dea p m bs) parallel(8)
+   dea.*,nMainSID
+ from  dea, t_process p, t_procmem m, t_bop_stat bs
+        where p.id = m.id
+        and m.dep_id = dea.dep_id and m.ord_id = dea.id and m.mainfl = '1'
+        and bs.id = p.bop_id
+        and bs.nord = p.nstat
+        and bs.code in ('PD_OFF','ACTUAL','COMPLETION','FIN');
+
+  -- debug_pda('PART1:' || to_char(sysdate,'dd/mm/yyyy hh24:mi:ss'));
+  --- part 2
+    insert --+ parallel(8)
+   into Z_116_ProlongationLOAN
+  With dea as
+      (select /*+ materialize use_nl(ld td o)*/
+         666 as credittype,
+         ld.id,
+         ld.dep_id,
+         o.code,
+         null,
+         td.srv_dep_id,
+         td.todate
+   from t_dea td,t_ord o,l_ldea ld
+  where o.dep_id = td.dep_id
+        and o.id = td.id
+        and 2 = 2
+        and ld.dep_id = td.dep_id
+        and ld.id = td.id
+        and nvl(T_PkgDeaPrm.fParByCode(td.ID,td.DEP_ID,'LL_TECHOVER'),0) = 0)
+   select --+ use_nl(dea p m bs) parallel(8)
+        dea.*,nMainSID
+  from  dea, t_process p, t_procmem m, t_bop_stat bs
+        where p.id = m.id
+        and m.dep_id = dea.dep_id and m.ord_id = dea.id and m.mainfl = '1'
+        and bs.id = p.bop_id
+        and bs.nord = p.nstat
+        and bs.code in ('PD_OFF','ACTUAL','COMPLETION','FIN');
+     -- and td.id= '985712492'
+     -- and td.DEP_ID = '3040'
+    else
+
+  insert --+ parallel(8)
+   into Z_116_ProlongationLOAN
+ With dea as
+(select /*+ materialize use_nl(ld td o)*/
+         1 as credittype,
+         ld.id,
+         ld.dep_id,
+         o.code,
+         null,--T_PkgDeaPrm.fParByCode(ld.id, ld.dep_id,'L_UZ_UNIQNUM'),
+         td.srv_dep_id,
+         td.todate
+
+    from l_dea ld, t_dea td, t_ord o
+   where ld.dep_id = td.dep_id
+     and ld.id = td.id
+     and o.dep_id = td.dep_id
+     and o.id = td.id
+     and td.srv_dep_id in (select dep.id
+                                                     from c_dep_std dep
+                                                    start with dep.id = pDepId
+                                                  connect by prior dep.id = dep.id_hi)
+     -- and td.id= '985712492'
+     -- and td.DEP_ID = '3040'
+        )
+  select  --+ use_nl(dea p m bs) parallel(8) leading(dea)
+  dea.*,nMainSID
+  from dea, t_process p, t_procmem m, t_bop_stat bs
+        where p.id = m.id
+        and m.dep_id = dea.dep_id and m.ord_id = dea.id and m.mainfl = '1'
+        and bs.id = p.bop_id
+        and bs.nord = p.nstat
+        and bs.code in ('PD_OFF','ACTUAL','COMPLETION','FIN');
+
+  commit;
+
+  insert --+ parallel(8)
+   into Z_116_ProlongationLOAN
+  With
+ dea as
+  (select --+ materialize use_nl(ld td o dep)
+  666 as credittype,
+         ld.id,
+         ld.dep_id,
+         o.code,
+         null,--T_PkgDeaPrm.fParByCode(ld.id, ld.dep_id,'L_UZ_UNIQNUM'),
+         td.srv_dep_id,
+         td.todate
+   from t_dea td,t_ord o,l_ldea ld
+  where o.dep_id = td.dep_id
+        and o.id = td.id
+        and 2 = 2
+        and ld.dep_id = td.dep_id
+        and ld.id = td.id
+        and nvl(T_PkgDeaPrm.fParByCode(td.ID,td.DEP_ID,'LL_TECHOVER'),0) = 0
+        and td.srv_dep_id in
+        (select  dep.id as depid  from c_dep_std dep
+                                                    start with dep.id = pDepId
+                                                  connect by prior dep.id = dep.id_hi)
+
+
+        )
+  select --+ use_nl(dea p m bs) parallel(8) leading(dea)
+ dea.*,nMainSID
+ from  dea, t_process p, t_procmem m, t_bop_stat_std bs
+        where p.id = m.id
+        and m.dep_id = dea.dep_id and m.ord_id = dea.id and m.mainfl = '1'
+        and bs.id = p.bop_id
+        and bs.nord = p.nstat
+        and bs.code in ('PD_OFF','ACTUAL','COMPLETION','FIN');
+
+  commit;
+
+
+  end if;
+
+  if pProp = 1 then
+
+ insert /*+ parallel(8)*/ into Z_116_ProlongationLOAN_Itog
+  select --+ parallel(j 8) ordered use_hash(z j) full(z) full(j)
+         j.ord_id,
+         j.dep_id,
+         j.doper,
+         z.loan_label,
+         z.loantodate,
+         j.id,
+         j.njrn,
+         nMainSID,
+         j.dscr
+    from Z_116_ProLongationLOAN z,t_operjrn j  --, t_operdet d
+   where j.bop_id = 5024
+     and j.undofl != 1
+     and j.doper between date '2021-08-01' and pDop
+     and j.ord_id = z.loan_id
+     and j.dep_id = z.loan_dep_id
+     and j.cha_id = 103402
+     and sid = nMainSID;
+  else
+   insert /*+ parallel(8)*/ into Z_116_ProlongationLOAN_Itog
+  select --+ parallel(j 8) ordered use_hash(z j) index_ffs(z I_Z_116_PROLONGLOAN) full(j)
+         j.ord_id,
+         j.dep_id,
+         j.doper,
+         z.loan_label,
+         z.loantodate,
+         j.id,
+         j.njrn,
+         nMainSID,
+         j.dscr
+    from Z_116_ProLongationLOAN z,t_operjrn j
+   where j.bop_id = 5024
+     and j.undofl != 1
+     and j.tus_id != 25375
+     and j.doper between date '2021-08-01' and pDop
+     and j.ord_id = z.loan_id
+     and j.dep_id = z.loan_dep_id
+     and j.cha_id = 103402
+     and sid = nMainSID;
+
+  end if;
+
+  -- debug_pda('start333:' || to_char(sysdate,'dd/mm/yyyy hh24:mi:ss'));
+
+
+ -- debug_pda('end:'||pDop||' '||to_char(sysdate,'dd/mm/yyyy hh24:mi:ss'));
+end Z_116_PRC_PROLONGATIONCREDIT;
+]]>
+    </LOB_FIELD>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_LDEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_PROLONGATIONLOAN"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_PROLONGATIONLOAN_ITOG"/>
+    </PRCDPNENT>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PRCDPNPKG>
+  </PRC>
+</DDC>

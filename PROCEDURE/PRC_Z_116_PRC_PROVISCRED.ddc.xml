@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PRC" 
+  KEY="Z_116_PRC_PROVISCRED" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="1D27178A841DF71D479632D85BF2FE28">
+  <PRC 
+    NAME="Z_116_PRC_PROVISCRED">
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace procedure COLVIR.Z_116_PRC_PROVISCRED (pDate date) as
+
+  vCount number;
+  lCredType number := u_PkgUniRef.fRefCode2Id('UZ_VIDCRED');
+begin
+
+  -- execute immediate 'TRUNCATE TABLE Z_116_ProvisCred';
+  select count(1) into vCount from Z_116_ProvisCred;
+  if vCount > 0 then
+  insert into Z_116_ProvisCred
+  select  /*+ parallel(8) */
+          d.id ,
+          d.dep_id,
+          mrt.id,
+          mrt.dep_id,
+          r.json,
+          null,
+          null,
+          REGEXP_SUBSTR(l_pkgMortgage.fGetObjAddAtrValue(mrt.dep_id, mrt.id, 'NNUMLABEL'), '\d-\d{3}-\d{4}-\d{5}[A-Z]{2}') SalContNum,
+          pDate
+     from l_reqdea r,t_dea d, L_MRTDEA dea, L_MORTGAGE mrt, l_vehicle v, T_PROCMEM m, T_PROCESS p, T_BOP_STAT_STD s,
+          T_DEACLS_STD dd, L_DEAUNIREFRUL p, U_UNIREF_STD f, U_UZ_VIDCRED vd
+    where dea.DEA_DEP_ID = d.dep_id
+      and dea.DEA_ID = d.id
+      and dea.MRT_DEP_ID = mrt.dep_id
+      and dea.Mrt_Id = mrt.id
+      and d.fromdate = pDate
+      and json_value(r.json, '$.dea.id') = d.id
+      and r.dep_id = d.dep_id
+      and r.dcl_id = dd.id
+    -- and d.id=4322413149
+     and mrt.ens_id = '484' -- транспортные средства
+     and v.dep_id = mrt.dep_id
+     and v.id = mrt.id
+     and  d.DEP_ID = m.DEP_ID
+     and d.ID = m.ORD_ID
+     and m.MAINFL = '1'
+     and p.ID = m.ID
+     and s.ID  = p.BOP_ID
+     and s.NORD = p.NSTAT
+     and s.code = 'ACTUAL'
+     and dd.id  = p.dcl_id
+     and p.REF_ID = lCredType  --u_PkgUniRef.fRefCode2Id('UZ_VIDCRED')
+     and p.REF_ID = f.ID
+     and vd.id = p.DEF_VALUE
+     and d.dcl_id = dd.id
+     and dd.id_hi = '21174' --Кредиты физ. лиц
+     and vd.code = 34;
+
+  update Z_116_ProvisCred set markettype = json_value(json, '$.objectOfCredit.marketType'),
+                              model = json_value(json, '$.objectOfCredit.vehicle_model')
+                        where ddate = pDate;
+
+  delete from Z_116_ProvisCred
+    where (markettype != 1
+       or model not like '%Chevrolet%')
+      and ddate = pDate;
+
+  else
+
+  insert into Z_116_ProvisCred
+  select /*+ parallel(8)*/
+         d.id,
+         d.dep_id,
+         mrt.id,
+         mrt.dep_id,
+         r.json,
+         null,
+         null,
+         REGEXP_SUBSTR(l_pkgMortgage.fGetObjAddAtrValue(mrt.dep_id, mrt.id, 'NNUMLABEL'), '\d-\d{3}-\d{4}-\d{5}[A-Z]{2}') SalContNum,
+         trunc(sysdate)
+    from t_dea d, L_MRTDEA dea, L_MORTGAGE mrt, l_vehicle v,l_reqdea r, T_PROCMEM m, T_PROCESS p, T_BOP_STAT_STD s,
+         T_DEACLS_STD dd, L_DEAUNIREFRUL p, U_UNIREF_STD f, U_UZ_VIDCRED vd
+   where dea.DEA_DEP_ID = d.dep_id
+     and dea.DEA_ID = d.id
+     and dea.MRT_DEP_ID = mrt.dep_id
+     and dea.Mrt_Id = mrt.id
+     and mrt.ens_id = '484' -- транспортные средства
+     --and d.dcl_id = a.id
+     and v.dep_id = mrt.dep_id
+     and v.id = mrt.id
+     and r.dep_id = d.dep_id
+     and json_value(r.json, '$.dea.id') = d.id
+     and d.DEP_ID = m.DEP_ID
+     and d.ID = m.ORD_ID
+     and m.MAINFL = '1'
+     and p.ID = m.ID
+     and s.ID  = p.BOP_ID
+     and s.NORD = p.NSTAT
+     and s.code = 'ACTUAL'
+     and dd.id  = p.dcl_id
+     and p.REF_ID = lCredType  -- u_PkgUniRef.fRefCode2Id('UZ_VIDCRED')
+     and p.REF_ID = f.ID
+     and vd.id = p.DEF_VALUE
+     and d.dcl_id = dd.id
+     and dd.id_hi = '21174' --Кредиты физ. лиц
+     and vd.code = 34 -- Автокредит
+     ;
+
+  update Z_116_ProvisCred set markettype = json_value(json, '$.objectOfCredit.marketType'),
+                              model = json_value(json, '$.objectOfCredit.vehicle_model');
+
+
+  delete from Z_116_ProvisCred
+    where markettype != 1
+       or model not like '%Chevrolet%';
+
+  end if;
+  commit;
+
+end Z_116_PRC_PROVISCRED;
+]]>
+    </LOB_FIELD>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEAUNIREFRUL"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MORTGAGE"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MRTDEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REQDEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_VEHICLE"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEACLS"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UNIREF"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_VIDCRED"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_PROVISCRED"/>
+    </PRCDPNENT>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGMORTGAGE"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="U_PKGUNIREF"/>
+    </PRCDPNPKG>
+  </PRC>
+</DDC>

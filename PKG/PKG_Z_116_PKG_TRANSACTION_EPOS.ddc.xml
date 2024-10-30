@@ -1,0 +1,317 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_TRANSACTION_EPOS" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="EAF1C83A9E21D5788EDC4118D74FF531">
+  <PKG 
+    NAME="Z_116_PKG_TRANSACTION_EPOS">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_TRANSACTION_EPOS is
+  /**
+  * Пакет квитанции по транзакции Epos
+  *
+  * @author Farziddin Nasriddinov
+  * @version 1.0
+  *
+  * Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+  **********************************************************************/
+  procedure pTransactionEpos(pInput in Clob, pOutput out Clob);
+end Z_116_PKG_TRANSACTION_EPOS;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_TRANSACTION_EPOS is
+  --------------------------------------------------
+  procedure pTransactionEpos(pInput in Clob, pOutput out Clob) is
+    jInput  JSON_OBJECT_T := JSON_OBJECT_T.parse(pInput);
+    jOutput JSON_ARRAY_T := JSON_ARRAY_T();
+    jItem   JSON_OBJECT_T;
+    dFrom   date := jInput.get_Date('from');
+    dTo     date := jInput.get_Date('to');
+    vKey    varchar2(255) := jInput.get_String('key');
+  begin
+    c_pkgconnect.pOpen();
+    for r in (select s.DEP_ID, s.ID
+                from KV_DEAAGN_LOG s
+               where s.DATE_IN between dFrom and dTo
+                 and s.REFER = vKey
+                 and s.TYPE_MSG = 'P') loop
+      T_PKGDTLLST.PORDERFOLDER(NDEP_ID            => r.dep_id,
+                               NORD_ID            => r.id,
+                               SEXCLUDE_BOP_CODES => '',
+                               NPROC_ID           => 0,
+                               ISHOWINITPRFL      => null);
+      for k in (select DEP_ID, ID, stat_code
+                  from (select T_pkgDtlLst.OrdFldDEP_ID(rownum) as DEP_ID,
+                               T_pkgDtlLst.OrdFldID(rownum) as ID,
+                               substr(nvl(T_fGetSWTName(T_pkgDtlLst.OrdFldDEP_ID(rownum),
+                                                        T_pkgDtlLst.OrdFldID(rownum)),
+                                          T_pkgDtlLst.OrdFldMEM_NAME(rownum)),
+                                      1,
+                                      250) as MEM_NAME,
+                               substr(T_PkgRunOprUtl.FStatCodeByOrd(T_pkgDtlLst.OrdFldDEP_ID(rownum),
+                                                                    T_pkgDtlLst.OrdFldID(rownum)),
+                                      1,
+                                      30) as STAT_CODE
+                          from DUMMY
+                         where rownum <= T_pkgDtlLst.OrdFldCnt)
+                 where MEM_NAME = 'Коммунальный платеж') loop
+        for m in (select NAME_CR,
+                         CODE_ACR,
+                         CODE_BCR || ' ' || CODE_BCR_NAME as BNK_CR,
+                         NAME_CL,
+                         TXT_DSCR,
+                         DVAL as DVAL,
+                         AMOUNT as AMOUNT,
+                         AMOUNT_COMISS as AMOUNT_COMISS,
+                         AMOUNT + AMOUNT_COMISS - AMOUNT_D as AMOUNT_ALL,
+                         BNK_MFO,
+                         CSH_CODE,
+                         CORRECTDT,
+                         DEA_CODE,
+                         SYSINFO,
+                         PAYNAME,
+                         CASHIER_NAME,
+                         BNK_MFO || nvl2(CSH_CODE, ' ' || CSH_CODE, '') ||
+                         ' ; ' || CORRECTDT || chr(10) || chr(13) ||
+                         CODE_ACR || ' ' || NAME_CR ||
+                         nvl2(DEA_CODE, ' ' || DEA_CODE, '') || ' ; ' ||
+                         NAME_CL || chr(10) || chr(13) ||
+                         trim(to_money(AMOUNT)) || ' ; ' ||
+                         trim(to_money(AMOUNT_COMISS)) || ' ; ' ||
+                         trim(to_money(AMOUNT + AMOUNT_COMISS)) ||
+                         decode(SYSINFO,
+                                null,
+                                '',
+                                ' ; ' || chr(10) || chr(13) || SYSINFO) ||
+                         ' ; ' || chr(10) || chr(13) || PAYNAME || chr(10) ||
+                         chr(13) || CASHIER_NAME as STAMP,
+                         AMOUNT_D
+                    from (select decode(nvl(ORD.JURFL_CR, '0'),
+                                        '0',
+                                        ORD.PNAME1_CR || ' ' || ORD.PNAME2_CR || ' ' ||
+                                        ORD.PNAME3_CR,
+                                        ORD.NAME_CR) as NAME_CR,
+                                 CODE_ACR,
+                                 CODE_BCR,
+                                 CODE_BCR_NAME,
+                                 decode(nvl(ORD.JURFL_CL, '0'),
+                                        '0',
+                                        ORD.PNAME1 || ' ' || ORD.PNAME2 || ' ' ||
+                                        ORD.PNAME3,
+                                        ORD.NAME_CL) as NAME_CL,
+                                 TXT_DSCR,
+                                 ORD.DVAL,
+                                 AMOUNT,
+                                 nvl((select sum(amount)
+                                       from M_ORDPAYDTL D
+                                      where ORD.DEP_ID = D.DEP_ID
+                                        and ORD.ID = D.ID),
+                                     0) as AMOUNT_COMISS,
+                                 C_PKGDEP.fIdDep2CodeBnk(ORD.DEP_ID) as BNK_MFO,
+                                 CSH.CODE as CSH_CODE,
+                                 to_char(O.CORRECTDT, 'DD.MM.YYYY HH24:MI') as CORRECTDT,
+                                 C_PKGUSER.fFio(c_pkguser.fGetUserByStfTime(O.TUS_ID,
+                                                                            O.CORRECTDT)) as CASHIER_NAME,
+                                 null as DEA_CODE,
+                                 null as SYSINFO,
+                                 substr(bs_dom.DName(decode(ord.INFL,
+                                                            '1',
+                                                            'M_TRFPAYOUTTYPE',
+                                                            'M_TRFRCVTYPE'),
+                                                     ord.RCVTYPE),
+                                        1,
+                                        50) as PAYNAME,
+                                 decode(ORD.RCVTYPE,
+                                        0,
+                                        AMOUNT -
+                                        C_PkgRnd.fRoundVal(AMOUNT, p_natval),
+                                        0) as AMOUNT_D
+                            from M_ORDPAY ORD, M_CSHDSC CSH, T_ORD O
+                           where ORD.DEP_ID = k.dep_id
+                             and ORD.ID = k.id
+                             and CSH.DEP_ID = ORD.DEP_ID
+                             and CSH.ID = ORD.CSH_ID
+                             and O.DEP_ID = ORD.DEP_ID
+                             and O.ID = ORD.ID
+                          union all
+                          select nvl(M_PKGMUNRPT_UZ.fGetMunNameCr(nDEP_ID => ORD.DEP_ID,
+                                                                  nID     => ORD.ID),
+                                     ORD.NAME_CR) NAME_CR,
+                                 nvl(M_PKGMUNRPT_UZ.fGetMunAccount(nDEP_ID => ORD.DEP_ID,
+                                                                   nID     => ORD.ID),
+                                     ORD.CODE_ACR) CODE_ACR,
+                                 nvl(M_PKGMUNRPT_UZ.fGetMunBankAccount(nDEP_ID => ORD.DEP_ID,
+                                                                       nID     => ORD.ID),
+                                     ORD.CODE_BCR) CODE_BCR,
+                                 G_PKGBNK.fGetLongNameBnk(nvl(M_PKGMUNRPT_UZ.fGetMunBankAccount(nDEP_ID => ORD.DEP_ID,
+                                                                                                nID     => ORD.ID),
+                                                              ORD.CODE_BCR)) as CODE_BCR_NAME,
+                                 ORD.FIO as NAME_CL,
+                                 M_PKGMUNRPT_UZ.fGetMunPayDscr(nDEP_ID => ORD.DEP_ID,
+                                                               nID     => ORD.ID) || '' ||
+                                 decode(nvl(ord.DATA, '0'),
+                                        '0',
+                                        null,
+                                        '. ' || ord.DATA) as TXT_DSCR,
+                                 ORD.DATE_IN as DVAL,
+                                 ORD.SDOK as AMOUNT,
+                                 nvl(M_PKGMUN.GetTotalComiss(ORD.DEP_ID,
+                                                             ORD.ID),
+                                     0) as AMOUNT_COMISS,
+                                 C_PKGDEP.fIdDep2CodeBnk(ORD.DEP_ID) as BNK_MFO,
+                                 CSH.CODE as CSH_CODE,
+                                 to_char(O.CORRECTDT, 'DD.MM.YYYY HH24:MI') as CORRECTDT,
+                                 C_PKGUSER.fFio(c_pkguser.fGetUserByStfTime(O.TUS_ID,
+                                                                            O.CORRECTDT)) as CASHIER_NAME,
+                                 O_DEA.CODE as DEA_CODE,
+                                 M_PKGMUNRPT_UZ.fGetMunSysPar(nDEP_ID => ORD.DEP_ID,
+                                                              nID     => ORD.ID) as SYSINFO,
+                                 substr(bs_dom.dLongName('M_MUNPAYTYP',
+                                                         ord.CARDFL),
+                                        1,
+                                        50) as PAYNAM,
+                                 decode(ORD.CARDFL,
+                                        0,
+                                        ORD.SDOK -
+                                        C_PkgRnd.fRoundVal(ORD.SDOK, p_natval),
+                                        0) as AMOUNT_D
+                            from M_MUNORD ORD,
+                                 M_CSHDSC CSH,
+                                 T_ORD    O,
+                                 T_ORD    O_DEA
+                           where ORD.DEP_ID = k.dep_id
+                             and ORD.ID = k.id
+                             and O.DEP_ID = ORD.DEP_ID
+                             and O.ID = ORD.ID
+                             and CSH.DEP_ID(+) = ORD.DEP_ID
+                             and CSH.ID(+) =
+                                 coalesce(ORD.CSH_ID,
+                                          M_PKGCSH.fGetDefId(ORD.DEP_ID,
+                                                             O.TUS_ID))
+                             and O_DEA.DEP_ID = ORD.DEA_DEP_ID
+                             and O_DEA.ID = ORD.DEA_ID)) loop
+          jItem := JSON_OBJECT_T();
+
+          jItem.put('name_cr', m.name_cr);
+          jItem.put('code_acr', m.code_acr);
+          jItem.put('bnk_cr', m.bnk_cr);
+          jItem.put('name_cl', m.name_cl);
+          jItem.put('txt_dscr', m.txt_dscr);
+          jItem.put('dval', m.dval);
+          jItem.put('amount', m.amount);
+          jItem.put('amount_comiss', m.amount_comiss);
+          jItem.put('amount_all', m.amount_all);
+          jItem.put('bnk_mfo', m.bnk_mfo);
+          jItem.put('csh_code', m.csh_code);
+          jItem.put('correctdt', m.correctdt);
+          jItem.put('dea_code', m.dea_code);
+          jItem.put('sysinfo', m.sysinfo);
+          jItem.put('payname', m.payname);
+          jItem.put('cashier_name', m.cashier_name);
+          jItem.put('stamp', m.stamp);
+          jItem.put('amount_d', m.amount_d);
+          jItem.put('stat_code', k.stat_code);
+
+          jOutput.append(jItem);
+        end loop;
+      end loop;
+    end loop;
+
+    pOutput := jOutput.To_Clob;
+  end;
+
+end Z_116_PKG_TRANSACTION_EPOS;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_DOM"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="DUMMY"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="KV_DEAAGN_LOG"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_CSHDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_MUNORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_ORDPAY"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_ORDPAYDTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_NATVAL"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="TO_MONEY"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="T_FGETSWTNAME"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDEP"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGRND"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGUSER"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGBNK"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="M_PKGCSH"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="M_PKGMUN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="M_PKGMUNRPT_UZ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDTLLST"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGRUNOPRUTL"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

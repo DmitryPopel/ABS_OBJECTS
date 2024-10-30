@@ -1,0 +1,301 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PRC" 
+  KEY="Z_116_PRC_CALC_CREDIT_PDA" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="7963503644642208B15FEBB7B8DDF12B">
+  <PRC 
+    NAME="Z_116_PRC_CALC_CREDIT_PDA">
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace procedure COLVIR.Z_116_PRC_CALC_CREDIT_PDA
+
+as
+nMainSID number:= sys_context('USERENV','SID');
+
+begin
+  --return;
+  --удалить свои
+  delete from Z_116_CRED_PDA_5 where SID = nMainSID;
+  --удалить не существующие
+  delete from Z_116_CRED_PDA_5 where SID not in (SELECT t.SID FROM v$session t);
+
+  --удалить свои
+  delete from Z_116_CredPayment_detail where SID = nMainSID;
+  --удалить не существующие
+  delete from Z_116_CredPayment_detail where SID not in (SELECT t.SID FROM v$session t);
+
+  --удалить свои
+  delete from Z_116_acc_loan_card where SID = nMainSID;
+  --удалить не существующие
+  delete from Z_116_acc_loan_card where SID not in (SELECT t.SID FROM v$session t);
+  commit;
+
+  insert --+ parallel(8)
+    into Z_116_CRED_PDA_5
+  with dea as --Кредиты
+   (select --+  materialize use_nl(td o ld g h p m bs dep) leading(td) parallel(8)
+           1 as  crtype,
+           td.id,
+           td.dep_id,
+           td.cli_id,
+           td.cli_dep_id,
+           o.val_id,
+           td.fromdate,
+           td.todate,
+           td.srv_dep_id,
+           td.dcl_id,
+           g.code,
+           g.birdate,
+           h.passser,
+           h.passnum,
+           dep.code as srvCode,
+           h.aut_id,
+           (select dep_id from T_ACCGRP where id = h.aut_id) as  aut_dep_id
+
+
+      from t_dea td,t_ord o,l_dea ld, g_cli g,g_clihst h, t_process p, t_procmem m, t_bop_stat bs,c_dep_std dep
+     where o.dep_id = td.dep_id and o.id = td.id
+         --  and td.id = '15468286' and td.dep_id = 2056
+           and ld.dep_id = td.dep_id
+           and ld.id = td.id
+           and td.cli_id = g.id
+           and td.cli_dep_id = g.dep_id
+           and g.typefl = 1
+           and g.id = h.id
+           and g.dep_id = h.dep_id
+
+            and m.dep_id = td.dep_id  and m.ord_id = td.id
+           and  p.id = m.id
+           and m.mainfl = '1'
+           and bs.id = p.bop_id
+           and bs.nord = p.nstat
+           and bs.code in ('PD_OFF','ACTUAL')
+           and dep.id = td.srv_dep_id
+           and sysdate between h.fromdate and h.todate)
+  select dea.*,
+         (select code from c_dep_std d2 where  nlevel = 1 start with d2.id =  dea.srv_dep_id  connect by  d2.id = prior d2.id_hi ),
+         G_PKGCLI.fGetCliLongName(cli_dep_id, cli_id),
+         nvl(G_PKGCLIIDN.fCliIDN(cli_dep_id, cli_id, G_PKGIDN.fId('IDN_PRS_UZ')),0),
+         G_PKGCLICONT.fGetCliPhone(cli_dep_id,cli_id),
+         G_PKGNIBBDUTL.fGetNIBBDCode(cli_dep_id, cli_id),
+         T_PkgDeaPrm.fParByCode(ID, DEP_ID,'L_UZ_UNIQNUM'),
+         nMainSID,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null
+  from dea;
+
+---1
+  insert /*+ parallel(8)*/ into Z_116_acc_loan_card
+  select /*+ ordered parallel(8)*/
+         d.acc_id,
+         d.dep_id,
+         z.id,
+         z.dep_id,
+         nMainSID
+    from Z_116_CRED_PDA_5 z, LEDACC_DET d, g_accbln a
+   where d.pk2 = z.id
+     and d.pk1 = z.dep_id
+     and d.sgn_id = 2076
+     and a.id = d.acc_id and a.dep_id = d.dep_id and a.code like '29801%';
+ commit;
+
+--2
+  insert /*+ parallel(8)*/ into Z_116_CredPayment_detail
+   select /*+ parallel(8) ordered index(trn IE_T_TRNDTL_ACC) index(z i_Z_116_acc_loan_card)*/
+         m.id,
+         z.loan_id,
+         z.loan_dep_id,
+         u.longname,
+         Z_116_get_propCash(m.id,u.longname),
+         null,
+         nMainSID
+    from Z_116_acc_loan_card z, t_trndtl trn, T_TRNATR a, t_operjrn j, t_ord o,C_USR U, T_procmem m
+   where trn.acc_id = z.acc_id
+     and trn.dep_id = z.acc_dep_id
+     and trn.incomfl=0
+     and trn.doper between date '2024-01-01' and date '2024-04-22'
+     and a.id = trn.id
+     and a.nord = trn.nord
+     and j.tra_id = a.id
+     and o.id = j.ord_id
+     and o.dep_id = j.dep_id
+     and U.ID(+) = O.ID_US
+     and m.ord_id = j.ord_id
+     and m.dep_id = j.dep_id;
+     -- and z.loan_id=15520075
+     -- and z.loan_dep_id=3305
+     --and m.id = 3219077607
+
+  update Z_116_CredPayment_detail
+    set waysofpayment  =
+    case when longname in ('ZOOMRAD') then 3
+         when longname in ('Позиция для пользователя СШ CESB') then 5
+         when cash in (0) then 0
+         when cash in (1) then 1
+      else 6 end
+      where sid = nMainSID;
+
+  update Z_116_CRED_PDA_5 t
+    set paymway0 = (select count(*) from Z_116_CredPayment_detail z where z.waysofpayment = 0 and z.loan_id = t.id and z.loan_dep_id = t.dep_id),
+        paymway1 = (select count(*) from Z_116_CredPayment_detail z where z.waysofpayment = 0 and z.loan_id = t.id and z.loan_dep_id = t.dep_id),
+        paymway2 = (select count(*) from Z_116_CredPayment_detail z where z.waysofpayment = 0 and z.loan_id = t.id and z.loan_dep_id = t.dep_id),
+        paymway3 = (select count(*) from Z_116_CredPayment_detail z where z.waysofpayment = 0 and z.loan_id = t.id and z.loan_dep_id = t.dep_id),
+        paymway4 = (select count(*) from Z_116_CredPayment_detail z where z.waysofpayment = 0 and z.loan_id = t.id and z.loan_dep_id = t.dep_id),
+        paymway5 = (select count(*) from Z_116_CredPayment_detail z where z.waysofpayment = 0 and z.loan_id = t.id and z.loan_dep_id = t.dep_id),
+        paymway6 = (select count(*) from Z_116_CredPayment_detail z where z.waysofpayment = 0 and z.loan_id = t.id and z.loan_dep_id = t.dep_id)
+  where sid = nMainSID;
+
+  commit;
+/*
+  insert into Z_116_CredPayment
+  With T as (
+  select + parallel(8) ordered index(trn IE_T_TRNDTL_ACC) index(z i_Z_116_acc_loan_card)
+         u.longname,
+         z.loan_id,
+         z.loan_dep_id
+
+    from Z_116_acc_loan_card z, t_trndtl trn, T_TRNATR a, t_operjrn j, t_ord o,C_USR U
+   where trn.acc_id = z.acc_id
+     and trn.dep_id = z.acc_dep_id
+     and trn.incomfl=0
+     and trn.doper between date '2024-01-01' and date '2024-04-22'
+     and a.id = trn.id
+     and j.tra_id = a.id
+     and o.id = j.ord_id
+     and o.dep_id = j.dep_id
+     and U.ID(+) = O.ID_US
+  group by u.longname,z.loan_id,z.loan_dep_id)
+  select distinct loan_id,
+         loan_dep_id,
+         listagg(longname, ', ') within group (order by loan_id) over (partition by loan_id),
+         nMainSID
+   from T;
+
+  commit;
+
+---3
+  update --+parallel(8)
+   Z_116_CRED_PDA_5 z
+    set z.SourcePayment = (select payments from Z_116_CredPayment  where loan_id = z.id and loan_dep_id = z.dep_id)
+  where SID = nMainSID;
+*/
+
+
+end Z_116_PRC_CALC_CREDIT_PDA;
+]]>
+    </LOB_FIELD>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_USR"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC_DET"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ACCGRP"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNATR"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNDTL"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_ACC_LOAN_CARD"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_CREDPAYMENT_DETAIL"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_CRED_PDA_5"/>
+    </PRCDPNENT>
+    <PRCDPNFNC>
+      <LINK:FNC 
+        REF_NAME="Z_116_GET_PROPCASH"/>
+    </PRCDPNFNC>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLICONT"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGNIBBDUTL"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PRCDPNPKG>
+  </PRC>
+</DDC>

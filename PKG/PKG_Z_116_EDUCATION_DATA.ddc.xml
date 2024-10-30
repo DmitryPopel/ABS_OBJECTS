@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_EDUCATION_DATA" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="B9E8337ADF5203CB32B5BF602E56D312">
+  <PKG 
+    NAME="Z_116_EDUCATION_DATA">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_EDUCATION_DATA is
+  /**
+  * Пакет Education data
+  *
+  * @author Farziddin Nasriddinov
+  * @version 1.0
+  *
+  * Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+  **********************************************************************/
+  procedure pGetData(pInput in Clob, pOutput out Clob);
+end Z_116_EDUCATION_DATA;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_EDUCATION_DATA is
+  procedure pGetData(pInput in Clob, pOutput out Clob) is
+    jInPut     json_object_t := json_object_t.parse(pInput);
+    dStartDate date;
+    dEndDate   date;
+    jItem      json_object_t;
+    jOutPut    json_array_t := json_array_t();
+    jErr       json_object_t := json_object_t();
+
+    procedure getPrm(jItem  in out nocopy json_object_t,
+                     vName  varchar2,
+                     nDepId number,
+                     nId    number,
+                     vCode  varchar2) is
+    begin
+      begin
+        jItem.put(vName, T_PkgDeaPrm.fDeaParByCode(nId, nDepId, vCode));
+      exception
+        when others then
+          null;
+      end;
+    end;
+  begin
+    c_pkgconnect.pOpen();
+
+    begin
+      dStartDate := to_date(jInPut.get_String('startDate'), 'YYYY-MM-DD');
+      dEndDate   := to_date(jInPut.get_String('endDate'), 'YYYY-MM-DD');
+
+    exception
+      when others then
+        jErr.put('error', '400');
+        jErr.put('message', 'parameter value is invalid');
+
+        pOutput := jErr.To_Clob;
+
+        return;
+    end;
+
+    if dStartDate > dEndDate then
+      jErr.put('error', '400');
+      jErr.put('message', 'parameter value is invalid');
+
+      pOutput := jErr.To_Clob;
+
+      return;
+    end if;
+
+    for dcl in (select id
+                  from T_DEACLS_STD
+                 where L_PKGDEAUNIREF.fGetClsRefValCode(id,
+                                                        U_PKGUNIREF.fRefCode2Id('UZ_VIDCRED')) = 59
+                   and code not in ('UZ.FL.OBR', 'UZ.FL.ARC.OBR.59')) loop
+      for r in (select t.dep_id,
+                       t.id,
+                       g_pkgcli.fGetCliCode(c.dep_id, c.id) as code,
+                       G_PKGCLIIDN.fCliIdn(c.dep_id,
+                                           c.id,
+                                           G_PKGIDN.fId('IDN_PRS_UZ')) as pinfl,
+                       c.longname as fullname,
+                       decode(c.psex, 'F', 'female', 'male') as gender,
+                       c.passser || c.passnum as passport_number,
+                       c.passdat as passport_date,
+                       o.code as credit_contract_number,
+                       to_char(t.fromdate, 'YYYY-MM-DD') as credit_contract_date,
+                       t.sdok as credit_contract_amount,
+                       to_char(t.fromdate, 'YYYY-MM-DD') as allocated_contract_date,
+                       t.sdok as allocated_contract_amount,
+                       T_PkgArl.fPcnValByArlAlias(t.DEP_ID,
+                                                  t.ID,
+                                                  'INTEREST',
+                                                  P_OPERDAY,
+                                                  1) as credit_procent,
+                       o.correctdt,
+                       to_char(json_value(rd.json, '$.app.regionName')) region,
+                       to_char(json_value(rd.json, '$.app.districtName')) district,
+                       decode(s.NAME, 'Завершение', 1, 0) as credit_contract_active
+                  from T_DEA        t,
+                       T_ORD        o,
+                       T_PROCMEM    m,
+                       T_PROCESS    p,
+                       T_BOP_STAT   s,
+                       g_clihst     c,
+                       l_reqdea_ext e,
+                       l_reqdea     rd
+                 where t.dep_id = o.dep_id
+                   and t.id = o.id
+                   and c.dep_id = t.cli_dep_id
+                   and c.id = t.cli_id
+                   and m.dep_id = t.dep_id
+                   and m.ord_id = t.id
+                   and m.mainfl = '1'
+                   and p.id = m.id
+                   and s.ID = p.BOP_ID
+                   and s.NORD = p.NSTAT
+                   and p_operday between c.fromdate and c.todate
+                   and e.appid(+) =
+                       T_PkgDeaPrm.fParByCode(t.id, t.dep_id, 'L_UNNUMBER')
+                   and rd.dep_id(+) = e.dep_id
+                   and rd.id(+) = e.id
+                   and t.dcl_id = dcl.id
+                   and t.fromdate between dStartDate and dEndDate) loop
+        jItem := json_object_t();
+
+        jItem.put('id', r.code); -- talaba id (bank da saqlangan id)
+        jItem.put('pinfl', r.pinfl); -- talaba JSHSHIR
+        jItem.put('created_at',
+                  to_char(r.correctdt, 'YYYY-MM-DD HH:MI:SS')); -- 2023-12-26 15:10:42.998612 +00:00
+        jItem.put('fullname', r.fullname); -- talaba F.I.O
+        jItem.put('gender', r.gender); -- talaba jinsi
+        jItem.put('passport_number', r.passport_number); -- passport seriya va raqami (AA1234567)
+        jItem.put('passport_date', to_char(r.passport_date, 'YYYY-MM-DD')); -- passport berilgan sanasi
+        getPrm(jItem, 'university_name', r.dep_id, r.id, 'EDU_NAME'); -- University Name
+        getPrm(jItem, 'university_tin', r.dep_id, r.id, 'EDU_TIN'); -- University INN (optional)
+        getPrm(jItem,
+               'credit_contract_course',
+               r.dep_id,
+               r.id,
+               'EDU_COURSE'); -- talaba qaysi kursda shartnoma olinganligi (1, 2, 3, 4, 5)
+        jItem.put('credit_contract_number', r.credit_contract_number); -- Kredit shartnoma raqami
+        jItem.put('credit_contract_date', r.credit_contract_date); -- Kredit shartnoma sanasi
+        jItem.put('credit_contract_amount', r.credit_contract_amount); -- Kredit shartnoma tuzilgan summasi miqdori(so'mda)
+        jItem.put('allocated_contract_date', r.allocated_contract_date); -- Ajratilgan kredit summasi sanasi
+        jItem.put('allocated_contract_amount', r.allocated_contract_amount); -- Ajratilgan kredit summasi (so'mda)
+        jItem.put('credit_procent', r.credit_procent); -- Kredit %
+        jItem.put('bank_mfo', '00401'); --  Bank MFO number
+        jItem.put('bank_code', '00401'); -- Bank code
+        jItem.put('bank_name', 'AT «AloqaBank»'); -- Bank Nomi
+        jItem.put('bank_region', r.region); -- Kredit berilgan bank viloyati
+        jItem.put('bank_district', r.district); -- Kredit berilgan bank tumani
+        jItem.put('credit_contract_active', r.credit_contract_active); -- Joriy Kredit shartnoma activeligi (To'lanayotgan(0), Yopilgan(1))
+
+        jOutPut.append(jItem);
+      end loop;
+    end loop;
+
+    pOutput := jOutPut.To_Clob;
+  end;
+
+end Z_116_EDUCATION_DATA;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REQDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REQDEA_EXT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEACLS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGDEAUNIREF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="U_PKGUNIREF"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

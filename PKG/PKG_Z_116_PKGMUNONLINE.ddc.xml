@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGMUNONLINE" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="F6AF465135FCB4E8C999AB87122796B1">
+  <PKG 
+    NAME="Z_116_PKGMUNONLINE">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGMUNONLINE is
+  /**
+  * Пакет для обслуживания заявок из внешних систем (задаче REQTYPE)
+  *
+  * @author Анатолдий Бондаренко
+  * @version 1.0
+  * @headcom
+  *
+  * Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+  */
+
+  /** Процедура для заявки Z_116_MUNISPMNT_MIB - Коррекция и исполнение платежа МУНИС для MIB
+  * @param pColvirReferenceId depId_id платежа
+  * @param pAmount Сумма
+  * @param pPayPurpose Назначение платежа
+  * @param pPurposeCode Код назначения платежа
+  * @param pPaymentType Тип оплаты (UZCARD,HUMO,CASH)
+  * @param pStatus Статус обработки заявки
+  * @param pResult Текст ошибки
+  * @param pCliMsg Текст ошибки для клиента
+  */
+  procedure pExecMunisPmntMib(pCode              in varchar2,
+                              pColvirReferenceId in varchar2,
+                              pAmount            in number,
+                              pPayPurpose        in varchar2,
+                              pPurposeCode       in varchar2,
+                              pPaymentType       in varchar2 default null,
+                              pStatus            out integer,
+                              pResult            out varchar2,
+                              pCliMsg            out varchar2);
+
+end Z_116_PKGMUNONLINE;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGMUNONLINE is
+
+  --PKG       constant varchar2(32) := 'PKG';
+  --PROC_CODE constant varchar2(50) := 'Z_116_PKGMUNONLINE.pExecMunisPmntMib';
+
+  -- Процедура для заявки Z_116_MUNISPMNT_MIB - Коррекция и исполнение платежа МУНИС для MIB
+  procedure pExecMunisPmntMib(pCode              in varchar2,
+                              pColvirReferenceId in varchar2,
+                              pAmount            in number,
+                              pPayPurpose        in varchar2,
+                              pPurposeCode       in varchar2,
+                              pPaymentType       in varchar2 default null,
+                              pStatus            out integer,
+                              pResult            out varchar2,
+                              pCliMsg            out varchar2) is
+  begin
+    W2_PKG_SESSION_V1.cClientType := 'IBL'; -- or codeCnl = 'MBL' - тоже подходит
+    G_PKGMUNONLINE_REQ.pExecMunisPmnt(pCode,
+                                      pColvirReferenceId,
+                                      pAmount,
+                                      pPayPurpose,
+                                      pPurposeCode,
+                                      pPaymentType,
+                                      pStatus,
+                                      pResult,
+                                      pCliMsg);
+
+  end pExecMunisPmntMib;
+
+end Z_116_PKGMUNONLINE;
+]]>
+    </LOB_FIELD>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGMUNONLINE_REQ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="W2_PKG_SESSION_V1"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

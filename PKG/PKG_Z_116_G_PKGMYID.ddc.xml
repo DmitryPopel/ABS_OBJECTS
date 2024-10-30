@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_G_PKGMYID" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="6EE6F6FD3690B0AF2E761DF7D1AED1DB">
+  <PKG 
+    NAME="Z_116_G_PKGMYID">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_G_PKGMYID is
+  /**
+  * Пакет для работы с сервисом MyId
+  *
+  * @author Быстров Владимир
+  * @version 1.0
+  * @headcom
+  *
+  * Copyright (c) 2023 By Aloqabank. All Rights Reserved.
+  */
+
+  /** Запись данных из ответа MyId.
+  * <br/><i>Появилась в 1.0</i>
+  * @param pID Идентификатор запроса MyID
+  * @param pSTATUS Статус ответа (FAILED, SUCCESS)
+  * @param pRESULT Возращаемое значение из MyID (JSON)
+  */
+  procedure pUpdMyIDResp( pID in G_MYIDREQ.ID%type
+                         ,pSTATUS in G_MYIDREQ.STATUS%type
+                         ,pRESULT in G_MYIDREQ.RESULT%type);
+
+end Z_116_G_PKGMYID;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_G_PKGMYID is
+
+  procedure pUpdMyIDResp(pID     in G_MYIDREQ.ID%type,
+                         pSTATUS in G_MYIDREQ.STATUS%type,
+                         pRESULT in G_MYIDREQ.RESULT%type) is
+    pragma autonomous_transaction;
+  begin
+
+    update G_MYIDREQ
+       set STATUS = pSTATUS,
+           result = pRESULT
+     where ID = pID;
+
+    commit;
+
+  end pUpdMyIDResp;
+end Z_116_G_PKGMYID;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_MYIDREQ"/>
+    </PKGDPNENT>
+  </PKG>
+</DDC>

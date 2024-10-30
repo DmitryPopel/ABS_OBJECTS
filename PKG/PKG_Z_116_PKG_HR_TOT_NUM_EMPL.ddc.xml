@@ -1,0 +1,1604 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_HR_TOT_NUM_EMPL" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="A7C5EA4C8E864E986B23F6A35059F014">
+  <PKG 
+    NAME="Z_116_PKG_HR_TOT_NUM_EMPL">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_HR_TOT_NUM_EMPL is
+  /**
+  * количество сотрудников
+  *
+   * @author Хакимов Муроджон
+   * @version 1.0
+  * @headcom
+  *
+  * Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+  */
+
+  Procedure TOT_NUM_EMPL(SANA in date);
+  Procedure LAYOFFS(Estartdate in date,
+                    Eenddate   in date,
+                    Edep       in varchar2,
+                    TXTFL      in varchar2);
+  Procedure GET_HIRED(Estartdate in date,
+                      Eenddate   in date,
+                      Edep       in varchar2,
+                      TXTF       in varchar2);
+  Procedure SICK(Estartdate in date,
+                 Eenddate   in date,
+                 Edep       in varchar2,
+                 TXTF       in varchar2);
+  Procedure empl_status(Edep    in varchar2,
+                        TYPE_ID in varchar2,
+                        TXTF    in varchar2);
+
+end Z_116_PKG_HR_TOT_NUM_EMPL;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_HR_TOT_NUM_EMPL as
+
+  Procedure TOT_NUM_EMPL(SANA in date) is
+    Shtalar_soni number(35);
+    --  his                number(35);
+    ishga_qabul        NUMBER(35);
+    IT_ISHGA_QABUL     NUMBER(35);
+    ishdan_boshagan    NUMBER(35);
+    IT_ishdan_boshagan NUMBER(35);
+    -- pDate              date := SANA;
+  begin
+    c_Pkgconnect.Popen();
+
+    --  select count(*) into his from  Empl_statistics r where r.sana = pDate;
+    -- if his = 0 then
+    delete Empl_statistics;
+    commit;
+
+    for rec in (select distinct CODE, LONGNAME
+                  from C_DEP
+                 where ARCFL = 0
+                   and (ID = P_Branch(ID) or
+                       CODE = c_pkgprm.fGetValPrm('GL_MAINDEP'))
+                connect by prior ID = ID_HI) loop
+
+      if rec.code = '00401' then
+
+        select count(*) as ishdan_boshagan
+          into ishdan_boshagan -- bosh office
+          from HV_ORDDTL r
+         where
+
+         r.DEP_ORD = any
+         (select DEP_ID
+            from H_HISTORY
+           where DEP_ID = any (select ID
+                    from (select ID,
+                                 BALFL,
+                                 SYS_CONNECT_BY_PATH(case
+                                                       when level = 1 then
+                                                        0
+                                                       else
+                                                        BITOR(EXPENDFL, INCOMSFL)
+                                                     end,
+                                                     '/') as fl
+                            from C_DEP_STD
+                           start with CODE = rec.code
+                          connect by ID_HI = prior ID)
+                   where instr(fl, '1') = 0)
+             and p_OperDay between FROMDATE and TODATE
+             and MAINFL = 1)
+         and r.TYPEORD = '326'
+         and r.TOEFFECTDATE >= TRUNC(SYSDATE, 'YEAR');
+
+        select count(*) as IT_ishdan_boshagan
+          into IT_ishdan_boshagan -- bosh office
+          from HV_ORDDTL r
+         where r.DEP_ORD = any
+         (select DEP_ID
+                  from H_HISTORY
+                 where DEP_ID = any
+                 (select ID
+                          from (select ID,
+                                       BALFL,
+                                       SYS_CONNECT_BY_PATH(case
+                                                             when level = 1 then
+                                                              0
+                                                             else
+                                                              BITOR(EXPENDFL, INCOMSFL)
+                                                           end,
+                                                           '/') as fl
+                                  from C_DEP_STD
+                                 start with CODE = any
+                                 (select i.DEP_CODE_IT
+                                               from ALL_DEP_IT i
+                                              WHERE I.DEP_CODE = rec.code)
+                                connect by ID_HI = prior ID)
+                         where instr(fl, '1') = 0)
+                   and p_OperDay between FROMDATE and TODATE
+                   and MAINFL = 1)
+           and r.TYPEORD = '326'
+           and r.TOEFFECTDATE >= TRUNC(SYSDATE, 'YEAR');
+
+        select count(*) as ishga_qabul
+          into ishga_qabul
+          from HV_ORDDTL r
+         where r.DEP_ORD = --  bosh office
+               any
+         (select DEP_ID
+                  from H_HISTORY
+                 where DEP_ID = any (select ID
+                          from (select ID,
+                                       BALFL,
+                                       SYS_CONNECT_BY_PATH(case
+                                                             when level = 1 then
+                                                              0
+                                                             else
+                                                              BITOR(EXPENDFL, INCOMSFL)
+                                                           end,
+                                                           '/') as fl
+                                  from C_DEP_STD
+                                 start with CODE = rec.code
+                                connect by ID_HI = prior ID)
+                         where instr(fl, '1') = 0)
+                   and p_OperDay between FROMDATE and TODATE
+                   and MAINFL = 1)
+           and r.TYPEORD in ('58', '59')
+           and r.TOEFFECTDATE >= TRUNC(SYSDATE, 'YEAR');
+
+        select COUNT(*) as IT_ISHGA_QABUL
+          into IT_ISHGA_QABUL
+          from HV_ORDDTL r
+         where r.DEP_ORD = -- bosh office
+               any
+         (select DEP_ID
+                  from H_HISTORY
+                 where DEP_ID = any
+                 (select ID
+                          from (select ID,
+                                       BALFL,
+                                       SYS_CONNECT_BY_PATH(case
+                                                             when level = 1 then
+                                                              0
+                                                             else
+                                                              BITOR(EXPENDFL, INCOMSFL)
+                                                           end,
+                                                           '/') as fl
+                                  from C_DEP_STD
+                                 start with CODE = any
+                                 (select i.DEP_CODE_IT
+                                               from ALL_DEP_IT i
+                                              WHERE I.DEP_CODE = rec.code)
+                                connect by ID_HI = prior ID)
+                         where instr(fl, '1') = 0)
+                   and p_OperDay between FROMDATE and TODATE
+                   and MAINFL = 1)
+           and r.TYPEORD in ('58', '59')
+           and r.TOEFFECTDATE >= TRUNC(SYSDATE, 'YEAR');
+
+        select sum(p.limit)
+          into Shtalar_soni
+          from HV_POST p
+         where p.dep_id = any
+         (select DEP_ID
+                  from H_HISTORY
+                 where DEP_ID = any (select ID
+                          from (select ID,
+                                       BALFL,
+                                       SYS_CONNECT_BY_PATH(case
+                                                             when level = 1 then
+                                                              0
+                                                             else
+                                                              BITOR(EXPENDFL, INCOMSFL)
+                                                           end,
+                                                           '/') as fl
+                                  from C_DEP_STD
+                                 start with CODE = rec.code
+                                connect by ID_HI = prior ID)
+                         where instr(fl, '1') = 0)
+                   and p_OperDay between FROMDATE and TODATE
+                   and MAINFL = 1);
+
+        insert into Empl_statistics
+          (female,
+           male,
+           mehnat_tatili,
+           oquv_tatili,
+           akademik_tatil,
+           harbiy_tatil,
+           ish_haqi_saqlangan,
+           ish_haqi_saqlanmagan,
+           mehnatga_layoqatsizlik,
+           tugruq_tatili,
+           ikki_yoshgacha,
+           Uch_Yoshgacha,
+           CODE,
+           LONGNAME,
+           Shtalar_soni,
+           ishga_qabul,
+           IT_ISHGA_QABUL,
+           ishdan_boshagan,
+           IT_ishdan_boshagan,
+           SANA)
+          select sum(h.female) female, -- bosh office
+                 sum(h.male) male,
+                 sum(h.mehnat_tatili) mehnat_tatili,
+                 sum(h.oquv_tatili) oquv_tatili,
+                 sum(h.академ_отпуск) akademik_tatil,
+                 sum(h.harbiy_tatil) harbiy_tatil,
+                 sum(h.ish_haqi_saqlangan) ish_haqi_saqlangan,
+                 sum(h.ish_haqi_saqlanmagan) ish_haqi_saqlanmagan,
+                 sum(h.mehnatga_layoqatsizlik) mehnatga_layoqatsizlik,
+                 sum(h.декретный_больничный) tugruq_tatili,
+                 sum(h.ikki_yoshgacha) ikki_yoshgacha,
+                 sum(h.bola_uch_yoshgacha) uch_yoshgacha,
+                 rec.CODE as code,
+                 rec.LONGNAME as LONGNAME,
+                 Shtalar_soni,
+                 ishga_qabul,
+                 IT_ISHGA_QABUL,
+                 ishdan_boshagan,
+                 IT_ishdan_boshagan,
+                 SANA
+            from (select count(case
+                                 when ch.PSEX = 'M' then
+                                  'M'
+                               END) AS Male,
+                         count(case
+                                 when ch.PSEX = 'F' then
+                                  'F'
+                               END) AS Female,
+                         count(case
+                                 when ab.WORKTYPE_ID = '203' then
+                                  'B'
+                               END) AS mehnatga_layoqatsizlik,
+                         count(case
+                                 when ab.WORKTYPE_ID = '204' then
+                                  'S'
+                               END) AS Ish_haqi_saqlanmagan,
+                         count(case
+                                 when ab.WORKTYPE_ID = '205' then
+                                  'D2'
+                               END) AS ikki_yoshgacha,
+                         count(case
+                                 when ab.WORKTYPE_ID = '208' then
+                                  'О'
+                               END) AS Mehnat_tatili,
+                         count(case
+                                 when ab.WORKTYPE_ID = '214' then
+                                  'U'
+                               END) AS Oquv_tatili,
+                         count(case
+                                 when ab.WORKTYPE_ID = '216' then
+                                  'I'
+                               END) AS Harbiy_tatil,
+                         count(case
+                                 when ab.WORKTYPE_ID = '243' then
+                                  'DB'
+                               END) AS Декретный_больничный,
+                         count(case
+                                 when ab.WORKTYPE_ID = '263' then
+                                  'D3'
+                               END) AS Bola_uch_yoshgacha,
+                         count(case
+                                 when ab.WORKTYPE_ID = '303' then
+                                  'A'
+                               END) AS Академ_отпуск,
+                         count(case
+                                 when ab.WORKTYPE_ID = '363' then
+                                  'C'
+                               END) AS Ish_haqi_saqlangan
+
+                    from T_ORD       o,
+                         T_PROCMEM   pm,
+                         T_PROCESS   bp,
+                         T_BOP_STAT  bs,
+                         G_CLIHST    ch,
+                         G_CLI       c,
+                         C_DEP       d,
+                         H_POST      p,
+                         H_POSTTYPE  t,
+                         H_POST_CAT  pc,
+                         H_IMG       im,
+                         H_HISTORY   h,
+                         A_RESPRS    rp,
+                         H_CANDIDATE fl,
+                         G_CLIFIZ    f,
+                         C_USER      u,
+                         H_ABSENT    ab,
+                         H_WORKTYPE  wt
+                   where rp.CLI_DEP_ID = ch.DEP_ID
+                     and rp.CLI_ID = ch.ID
+                     and P_OPERDAY between ch.FROMDATE and ch.TODATE
+                     and rp.ID = h.PER_ID(+)
+                     and P_OPERDAY between h.FROMDATE(+) and h.TODATE(+)
+                     and h.MAINFL(+) = 1
+                     and c.DEP_ID = ch.DEP_ID
+                     and c.ID = ch.ID
+                     and h.DEP_ID = d.ID(+)
+                     and h.POS_ID = p.ID(+)
+                     and t.ID(+) = p.POSTTYP_ID
+                     and pc.ID(+) = t.CAT_ID
+                     and rp.ORD_DEP_ID = o.DEP_ID
+                     and rp.ORD_ID = o.ID
+                     and rp.ORD_DEP_ID = pm.DEP_ID
+                     and rp.ORD_ID = pm.ORD_ID
+                     and pm.MAINFL = '1'
+                     and pm.ID = bp.ID
+                     and bp.BOP_ID = bs.ID
+                     and bp.NSTAT = bs.NORD
+                     and (im.PER_ID, im.NORD) = all
+                   (select PER_ID, max(NORD)
+                            from H_IMG
+                           where PER_ID = rp.ID
+                           group by PER_ID)
+                     and im.PER_ID(+) = rp.ID
+                     and exists
+                   (Select 1
+                            from DUAL
+                           where h_pkg_tab.fchkDepGrn(nvl(D.ID, o.DEP_ID)) = 1)
+                     and exists (Select 1
+                            from DUAL
+                           where H_person.fChkCatGrn(rp.id) = 1)
+                     and fl.PER_ID = rp.ID
+                     and fl.CODESTATUS = 'W'
+                     and f.dep_id = rp.cli_dep_id
+                     and f.id = rp.cli_id
+                     and rp.tus_id = u.id(+)
+                     and rp.ID = ab.PER_ID(+)
+                     and ab.CURRENTFL(+) = 1
+                     and wt.ID(+) = ab.WORKTYPE_ID
+                     and ((1 = 0) or
+                         ((1 = 1) and
+                         (bp.NSTAT != any
+                          (select NORD
+                               from T_BOP_STAT
+                              where ID = bp.BOP_ID
+                                and CODE = 'H_DISMISSED'))))
+                     and 1 = 1
+                     and (h.DEP_ID = any
+                          (select id
+                             from c_dep_std
+                            start with code = rec.code
+                           connect by id_hi = prior id) or
+                          (h.per_id is null and exists
+                           (select *
+                              from h_history hh
+                             where hh.per_id = rp.id
+                               and hh.dep_id = any
+                             (select id
+                                      from c_dep_std
+                                     start with code = rec.code
+                                    connect by id_hi = prior id)
+                               and p_operday not between
+                                   hh.fromdate and hh.todate)))
+                     and rp.ID = any
+                   (select PER_ID
+                            from H_HISTORY
+                           where DEP_ID = any
+                           (select ID
+                                    from (select ID,
+                                                 BALFL,
+                                                 SYS_CONNECT_BY_PATH(case
+                                                                       when level = 1 then
+                                                                        0
+                                                                       else
+                                                                        BITOR(EXPENDFL, INCOMSFL)
+                                                                     end,
+                                                                     '/') as fl
+                                            from C_DEP_STD
+                                           start with CODE = rec.code
+                                          connect by ID_HI = prior ID)
+                                   where instr(fl, '1') = 0)
+                             and p_OperDay between FROMDATE and TODATE
+                             and MAINFL = 1)
+                   group by ch.PSEX, ab.WORKTYPE_ID
+
+                  ) h;
+
+      else
+
+        select count(*) as ishdan_boshagan
+          into ishdan_boshagan -- bosh office dan tashqari
+          from HV_ORDDTL r
+         where r.ORD_DEP_CODE in
+               (select h.code
+                  from C_DEP_STD h
+                 start with h.id =
+                            (select l.id from C_DEP l where l.CODE = rec.code)
+                connect by h.ID_HI = prior h.ID)
+           and r.TYPEORD = '326'
+           and r.TOEFFECTDATE >= TRUNC(SYSDATE, 'YEAR');
+
+        select count(*) as IT_ishdan_boshagan
+          into IT_ishdan_boshagan -- bosh office dan tashqari
+          from HV_ORDDTL r
+         where r.ORD_DEP_CODE in
+               (select h.code
+                  from C_DEP_STD h
+                 start with h.id =
+                            (select l.id
+                               from C_DEP l
+                              where l.CODE in
+                                    (select i.DEP_CODE_IT
+                                       from ALL_DEP_IT i
+                                      WHERE i.DEP_CODE = rec.code))
+                connect by h.ID_HI = prior h.ID)
+           and r.TYPEORD = '326'
+           and r.TOEFFECTDATE >= TRUNC(SYSDATE, 'YEAR');
+
+        select count(*) as ishga_qabul
+          into ishga_qabul -- bosh office dan tashqari
+          from HV_ORDDTL r
+         where r.ORD_DEP_CODE in
+               (select h.code
+                  from C_DEP_STD h
+                 start with h.id =
+                            (select l.id from C_DEP l where l.CODE = rec.code)
+                connect by h.ID_HI = prior h.ID)
+
+           and r.TYPEORD in ('58', '59')
+           and r.TOEFFECTDATE >= TRUNC(SYSDATE, 'YEAR');
+
+        select count(*) as IT_ishga_qabul
+          into IT_ishga_qabul -- bosh office dan tashqari
+          from HV_ORDDTL r
+         where r.ORD_DEP_CODE in
+               (select h.code
+                  from C_DEP_STD h
+                 start with h.id =
+                            (select l.id
+                               from C_DEP l
+                              where l.CODE in
+                                    (select i.DEP_CODE_IT
+                                       from ALL_DEP_IT i
+                                      WHERE i.DEP_CODE = rec.code))
+                connect by h.ID_HI = prior h.ID)
+           and r.TYPEORD in ('58', '59')
+           and r.TOEFFECTDATE >= TRUNC(SYSDATE, 'YEAR');
+
+        select sum(p.limit)
+          into Shtalar_soni
+          from HV_POST p
+         where p.DEP_CODE in
+               (select h.code
+                  from C_DEP_STD h
+                 start with h.id =
+                            (select l.id from C_DEP l where l.CODE = rec.code)
+                connect by h.ID_HI = prior h.ID);
+
+        insert into Empl_statistics
+          (female,
+           male,
+           mehnat_tatili,
+           oquv_tatili,
+           akademik_tatil,
+           harbiy_tatil,
+           ish_haqi_saqlangan,
+           ish_haqi_saqlanmagan,
+           mehnatga_layoqatsizlik,
+           tugruq_tatili,
+           ikki_yoshgacha,
+           Uch_Yoshgacha,
+           CODE,
+           LONGNAME,
+           ishga_qabul,
+           IT_ISHGA_QABUL,
+           ishdan_boshagan,
+           IT_ishdan_boshagan,
+           Shtalar_soni,
+           SANA)
+          select sum(h.female) female, -- bosh office dan tashqari
+                 sum(h.male) male,
+                 sum(h.mehnat_tatili) mehnat_tatili,
+                 sum(h.oquv_tatili) oquv_tatili,
+                 sum(h.академ_отпуск) akademik_tatil,
+                 sum(h.harbiy_tatil) harbiy_tatil,
+                 sum(h.ish_haqi_saqlangan) ish_haqi_saqlangan,
+                 sum(h.ish_haqi_saqlanmagan) ish_haqi_saqlanmagan,
+                 sum(h.mehnatga_layoqatsizlik) mehnatga_layoqatsizlik,
+                 sum(h.декретный_больничный) tugruq_tatili,
+                 sum(h.ikki_yoshgacha) ikki_yoshgacha,
+                 sum(h.bola_uch_yoshgacha) uch_yoshgacha,
+                 rec.CODE as code,
+                 rec.LONGNAME as LONGNAME,
+                 ishga_qabul,
+                 IT_ISHGA_QABUL,
+                 ishdan_boshagan,
+                 IT_ishdan_boshagan,
+                 Shtalar_soni,
+                 SANA
+
+            from (select count(case
+                                 when ch.PSEX = 'M' then
+                                  'M'
+                               END) AS Male,
+                         count(case
+                                 when ch.PSEX = 'F' then
+                                  'F'
+                               END) AS Female,
+                         count(case
+                                 when ab.WORKTYPE_ID = '203' then
+                                  'B'
+                               END) AS mehnatga_layoqatsizlik,
+                         count(case
+                                 when ab.WORKTYPE_ID = '204' then
+                                  'S'
+                               END) AS Ish_haqi_saqlanmagan,
+                         count(case
+                                 when ab.WORKTYPE_ID = '205' then
+                                  'D2'
+                               END) AS ikki_yoshgacha,
+                         count(case
+                                 when ab.WORKTYPE_ID = '208' then
+                                  'О'
+                               END) AS Mehnat_tatili,
+                         count(case
+                                 when ab.WORKTYPE_ID = '214' then
+                                  'U'
+                               END) AS Oquv_tatili,
+                         count(case
+                                 when ab.WORKTYPE_ID = '216' then
+                                  'I'
+                               END) AS Harbiy_tatil,
+                         count(case
+                                 when ab.WORKTYPE_ID = '243' then
+                                  'DB'
+                               END) AS Декретный_больничный,
+                         count(case
+                                 when ab.WORKTYPE_ID = '263' then
+                                  'D3'
+                               END) AS Bola_uch_yoshgacha,
+                         count(case
+                                 when ab.WORKTYPE_ID = '303' then
+                                  'A'
+                               END) AS Академ_отпуск,
+                         count(case
+                                 when ab.WORKTYPE_ID = '363' then
+                                  'C'
+                               END) AS Ish_haqi_saqlangan
+
+                    from T_ORD       o,
+                         T_PROCMEM   pm,
+                         T_PROCESS   bp,
+                         T_BOP_STAT  bs,
+                         G_CLIHST    ch,
+                         G_CLI       c,
+                         C_DEP       d,
+                         H_POST      p,
+                         H_POSTTYPE  t,
+                         H_POST_CAT  pc,
+                         H_IMG       im,
+                         H_HISTORY   h,
+                         A_RESPRS    rp,
+                         H_CANDIDATE fl,
+                         G_CLIFIZ    f,
+                         C_USER      u,
+                         H_ABSENT    ab,
+                         H_WORKTYPE  wt
+                   where rp.CLI_DEP_ID = ch.DEP_ID
+                     and rp.CLI_ID = ch.ID
+                     and P_OPERDAY between ch.FROMDATE and ch.TODATE
+                     and rp.ID = h.PER_ID(+)
+                     and P_OPERDAY between h.FROMDATE(+) and h.TODATE(+)
+                     and h.MAINFL(+) = 1
+                     and c.DEP_ID = ch.DEP_ID
+                     and c.ID = ch.ID
+                     and h.DEP_ID = d.ID(+)
+                     and h.POS_ID = p.ID(+)
+                     and t.ID(+) = p.POSTTYP_ID
+                     and pc.ID(+) = t.CAT_ID
+                     and rp.ORD_DEP_ID = o.DEP_ID
+                     and rp.ORD_ID = o.ID
+                     and rp.ORD_DEP_ID = pm.DEP_ID
+                     and rp.ORD_ID = pm.ORD_ID
+                     and pm.MAINFL = '1'
+                     and pm.ID = bp.ID
+                     and bp.BOP_ID = bs.ID
+                     and bp.NSTAT = bs.NORD
+                     and (im.PER_ID, im.NORD) = all
+                   (select PER_ID, max(NORD)
+                            from H_IMG
+                           where PER_ID = rp.ID
+                           group by PER_ID)
+                     and im.PER_ID(+) = rp.ID
+                     and exists
+                   (Select 1
+                            from DUAL
+                           where h_pkg_tab.fchkDepGrn(nvl(D.ID, o.DEP_ID)) = 1)
+                     and exists
+                   (Select 1
+                            from DUAL
+                           where H_person.fChkCatGrn(rp.id) = 1)
+                     and fl.PER_ID = rp.ID
+                     and fl.CODESTATUS = 'W'
+                     and f.dep_id = rp.cli_dep_id
+                     and f.id = rp.cli_id
+                     and rp.tus_id = u.id(+)
+                     and rp.ID = ab.PER_ID(+)
+                     and ab.CURRENTFL(+) = 1
+                     and wt.ID(+) = ab.WORKTYPE_ID
+                     and ((1 = 0) or
+                         ((1 = 1) and
+                         (bp.NSTAT != any
+                          (select NORD
+                               from T_BOP_STAT
+                              where ID = bp.BOP_ID
+                                and CODE = 'H_DISMISSED'))))
+                     and 1 = 1
+                     and (h.DEP_ID = any
+                          (select id
+                             from c_dep_std
+                            start with code = rec.code
+                           connect by id_hi = prior id) or
+                          (h.per_id is null and exists
+                           (select *
+                              from h_history hh
+                             where hh.per_id = rp.id
+                               and hh.dep_id = any
+                             (select id
+                                      from c_dep_std
+                                     start with code = rec.code
+                                    connect by id_hi = prior id)
+                               and p_operday not between hh.fromdate and
+                                   hh.todate)))
+                   group by ch.PSEX, ab.WORKTYPE_ID) h;
+
+        commit;
+      end if;
+
+    END LOOP;
+    commit;
+  end;
+  -- end if;
+
+  Procedure LAYOFFS(Estartdate in date,
+                    Eenddate   in date,
+                    Edep       in varchar2,
+                    TXTFL      in varchar2) is
+
+  begin
+    delete LAYOFFS;
+    commit;
+    c_Pkgconnect.Popen();
+
+    for rec in ((select distinct CODE, LONGNAME from C_DEP where ARCFL = 0 and (ID = P_Branch(ID) or CODE = c_pkgprm.fGetValPrm('GL_MAINDEP')) and code = Edep connect by prior ID = ID_HI)) loop
+
+      IF rec.code = '00401' and TXTFL = '1' then
+        insert into LAYOFFS l
+          (l.curr_dep_fullname,
+           l.full_name,
+           l.curr_dep_name,
+           l.curr_pos_name,
+           l.curr_fromdate,
+           l.curr_todate,
+           l.reason,
+           l.NUMORD,
+           l.curr_dep_code)
+
+          select a.CURR_DEP_FULLNAME as CURR_DEP_FULLNAME, -- bosh office /*  ishdan_boshagan*/  Faqat bosh ofist hodimlari
+                 a.FULL_NAME,
+                 a.CURR_DEP_NAME,
+                 a.CURR_POS_NAME,
+                 a.CURR_FROMDATE,
+                 a.CURR_TODATE /*filter */,
+                 nvl(r.RPT_NAME, r.NAMETYPEORD) as reason,
+                 r.NUMORD,
+                 a.CURR_DEP_CODE
+
+            from HV_PERSON a, HV_ORDDTL r
+           where a.tab_number = r.tab_number
+             and r.TYPEORD = '326'
+
+             and r.DEP_ORD = any
+           (select DEP_ID
+                    from H_HISTORY
+                   where DEP_ID = any
+                   (select ID
+                            from (select ID,
+                                         BALFL,
+                                         SYS_CONNECT_BY_PATH(case
+                                                               when level = 1 then
+                                                                0
+                                                               else
+                                                                BITOR(EXPENDFL, INCOMSFL)
+                                                             end,
+                                                             '/') as fl
+                                    from C_DEP_STD
+                                   start with CODE = rec.code
+                                  connect by ID_HI = prior ID)
+                           where instr(fl, '1') = 0)
+                     and p_OperDay between FROMDATE and TODATE
+                     and MAINFL = 1)
+                -- and r.TOEFFECTDATE >= TRUNC(SYSDATE, 'YEAR')
+             and r.TOEFFECTDATE between Estartdate and Eenddate;
+
+        commit;
+
+      else
+
+        insert into LAYOFFS l
+          (l.curr_dep_fullname,
+           l.full_name,
+           l.curr_dep_name,
+           l.curr_pos_name,
+           l.curr_fromdate,
+           l.curr_todate,
+           l.reason,
+           l.NUMORD,
+           l.curr_dep_code)
+          select a.CURR_DEP_FULLNAME as CURR_DEP_FULLNAME, -- -- bosh office Umumiy  hodimlar va alohida filiallar bilan /*  ishdan_boshagan*/
+                 a.FULL_NAME,
+                 a.CURR_DEP_NAME,
+                 a.CURR_POS_NAME,
+                 a.CURR_FROMDATE,
+                 a.CURR_TODATE /*filter */,
+                 nvl(r.RPT_NAME, r.NAMETYPEORD) as reason,
+                 r.NUMORD,
+                 a.CURR_DEP_CODE
+
+            from HV_PERSON a, HV_ORDDTL r
+           where a.tab_number = r.tab_number --firtr dep
+             and r.TYPEORD = '326'
+             and r.ORD_DEP_CODE in
+                 (select h.code
+                    from C_DEP_STD h
+                   start with h.id = (select l.id
+                                        from C_DEP l
+                                       where l.CODE = REC.CODE)
+                  connect by h.ID_HI = prior h.ID)
+                --and r.TOEFFECTDATE >= TRUNC(SYSDATE, 'YEAR')
+             and r.TOEFFECTDATE between Estartdate and Eenddate;
+
+      end if;
+    END LOOP;
+    commit;
+
+  end;
+
+  Procedure GET_HIRED(Estartdate in date,
+                      Eenddate   in date,
+                      Edep       in varchar2,
+                      TXTF       in varchar2) is
+
+  begin
+    delete GET_HIRED;
+    commit;
+    c_Pkgconnect.Popen();
+
+    for rec in ((select distinct CODE, LONGNAME from C_DEP where ARCFL = 0 and (ID = P_Branch(ID) or CODE = c_pkgprm.fGetValPrm('GL_MAINDEP')) and code = Edep connect by prior ID = ID_HI)) loop
+
+      if rec.code = '00401' and TXTF = '1' then
+
+        insert into GET_HIRED q
+          (q.curr_dep_fullname,
+           q.full_name,
+           q.curr_dep_name,
+           q.curr_pos_name,
+           q.tab_number,
+           q.curr_fromdate,
+           q.PUTDATE,
+           q.reason,
+           q.NUMORD,
+           q.koef,
+           q.curr_dep_code
+
+           )
+
+          select a.CURR_DEP_FULLNAME as CURR_DEP_FULLNAME, -- bosh office    /* ishga_qabul*/ Faqat bosh ofist hodimlari
+                 a.FULL_NAME,
+                 a.CURR_DEP_NAME,
+                 a.CURR_POS_NAME,
+                 a.tab_number,
+                 a.CURR_FROMDATE,
+                 r.PUTDATE,
+                 nvl(r.RPT_NAME, r.NAMETYPEORD) as reason,
+                 r.NUMORD,
+                 a.koef,
+                 a.CURR_DEP_CODE
+
+            from HV_PERSON a, HV_ORDDTL r
+           where r.DEP_ORD = any
+           (select DEP_ID
+                    from H_HISTORY
+                   where DEP_ID = any
+                   (select ID
+                            from (select ID,
+                                         BALFL,
+                                         SYS_CONNECT_BY_PATH(case
+                                                               when level = 1 then
+                                                                0
+                                                               else
+                                                                BITOR(EXPENDFL, INCOMSFL)
+                                                             end,
+                                                             '/') as fl
+                                    from C_DEP_STD
+                                   start with CODE = REC.CODE
+                                  connect by ID_HI = prior ID)
+                           where instr(fl, '1') = 0)
+                     and p_OperDay between FROMDATE and TODATE
+                     and MAINFL = 1)
+             and a.tab_number = r.tab_number
+             and r.TYPEORD in ('58', '59')
+                --  and r.TOEFFECTDATE >= TRUNC(SYSDATE, 'YEAR')
+             and r.TOEFFECTDATE between Estartdate and Eenddate;
+
+        commit;
+
+      else
+
+        insert into GET_HIRED q
+          (q.curr_dep_fullname,
+           q.full_name,
+           q.curr_dep_name,
+           q.curr_pos_name,
+           q.tab_number,
+           q.curr_fromdate,
+           q.PUTDATE,
+           q.reason,
+           q.NUMORD,
+           q.koef,
+           q.curr_dep_code)
+
+          select a.CURR_DEP_FULLNAME as CURR_DEP_FULLNAME, --  bosh office Umumiy  hodimlar va alohida filiallar bilan /* ishga_qabul */
+                 a.FULL_NAME,
+                 a.CURR_DEP_NAME,
+                 a.CURR_POS_NAME,
+                 a.tab_number,
+                 a.CURR_FROMDATE /*filter */,
+                 r.PUTDATE,
+                 nvl(r.RPT_NAME, r.NAMETYPEORD) as reason,
+                 r.NUMORD,
+                 a.koef,
+                 a.CURR_DEP_CODE
+
+            from HV_PERSON a, HV_ORDDTL r
+           where a.tab_number = r.tab_number
+
+             and r.ORD_DEP_CODE in
+                 (select h.code
+                    from C_DEP_STD h
+                   start with h.id = (select l.id
+                                        from C_DEP l
+                                       where l.CODE = REC.CODE)
+                  connect by h.ID_HI = prior h.ID)
+
+             and r.TYPEORD in ('58', '59')
+                --  and r.TOEFFECTDATE >= TRUNC(SYSDATE, 'YEAR')
+             and r.TOEFFECTDATE between Estartdate and Eenddate;
+
+      end if;
+    END LOOP;
+    commit;
+
+  end;
+
+  Procedure SICK(Estartdate in date,
+                 Eenddate   in date,
+                 Edep       in varchar2,
+                 TXTF       in varchar2) is
+
+  begin
+    delete SICK;
+    commit;
+    c_Pkgconnect.Popen();
+
+    for rec in ((select distinct CODE, LONGNAME from C_DEP where ARCFL = 0 and (ID = P_Branch(ID) or CODE = c_pkgprm.fGetValPrm('GL_MAINDEP')) and code = Edep connect by prior ID = ID_HI)
+
+     ) loop
+
+      if rec.code = '00401' and TXTF = '1' then
+
+        insert into SICK q
+          select distinct a.CURR_DEP_FULLNAME as CURR_DEP_FULLNAME, -- -- bosh office    /* Kasal*/   Faqat bosh ofist hodimlari
+                          a.FULL_NAME,
+                          a.CURR_DEP_NAME,
+                          a.CURR_POS_NAME,
+                          nvl(r.RPT_NAME, r.NAMETYPEORD) as reason,
+                          r.PUTDATE,
+                          r.NUMORD,
+                          a.CURR_DEP_CODE
+            from HV_PERSON a, HV_ORDDTL r, A_RESPRS rp, H_ABSENT ab
+           where a.tab_number = r.tab_number
+                --and r.TYPEORD = '270'
+                -- and r.CODETYPEORD = 'SICK LEAVE'
+             and rp.tab_number = a.tab_number
+             and rp.ID = ab.PER_ID(+)
+
+             and ab.CURRENTFL(+) = 1
+
+             and r.DEP_ORD = any
+           (select DEP_ID
+                    from H_HISTORY
+                   where DEP_ID = any
+                   (select ID
+                            from (select ID,
+                                         BALFL,
+                                         SYS_CONNECT_BY_PATH(case
+                                                               when level = 1 then
+                                                                0
+                                                               else
+                                                                BITOR(EXPENDFL, INCOMSFL)
+                                                             end,
+                                                             '/') as fl
+                                    from C_DEP_STD
+                                   start with CODE = REC.CODE
+                                  connect by ID_HI = prior ID)
+                           where instr(fl, '1') = 0)
+                     and p_OperDay between FROMDATE and TODATE
+                     and MAINFL = 1)
+
+                --and r.PUTDATE>=TRUNC(SYSDATE, 'YEAR')
+             and r.PUTDATE between Estartdate and Eenddate;
+
+        commit;
+
+      else
+
+        insert into SICK q
+          select distinct a.CURR_DEP_FULLNAME as CURR_DEP_FULLNAME, -- -- bosh office Umumiy  hodimlar va alohida filiallar bilan /*  Kasa1*/
+                          a.FULL_NAME,
+                          a.CURR_DEP_NAME,
+                          a.CURR_POS_NAME,
+                          nvl(r.RPT_NAME, r.NAMETYPEORD) as reason,
+                          r.PUTDATE,
+                          r.NUMORD,
+                          a.CURR_DEP_CODE
+
+            from HV_PERSON a, HV_ORDDTL r, A_RESPRS rp, H_ABSENT ab
+           where a.tab_number = r.tab_number
+                -- and r.TYPEORD = '270'
+                -- and r.CODETYPEORD = 'SICK LEAVE'
+             and rp.tab_number = a.tab_number
+             and rp.ID = ab.PER_ID(+)
+
+             and ab.CURRENTFL(+) = 1
+
+             and r.ORD_DEP_CODE in
+                 (select h.code
+                    from C_DEP_STD h
+                   start with h.id = (select l.id
+                                        from C_DEP l
+                                       where l.CODE = REC.CODE)
+                  connect by h.ID_HI = prior h.ID)
+                --  and r.PUTDATE>=TRUNC(SYSDATE, 'YEAR')
+             and r.PUTDATE between Estartdate and Eenddate;
+
+      end if;
+    END LOOP;
+    commit;
+
+  end;
+
+  Procedure empl_status(Edep    in varchar2,
+                        TYPE_ID in varchar2,
+                        TXTF    in varchar2) is
+    ETYPE_ID varchar2(4000) := TYPE_ID;
+  begin
+    delete empl_status;
+    commit;
+    c_Pkgconnect.Popen();
+
+    for rec in ((select distinct CODE, LONGNAME from C_DEP where ARCFL = 0 and (ID = P_Branch(ID) or CODE = c_pkgprm.fGetValPrm('GL_MAINDEP')) and code = Edep connect by prior ID = ID_HI)
+
+     ) loop
+
+      IF rec.code = '00401' and TXTF = '1' and ETYPE_ID = TYPE_ID then
+
+        insert into empl_status q
+          (q.longname,
+           q.curr_dep_name,
+           q.full_name,
+           q.curr_pos_name,
+           q.worktype_id,
+           q.wortype_name,
+           q.code)
+
+          select rec.longname,
+                 d.LONGNAME CURR_DEP_NAME,
+                 ch.PNAME1 || ' ' || ch.PNAME2 || ' ' || ch.PNAME3 FULL_NAME, -- bosh office
+                 t.LONGNAME CURR_POS_NAME,
+                 ab.WORKTYPE_ID,
+                 wt.LONGNAME as WORTYPE_NAME,
+                 rec.code
+
+            from T_ORD       o,
+                 T_PROCMEM   pm,
+                 T_PROCESS   bp,
+                 T_BOP_STAT  bs,
+                 G_CLIHST    ch,
+                 G_CLI       c,
+                 C_DEP       d,
+                 H_POST      p,
+                 H_POSTTYPE  t,
+                 H_POST_CAT  pc,
+                 H_IMG       im,
+                 H_HISTORY   h,
+                 A_RESPRS    rp,
+                 H_CANDIDATE fl,
+                 G_CLIFIZ    f,
+                 C_USER      u,
+                 H_ABSENT    ab,
+                 H_WORKTYPE  wt
+           where rp.CLI_DEP_ID = ch.DEP_ID
+             and rp.CLI_ID = ch.ID
+             and P_OPERDAY between ch.FROMDATE and ch.TODATE
+             and rp.ID = h.PER_ID(+)
+             and P_OPERDAY between h.FROMDATE(+) and h.TODATE(+)
+             and h.MAINFL(+) = 1
+             and c.DEP_ID = ch.DEP_ID
+             and c.ID = ch.ID
+             and h.DEP_ID = d.ID(+)
+             and h.POS_ID = p.ID(+)
+             and t.ID(+) = p.POSTTYP_ID
+             and pc.ID(+) = t.CAT_ID
+             and rp.ORD_DEP_ID = o.DEP_ID
+             and rp.ORD_ID = o.ID
+             and rp.ORD_DEP_ID = pm.DEP_ID
+             and rp.ORD_ID = pm.ORD_ID
+             and pm.MAINFL = '1'
+             and pm.ID = bp.ID
+             and bp.BOP_ID = bs.ID
+             and bp.NSTAT = bs.NORD
+             and (im.PER_ID, im.NORD) = all (select PER_ID, max(NORD)
+                    from H_IMG
+                   where PER_ID = rp.ID
+                   group by PER_ID)
+             and im.PER_ID(+) = rp.ID
+             and exists
+           (Select 1
+                    from DUAL
+                   where h_pkg_tab.fchkDepGrn(nvl(D.ID, o.DEP_ID)) = 1)
+             and exists
+           (Select 1 from DUAL where H_person.fChkCatGrn(rp.id) = 1)
+             and fl.PER_ID = rp.ID
+             and fl.CODESTATUS = 'W'
+             and f.dep_id = rp.cli_dep_id
+             and f.id = rp.cli_id
+             and rp.tus_id = u.id(+)
+             and rp.ID = ab.PER_ID(+)
+             and ab.CURRENTFL(+) = 1
+             and wt.ID(+) = ab.WORKTYPE_ID
+             and ((1 = 0) or ((1 = 1) and
+                 (bp.NSTAT != any
+                  (select NORD
+                                  from T_BOP_STAT
+                                 where ID = bp.BOP_ID
+                                   and CODE = 'H_DISMISSED'))))
+             and 1 = 1
+             and (h.DEP_ID = any
+                  (select id
+                     from c_dep_std
+                    start with code = Edep
+                   connect by id_hi = prior id) or
+                  (h.per_id is null and exists
+                   (select *
+                      from h_history hh
+                     where hh.per_id = rp.id
+                       and hh.dep_id = any
+                     (select id
+                              from c_dep_std
+                             start with code = Edep
+                            connect by id_hi = prior id)
+                       and p_operday not between hh.fromdate and hh.todate)))
+             and rp.ID = any
+           (select PER_ID
+                    from H_HISTORY
+                   where DEP_ID = any
+                   (select ID
+                            from (select ID,
+                                         BALFL,
+                                         SYS_CONNECT_BY_PATH(case
+                                                               when level = 1 then
+                                                                0
+                                                               else
+                                                                BITOR(EXPENDFL, INCOMSFL)
+                                                             end,
+                                                             '/') as fl
+                                    from C_DEP_STD
+                                   start with CODE = Edep
+                                  connect by ID_HI = prior ID)
+                           where instr(fl, '1') = 0)
+                     and p_OperDay between FROMDATE and TODATE
+                     and MAINFL = 1)
+             and ab.WORKTYPE_ID = TYPE_ID;
+
+        commit;
+
+      ELSIF rec.code = '00401' and TXTF = '1' then
+
+        insert into empl_status q
+          (q.longname,
+           q.curr_dep_name,
+           q.full_name,
+           q.curr_pos_name,
+           q.worktype_id,
+           q.wortype_name,
+           q.code)
+
+          select rec.longname,
+                 d.LONGNAME CURR_DEP_NAME,
+                 ch.PNAME1 || ' ' || ch.PNAME2 || ' ' || ch.PNAME3 FULL_NAME, -- bosh office
+                 t.LONGNAME CURR_POS_NAME,
+                 ab.WORKTYPE_ID,
+                 wt.LONGNAME as WORTYPE_NAME,
+                 rec.code
+
+            from T_ORD       o,
+                 T_PROCMEM   pm,
+                 T_PROCESS   bp,
+                 T_BOP_STAT  bs,
+                 G_CLIHST    ch,
+                 G_CLI       c,
+                 C_DEP       d,
+                 H_POST      p,
+                 H_POSTTYPE  t,
+                 H_POST_CAT  pc,
+                 H_IMG       im,
+                 H_HISTORY   h,
+                 A_RESPRS    rp,
+                 H_CANDIDATE fl,
+                 G_CLIFIZ    f,
+                 C_USER      u,
+                 H_ABSENT    ab,
+                 H_WORKTYPE  wt
+           where rp.CLI_DEP_ID = ch.DEP_ID
+             and rp.CLI_ID = ch.ID
+             and P_OPERDAY between ch.FROMDATE and ch.TODATE
+             and rp.ID = h.PER_ID(+)
+             and P_OPERDAY between h.FROMDATE(+) and h.TODATE(+)
+             and h.MAINFL(+) = 1
+             and c.DEP_ID = ch.DEP_ID
+             and c.ID = ch.ID
+             and h.DEP_ID = d.ID(+)
+             and h.POS_ID = p.ID(+)
+             and t.ID(+) = p.POSTTYP_ID
+             and pc.ID(+) = t.CAT_ID
+             and rp.ORD_DEP_ID = o.DEP_ID
+             and rp.ORD_ID = o.ID
+             and rp.ORD_DEP_ID = pm.DEP_ID
+             and rp.ORD_ID = pm.ORD_ID
+             and pm.MAINFL = '1'
+             and pm.ID = bp.ID
+             and bp.BOP_ID = bs.ID
+             and bp.NSTAT = bs.NORD
+             and (im.PER_ID, im.NORD) = all (select PER_ID, max(NORD)
+                    from H_IMG
+                   where PER_ID = rp.ID
+                   group by PER_ID)
+             and im.PER_ID(+) = rp.ID
+             and exists
+           (Select 1
+                    from DUAL
+                   where h_pkg_tab.fchkDepGrn(nvl(D.ID, o.DEP_ID)) = 1)
+             and exists
+           (Select 1 from DUAL where H_person.fChkCatGrn(rp.id) = 1)
+             and fl.PER_ID = rp.ID
+             and fl.CODESTATUS = 'W'
+             and f.dep_id = rp.cli_dep_id
+             and f.id = rp.cli_id
+             and rp.tus_id = u.id(+)
+             and rp.ID = ab.PER_ID(+)
+             and ab.CURRENTFL(+) = 1
+             and wt.ID(+) = ab.WORKTYPE_ID
+             and ((1 = 0) or ((1 = 1) and
+                 (bp.NSTAT != any
+                  (select NORD
+                                  from T_BOP_STAT
+                                 where ID = bp.BOP_ID
+                                   and CODE = 'H_DISMISSED'))))
+             and 1 = 1
+             and (h.DEP_ID = any
+                  (select id
+                     from c_dep_std
+                    start with code = Edep
+                   connect by id_hi = prior id) or
+                  (h.per_id is null and exists
+                   (select *
+                      from h_history hh
+                     where hh.per_id = rp.id
+                       and hh.dep_id = any
+                     (select id
+                              from c_dep_std
+                             start with code = Edep
+                            connect by id_hi = prior id)
+                       and p_operday not between hh.fromdate and hh.todate)))
+             and rp.ID = any
+           (select PER_ID
+                    from H_HISTORY
+                   where DEP_ID = any
+                   (select ID
+                            from (select ID,
+                                         BALFL,
+                                         SYS_CONNECT_BY_PATH(case
+                                                               when level = 1 then
+                                                                0
+                                                               else
+                                                                BITOR(EXPENDFL, INCOMSFL)
+                                                             end,
+                                                             '/') as fl
+                                    from C_DEP_STD
+                                   start with CODE = Edep
+                                  connect by ID_HI = prior ID)
+                           where instr(fl, '1') = 0)
+                     and p_OperDay between FROMDATE and TODATE
+                     and MAINFL = 1)
+             and ab.WORKTYPE_ID in ('203',
+                                    '204',
+                                    '205',
+                                    '208',
+                                    '214',
+                                    '216',
+                                    '243',
+                                    '263',
+                                    '303',
+                                    '363');
+
+        commit;
+
+      ELSIF rec.code = Edep and ETYPE_ID = TYPE_ID then
+
+        insert into empl_status q
+          (q.longname,
+           q.curr_dep_name,
+           q.full_name,
+           q.curr_pos_name,
+           q.worktype_id,
+           q.wortype_name,
+           q.code)
+
+          select *
+            from (select rec.longname,
+                          d.LONGNAME CURR_DEP_NAME,
+                          ch.PNAME1 || ' ' || ch.PNAME2 || ' ' || ch.PNAME3 FULL_NAME, -- bosh office
+                          t.LONGNAME CURR_POS_NAME,
+                          ab.WORKTYPE_ID,
+                          wt.LONGNAME as WORTYPE_NAME,
+                          rec.code
+                     from T_ORD       o,
+                          T_PROCMEM   pm,
+                          T_PROCESS   bp,
+                          T_BOP_STAT  bs,
+                          G_CLIHST    ch,
+                          G_CLI       c,
+                          C_DEP       d,
+                          H_POST      p,
+                          H_POSTTYPE  t,
+                          H_POST_CAT  pc,
+                          H_IMG       im,
+                          H_HISTORY   h,
+                          A_RESPRS    rp,
+                          H_CANDIDATE fl,
+                          G_CLIFIZ    f,
+                          C_USER      u,
+                          H_ABSENT    ab,
+                          H_WORKTYPE  wt
+
+                    where
+
+                    rp.CLI_DEP_ID = ch.DEP_ID
+                 and rp.CLI_ID = ch.ID
+                 and P_OPERDAY between ch.FROMDATE and ch.TODATE
+                 and rp.ID = h.PER_ID(+)
+                 and P_OPERDAY between h.FROMDATE(+) and h.TODATE(+)
+                 and h.MAINFL(+) = 1
+                 and c.DEP_ID = ch.DEP_ID
+                 and c.ID = ch.ID
+                 and h.DEP_ID = d.ID(+)
+                 and h.POS_ID = p.ID(+)
+                 and t.ID(+) = p.POSTTYP_ID
+                 and pc.ID(+) = t.CAT_ID
+                 and rp.ORD_DEP_ID = o.DEP_ID
+                 and rp.ORD_ID = o.ID
+                 and rp.ORD_DEP_ID = pm.DEP_ID
+                 and rp.ORD_ID = pm.ORD_ID
+                 and pm.MAINFL = '1'
+                 and pm.ID = bp.ID
+                 and bp.BOP_ID = bs.ID
+                 and bp.NSTAT = bs.NORD
+                 and (im.PER_ID, im.NORD) = all (select PER_ID, max(NORD)
+                       from H_IMG
+                      where PER_ID = rp.ID
+                      group by PER_ID)
+                 and im.PER_ID(+) = rp.ID
+                 and exists (Select 1
+                       from DUAL
+                      where h_pkg_tab.fchkDepGrn(nvl(D.ID, o.DEP_ID)) = 1)
+                 and exists
+                    (Select 1 from DUAL where H_person.fChkCatGrn(rp.id) = 1)
+                 and fl.PER_ID = rp.ID
+                 and fl.CODESTATUS = 'W'
+                 and f.dep_id = rp.cli_dep_id
+                 and f.id = rp.cli_id
+                 and rp.tus_id = u.id(+)
+                 and rp.ID = ab.PER_ID(+)
+                 and ab.CURRENTFL(+) = 1
+                 and wt.ID(+) = ab.WORKTYPE_ID
+                 and ((1 = 0) or ((1 = 1) and
+                    (bp.NSTAT != any
+                     (select NORD
+                                     from T_BOP_STAT
+                                    where ID = bp.BOP_ID
+                                      and CODE = 'H_DISMISSED'))))
+                 and 1 = 1
+                 and (h.DEP_ID = any
+                     (select id
+                        from c_dep_std
+                       start with code = Edep
+                      connect by id_hi = prior id) or
+                     (h.per_id is null and exists
+                      (select *
+                         from h_history hh
+                        where hh.per_id = rp.id
+                          and hh.dep_id = any
+                        (select id
+                                 from c_dep_std
+                                start with code = Edep
+                               connect by id_hi = prior id)
+                          and p_operday not between hh.fromdate and hh.todate)))
+                 and ab.WORKTYPE_ID = TYPE_ID) h;
+
+      else
+
+        insert into empl_status q
+          (q.longname,
+           q.curr_dep_name,
+           q.full_name,
+           q.curr_pos_name,
+           q.worktype_id,
+           q.wortype_name,
+           q.code)
+
+          select *
+            from (select rec.longname,
+                          d.LONGNAME CURR_DEP_NAME,
+                          ch.PNAME1 || ' ' || ch.PNAME2 || ' ' || ch.PNAME3 FULL_NAME, -- bosh office
+                          t.LONGNAME CURR_POS_NAME,
+                          ab.WORKTYPE_ID,
+                          wt.LONGNAME as WORTYPE_NAME,
+                          rec.code
+                     from T_ORD       o,
+                          T_PROCMEM   pm,
+                          T_PROCESS   bp,
+                          T_BOP_STAT  bs,
+                          G_CLIHST    ch,
+                          G_CLI       c,
+                          C_DEP       d,
+                          H_POST      p,
+                          H_POSTTYPE  t,
+                          H_POST_CAT  pc,
+                          H_IMG       im,
+                          H_HISTORY   h,
+                          A_RESPRS    rp,
+                          H_CANDIDATE fl,
+                          G_CLIFIZ    f,
+                          C_USER      u,
+                          H_ABSENT    ab,
+                          H_WORKTYPE  wt
+
+                    where
+
+                    rp.CLI_DEP_ID = ch.DEP_ID
+                 and rp.CLI_ID = ch.ID
+                 and P_OPERDAY between ch.FROMDATE and ch.TODATE
+                 and rp.ID = h.PER_ID(+)
+                 and P_OPERDAY between h.FROMDATE(+) and h.TODATE(+)
+                 and h.MAINFL(+) = 1
+                 and c.DEP_ID = ch.DEP_ID
+                 and c.ID = ch.ID
+                 and h.DEP_ID = d.ID(+)
+                 and h.POS_ID = p.ID(+)
+                 and t.ID(+) = p.POSTTYP_ID
+                 and pc.ID(+) = t.CAT_ID
+                 and rp.ORD_DEP_ID = o.DEP_ID
+                 and rp.ORD_ID = o.ID
+                 and rp.ORD_DEP_ID = pm.DEP_ID
+                 and rp.ORD_ID = pm.ORD_ID
+                 and pm.MAINFL = '1'
+                 and pm.ID = bp.ID
+                 and bp.BOP_ID = bs.ID
+                 and bp.NSTAT = bs.NORD
+                 and (im.PER_ID, im.NORD) = all (select PER_ID, max(NORD)
+                       from H_IMG
+                      where PER_ID = rp.ID
+                      group by PER_ID)
+                 and im.PER_ID(+) = rp.ID
+                 and exists (Select 1
+                       from DUAL
+                      where h_pkg_tab.fchkDepGrn(nvl(D.ID, o.DEP_ID)) = 1)
+                 and exists
+                    (Select 1 from DUAL where H_person.fChkCatGrn(rp.id) = 1)
+                 and fl.PER_ID = rp.ID
+                 and fl.CODESTATUS = 'W'
+                 and f.dep_id = rp.cli_dep_id
+                 and f.id = rp.cli_id
+                 and rp.tus_id = u.id(+)
+                 and rp.ID = ab.PER_ID(+)
+                 and ab.CURRENTFL(+) = 1
+                 and wt.ID(+) = ab.WORKTYPE_ID
+                 and ((1 = 0) or ((1 = 1) and
+                    (bp.NSTAT != any
+                     (select NORD
+                                     from T_BOP_STAT
+                                    where ID = bp.BOP_ID
+                                      and CODE = 'H_DISMISSED'))))
+                 and 1 = 1
+                 and (h.DEP_ID = any
+                     (select id
+                        from c_dep_std
+                       start with code = Edep
+                      connect by id_hi = prior id) or
+                     (h.per_id is null and exists
+                      (select *
+                         from h_history hh
+                        where hh.per_id = rp.id
+                          and hh.dep_id = any
+                        (select id
+                                 from c_dep_std
+                                start with code = Edep
+                               connect by id_hi = prior id)
+                          and p_operday not between hh.fromdate and hh.todate)))
+                 and ab.WORKTYPE_ID in ('203',
+                                       '204',
+                                       '205',
+                                       '208',
+                                       '214',
+                                       '216',
+                                       '243',
+                                       '263',
+                                       '303',
+                                       '363')) h;
+
+      end if;
+    END LOOP;
+    commit;
+
+  end;
+
+end Z_116_PKG_HR_TOT_NUM_EMPL;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="H_PERSON"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="ALL_DEP_IT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="A_RESPRS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_USER"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="EMPL_STATISTICS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="EMPL_STATUS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="GET_HIRED"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIFIZ"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="HV_ORDDTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="HV_PERSON"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="HV_POST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="H_ABSENT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="H_CANDIDATE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="H_HISTORY"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="H_IMG"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="H_POST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="H_POSTTYPE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="H_POST_CAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="H_WORKTYPE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LAYOFFS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="SICK"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="BITOR"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_BRANCH"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="H_PKG_TAB"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

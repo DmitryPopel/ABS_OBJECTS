@@ -1,0 +1,395 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_CLI_ACC_NP" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="788D18C03B447E4225A8771C83A219D7">
+  <PKG 
+    NAME="Z_116_PKG_CLI_ACC_NP">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_CLI_ACC_NP is
+  /**
+  * Пакет подготовки данных для отчета Z_116_CLI_ACC_NP - Общие сведения по физическим лицам.
+  *
+  * @author Farziddin
+  *
+  * Copyright (c) 2023 Aloqabank
+  */
+  procedure pProcessOneChunk(pChunkNum number,
+                             pSID      number,
+                             dOp       date,
+                             pDATEPOST in varchar2 default null);
+
+  ----------------------------------------------------------------------------------------------------
+  /** Процедура подготовки данных для отчета Z_116_CLI_ACC_NP - Общие сведения по физическим лицам.
+  * @param pFROM Дата c
+  * @param pTO Дата до
+  * @param pDEP_ID ID подразделения
+  * @param pSUB Сводный
+  */
+  procedure run(pFROM date, pTO date, pDEP_ID number, pSUB number);
+
+  ----------------------------------------------------------------------------------------------------
+  procedure pClean;
+end Z_116_PKG_CLI_ACC_NP;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_CLI_ACC_NP is
+  ----------------------------------------------------------------------------------------------------
+  procedure run(pFROM date, pTO date, pDEP_ID number, pSUB number) is
+    iData     Z_116_CLI_ACC_NP_RAW%rowtype;
+    dFromDate date;
+    nDep      number;
+  begin
+    L_PKGRPT_PRLUTL.pPrepare(pRPT_CODE => 'Z_116_CLI_ACC_NP',
+                             pRptDate  => p_operday,
+                             pPKG_NAME => 'Z_116_PKG_CLI_ACC_NP',
+                             pTBL_NAME => 'Z_116_CLI_ACC_NP_RAW');
+    for r in (with acc as
+                 (select t.*,
+                        substr(cli, 1, instr(cli, ',') - 1) cli_dep_id,
+                        substr(cli, instr(cli, ',') + 1) cli_id
+                   from (select a.*,
+                                (select clidep_id || ',' || cli_id
+                                   from (select clidep_id, cli_id
+                                           from g_accblnhst
+                                          where dep_id = a.dep_id
+                                            and id = a.id
+                                            and p_operday between fromdate and
+                                                todate
+                                         union all
+                                         select to_number(pk1), to_number(pk2)
+                                           from ledacc_det
+                                          where dep_id = a.dep_id
+                                            and acc_id = a.id
+                                            and sgn_id in
+                                                (select *
+                                                   from table(gl_acc.fclianllst))
+                                         union all
+                                         select p.prsdep_id, p.prs_id
+                                           from g_accmangr m, g_cliauthprs p
+                                          where m.dep_id = a.dep_id
+                                            and m.id = a.id
+                                            and m.mngr_dep_id = p.dep_id
+                                            and m.mngr_id = p.id
+                                            and m.nord = p.nord
+                                            and p.nsign = c_sign_owner)
+                                  where rownum = 1) cli
+                           from g_accbln a
+                          where substr(a.code, 1, 5) in
+                                ('20206', '20406', '20606', '22616', '22618')
+                            and a.dreg between pFROM and pTO) t)
+                select g.dep_id as cli_dep_id,
+                       g.id as cli_id,
+                       g.ord_id as cli_ord_id,
+                       g.code cli_code,
+                       g.birdate,
+                       gh.longname cli_name,
+                       (select longname from T_REG_STD where id = gh.CITIZ_ID) citiz_name,
+                       gh.passser || ' ' || gh.passnum as passport,
+                       gh.passdat,
+                       gh.passfin,
+                       gh.passorg,
+                       a.code as aut_code,
+                       dep.code as aut_dep_code,
+                       acc.code as acc_code,
+                       acc.dreg,
+                       dep.id as dep_id,
+                       case
+                         when substr(acc.code, 1, 5) = '20206' then
+                          'Денежные переводы'
+                         when substr(acc.code, 1, 5) in ('20406', '20606') then
+                          'Депозиты'
+                         when substr(acc.code, 1, 5) in ('22616', '22618') then
+                          'Пластиковая карточка'
+                       end as type_service,
+                       (select st.longname
+                          from t_procmem pm, t_process pr, t_bop_stat st
+                         where pm.ord_id = acc.ord_id
+                           and pm.dep_id = acc.dep_id
+                           and pm.mainfl = '1'
+                           and pr.id = pm.id
+                           and st.id = pr.bop_id
+                           and st.nord = pr.nstat
+                           and rownum = 1) as state_name
+                  from acc
+                  join g_cli g
+                    on g.dep_id = acc.cli_dep_id
+                   and g.id = acc.cli_id
+                  join g_clihst gh
+                    on gh.dep_id = g.dep_id
+                   and gh.id = g.id
+                   and p_operday between gh.fromdate and gh.todate
+                  join t_accgrp a
+                    on a.id = gh.aut_id
+                  join c_dep_std dep
+                    on dep.id = a.dep_id
+                 where g.typefl = 1) loop
+      if pDEP_ID != r.dep_id then
+        if pSUB = 0 then
+          continue;
+        else
+          begin
+            select id
+              into nDep
+              from c_dep
+             where id = r.dep_id
+             start with id = pDEP_ID
+            connect by prior id = id_hi;
+          exception
+            when no_data_found then
+              continue;
+          end;
+        end if;
+      end if;
+
+      iData.Dep_Id       := r.cli_dep_id;
+      iData.Id           := r.cli_id;
+      iData.Cli_Name     := r.cli_name; -- Ф.И.О
+      iData.Cli_Code     := r.cli_code; -- Код клиента
+      iData.Birdate      := r.birdate; -- Дата рождения
+      iData.Adr_Birth    := G_PKGADDRESS.fCliAdr(r.cli_dep_id,
+                                                 r.cli_id,
+                                                 gcliadr_birth); -- Место рождения
+      iData.citiz_name   := r.citiz_name; -- Гражданство
+      iData.passport     := r.passport; -- Серия/номер паспорта
+      iData.passdat      := r.passdat; -- Дата выдачи
+      iData.passfin      := r.passfin; -- Срок действия
+      iData.passorg      := r.passorg; -- Орган выдавший паспорт
+      iData.Aut_Dep_Code := r.aut_dep_code; -- Код филиала (РЦКУ)
+      iData.Aut_Code     := r.aut_code; -- РЦКУ/ЦКУ
+
+      iData.pinfl     := G_PKGCLIIDN.fCliIdn(r.cli_dep_id,
+                                             r.cli_id,
+                                             G_PKGIDN.fId('IDN_PRS_UZ')); -- ПИНФЛ
+      iData.addr_reg  := G_PKGADDRESS.fCliAdr(r.cli_dep_id,
+                                              r.cli_id,
+                                              GCLIADR_REG); -- Постоянное места жителства
+      iData.addr_temp := G_PKGADDRESS.fCliAdr(r.cli_dep_id,
+                                              r.cli_id,
+                                              gcliadr_temp); -- Временное места жителства
+
+      begin
+        select u.longname, l.presentdate
+          into iData.User_First, iData.Date_First -- Сторудник заполнявший анкету, Дата заполнения анкеты
+          from t_docdos ds, t_doclst l, c_usr u
+         where ds.dep_id = r.cli_dep_id
+           and ds.ord_id = r.cli_ord_id
+           and l.id = ds.id
+           and l.id_us = u.id(+)
+         order by l.presentdate
+         fetch first 1 row only;
+      exception
+        when no_data_found then
+          iData.User_First := null; -- Сторудник заполнявший анкету
+          iData.Date_First := null; -- Дата заполнения анкеты
+      end;
+
+      begin
+        select u.longname, l.presentdate -- Ответственный сотрудник, Дата изменения анкеты
+          into iData.User_Last, iData.Date_Last
+          from t_docdos ds, t_doclst l, c_usr u
+         where ds.dep_id = r.cli_dep_id
+           and ds.ord_id = r.cli_ord_id
+           and l.id = ds.id
+           and l.id_us = u.id(+)
+         order by l.presentdate
+         fetch first 1 row only;
+      exception
+        when no_data_found then
+          iData.User_Last := null; -- Ответственный сотрудник
+          iData.Date_Last := null; -- Дата изменения анкеты
+      end;
+
+      begin
+        select substr(bs_dom.DNAME('G_VALRISK', VALRISK, 'N'), 1, 250),
+               reason,
+               fromdate
+          into iData.Valrisk, iData.Reason_Risk, dFromDate -- Уровень риска, Причина данногоуровня риска
+          from G_CLIVALRISK
+         where DEP_ID = r.cli_dep_id
+           and ID = r.cli_id
+           and p_operday between fromdate and todate
+           and rownum = 1;
+
+        select substr(listagg(code, ',') within group(order by code),
+                      1,
+                      4000),
+               substr(listagg(longname, chr(10)) within
+                      group(order by code),
+                      1,
+                      4000)
+          into iData.Valrisk_Code, iData.Reason_Names -- Критерий код, Наименование критерия риска
+          from g_cliriskcrit c, g_riskcrit t, g_clivalrisk v
+         where v.dep_id = r.cli_dep_id
+           and v.id = r.cli_id
+           and v.fromdate = dFromDate
+           and c.dep_id = v.dep_id
+           and c.cli_id = v.id
+           and c.id_crit = t.id
+           and v.fromdate between c.fromdate and c.todate
+              -- and r.id_hi is null
+           and c.valrisk = '02';
+      exception
+        when no_data_found then
+          iData.Valrisk      := null; -- Уровень риска
+          iData.Reason_Risk  := null; -- Причина данногоуровня риска
+          iData.Valrisk_Code := null; -- Критерий код
+          iData.Reason_Names := null; -- Наименование критерия риска
+      end;
+
+      iData.Type_Service := r.type_service; -- Вид услуги
+      iData.Acc_Code     := r.acc_code; -- Модуль счета
+      iData.Dreg         := r.dreg; -- Дата открытия первого банковского счета
+      idata.state_name   := r.state_name; -- Cостояние счета
+      iData.sid          := L_PKGRPT_PRLUTL.fGetMainSessionNum;
+      iData.chunknum     := 0;
+
+      insert into Z_116_CLI_ACC_NP_RAW values iData;
+    end loop;
+
+    L_PKGRPT_PRLUTL.pRun;
+    commit;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure pProcessOneChunk(pChunkNum number,
+                             pSID      number,
+                             dOp       date,
+                             pDATEPOST in varchar2 default null) is
+  begin
+    commit;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure pClean is
+  begin
+    L_PKGRPT_PRLUTL.pClean;
+  end;
+
+end Z_116_PKG_CLI_ACC_NP;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_DOM"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_USR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLNHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCMANGR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIAUTHPRS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIRISKCRIT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIVALRISK"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_RISKCRIT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC_DET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ACCGRP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCDOS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCLST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_REG"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_CLI_ACC_NP_RAW"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="GL_ACC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGADDRESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGRPT_PRLUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="G_CLIADR_TYPE"/>
+    </PKGDPNDOM>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="G_CLIPRS_NSIGN"/>
+    </PKGDPNDOM>
+  </PKG>
+</DDC>

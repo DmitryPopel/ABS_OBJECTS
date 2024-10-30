@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_ELOAN_UTILS" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="69D050F34F10361FBE9543447CCDDC4A">
+  <PKG 
+    NAME="Z_116_PKG_ELOAN_UTILS">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_ELOAN_UTILS is
+/**
+* Пакет для обсулживания проекта ELOAN (КФО, внешние сервисы и тд...)
+*
+* @author Ахмеджанов Сардор
+* @version 2.0
+* @headcom
+*
+* Copyright (c) 2023 By Aloqabank. All Rights Reserved.
+*/
+
+/** Процедура сохранения ошибок возникающий при проверке данных клиента до создания заявки
+* <br/><i>С версии 1.0</i>
+* @param pClientCode Код клеинта
+* @param pMessage Сообщение об ошибке
+*/
+procedure pLogError(pClientCode varchar2,
+                    pMessage    varchar2);
+
+end Z_116_PKG_ELOAN_UTILS;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_ELOAN_UTILS is
+
+procedure pLogError(pClientCode in varchar2,
+                    pMessage    in varchar2) is
+  pragma autonomous_transaction;
+begin
+  insert into Z_116_ELOAN_LOG(error_date,
+                              client_code,
+                              error_message)
+  values(sysdate,
+         pClientCode,
+         pMessage);
+  commit;
+end;
+
+end Z_116_PKG_ELOAN_UTILS;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_ELOAN_LOG"/>
+    </PKGDPNENT>
+  </PKG>
+</DDC>

@@ -1,0 +1,508 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_DAILY_LIMIT_HIGH_LOANS" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="EE581371746FE4685F8722D613355619">
+  <PKG 
+    NAME="Z_116_PKG_DAILY_LIMIT_HIGH_LOANS">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_DAILY_LIMIT_HIGH_LOANS is
+  ----------------------------------------------------------------------------------------------------
+  procedure setDailyLimit;
+  ----------------------------------------------------------------------------------------------------
+  procedure checkReqDea(nDepId  number := null,
+                        nId     number := null,
+                        nUniqId varchar2 := null,
+                        vAnswer out varchar2);
+  ----------------------------------------------------------------------------------------------------
+  procedure checkReqDeaAutoIpoteka(nDepId  number := null,
+                                   nId     number := null,
+                                   nUniqId varchar2 := null,
+                                   vAnswer out varchar2);
+  ----------------------------------------------------------------------------------------------------
+  procedure checkReqDeaAvail(vAnswer out varchar2);
+  ----------------------------------------------------------------------------------------------------
+  procedure refusalReqDea(nDepId  number := null,
+                          nId     number := null,
+                          nUniqId varchar2 := null);
+  ----------------------------------------------------------------------------------------------------
+  procedure updateReq(nDepId  number,
+                      nId     number,
+                      nUniqId varchar2);
+end Z_116_PKG_DAILY_LIMIT_HIGH_LOANS;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_DAILY_LIMIT_HIGH_LOANS is
+  c_req_type_all          constant varchar2(50) := 'ALL';
+  c_req_type_auto_ipoteka constant varchar2(50) := 'AUTO-IPOTEKA';
+
+  ----------------------------------------------------------------------------------------------------
+  procedure setDailyLimitType(vReqType     varchar2,
+                              nCoefficient number) is
+    nAllReqDea number;
+    dCalcDate  date;
+    nLimit     number;
+    nFact      number;
+    nAllFact   number;
+    nUzVidCred U_UNIREF_STD.ID%type := U_PKGUNIREF.fRefCode2Id('UZ_VIDCRED');
+
+    --------------------------------------------------
+    procedure insertOrUpdate(dDord    date,
+                             nLimit   number,
+                             nFact    number,
+                             vReqType varchar2) is
+      nTemp     varchar2(400);
+      nLimitCnt number;
+    begin
+      if nLimit < 0 or nLimit is null then
+        nLimitCnt := 0;
+      else
+        nLimitCnt := nLimit;
+      end if;
+
+      begin
+        select t.limit_count
+          into nTemp
+          from z_116_daily_limit_high_loans t
+         where t.dord = dDord
+           and req_type = vReqType;
+
+        update z_116_daily_limit_high_loans
+           set limit_count = nLimitCnt,
+               fact_count  = nFact
+         where dord = dDord
+           and req_type = vReqType;
+      exception
+        when no_data_found then
+          insert into z_116_daily_limit_high_loans
+            (dord, limit_count, fact_count, req_type)
+          values
+            (dDord, nLimitCnt, nFact, vReqType);
+      end;
+    end;
+  begin
+    c_pkgconnect.pOpen();
+
+    dCalcDate := p_operday;
+
+    for r in (with change_data as
+                 (select t.*,
+                        case
+                          when t.dea_dep_id is not null then
+                           (select case
+                                     when s.code in ('FIN', 'ACTUAL') then
+                                      'ACTUAL'
+                                     else
+                                      'REFUSAL_BANK'
+                                   end
+                              from T_PROCMEM m, T_PROCESS p, t_Bop_Stat_Std s
+                             where m.DEP_ID = t.dea_dep_id
+                               and m.ORD_ID = t.dea_id
+                               and m.MAINFL = '1'
+                               and p.ID = m.ID
+                               and s.ID = p.BOP_ID
+                               and s.NORD = p.NSTAT
+                               and s.code not in ('ENTERED',
+                                                  'CALCULATED',
+                                                  'COMPLETION',
+                                                  'REGISTERED'))
+                          when t.uniq_id is null then
+                           (select w.state
+                              from l_reqdea_ext w
+                             where w.dep_id = t.dep_id
+                               and w.id = t.id)
+                        end new_state,
+                        json_value(r.json, '$.dea.dep_id') as new_dea_dep_id,
+                        json_value(r.json, '$.dea.id') as new_dea_id
+                   from z_116_daily_limit_high_reqs t, l_reqdea r
+                  where t.dord >= dCalcDate - 1
+                    and t.state not in
+                        ('CANCELED', 'REFUSAL_BANK', 'REFUSAL_CLI', 'ACTUAL')
+                    and r.dep_id(+) = t.dep_id
+                    and r.id(+) = t.id)
+                select *
+                  from change_data
+                 where state != new_state
+                    or dea_dep_id is null
+                   and new_dea_dep_id is not null)
+    loop
+      if r.state != r.new_state and --
+         r.dea_dep_id is null and r.new_dea_dep_id is not null then
+        -- set state, dea_dep_id, dea_id
+        update z_116_daily_limit_high_reqs t
+           set state      = r.new_state,
+               dea_dep_id = r.new_dea_dep_id,
+               dea_id     = r.new_dea_id
+         where r.uniq_id is null
+           and t.dep_id = r.dep_id
+           and t.id = r.id
+            or r.uniq_id is not null
+           and t.uniq_id = r.uniq_id;
+      elsif r.state != r.new_state then
+        -- set state
+        update z_116_daily_limit_high_reqs t
+           set state = r.new_state
+         where r.uniq_id is null
+           and t.dep_id = r.dep_id
+           and t.id = r.id
+            or r.uniq_id is not null
+           and t.uniq_id = r.uniq_id;
+      elsif r.dea_dep_id is null and r.new_dea_dep_id is not null then
+        -- dea_dep_id, dea_id
+        update z_116_daily_limit_high_reqs t
+           set state      = r.new_state,
+               dea_dep_id = r.new_dea_dep_id,
+               dea_id     = r.new_dea_id
+         where r.uniq_id is null
+           and t.dep_id = r.dep_id
+           and t.id = r.id
+            or r.uniq_id is not null
+           and t.uniq_id = r.uniq_id;
+      end if;
+    end loop;
+
+    select (select count(*)
+              from z_116_daily_limit_high_reqs t
+             where t.dord = dCalcDate - 1
+               and req_type = vReqType
+               and t.state not in
+                   ('CANCELED', 'REFUSAL_BANK', 'REFUSAL_CLI')),
+           (select t.limit_count
+              from z_116_daily_limit_high_loans t
+             where t.dord = dCalcDate - 1
+               and t.req_type = vReqType)
+      into nFact, nLimit
+      from dual;
+
+    insertOrUpdate(dCalcDate - 1, nLimit, nFact, vReqType);
+
+    select count(*)
+      into nFact
+      from z_116_daily_limit_high_reqs t
+     where t.dord = dCalcDate
+       and req_type = vReqType
+       and t.state not in ('CANCELED', 'REFUSAL_BANK', 'REFUSAL_CLI');
+
+    select sum(t.fact_count)
+      into nAllFact
+      from z_116_daily_limit_high_loans t
+     where req_type = vReqType
+       and dord < dCalcDate;
+
+    if vReqType = c_req_type_all then
+      select count(*)
+        into nAllReqDea
+        from (select t.*
+                from t_dea t, l_dea l
+               where l.dep_id = t.dep_id
+                 and l.id = t.id
+                 and t.fromdate between '01.07.2024' and dCalcDate - 1
+                 and exists (select 1
+                        from g_cli g
+                       where g.dep_id = t.cli_dep_id
+                         and g.id = t.cli_id
+                         and g.typefl = 1)) d,
+             T_PROCMEM m,
+             T_PROCESS p,
+             t_Bop_Stat_Std s
+       where d.DEP_ID = m.DEP_ID
+         and d.ID = m.ORD_ID
+         and m.MAINFL = '1'
+         and p.ID = m.ID
+         and s.ID = p.BOP_ID
+         and s.NORD = p.NSTAT
+         and s.code in ('PD_INTER_OFF', 'PD_OFF', 'ACTUAL', 'FIN');
+    else
+      select count(*)
+        into nAllReqDea
+        from (select t.*
+                from t_dea t, l_dea l
+               where l.dep_id = t.dep_id
+                 and l.id = t.id
+                 and t.fromdate between '01.07.2024' and dCalcDate - 1
+                 and exists (select 1
+                        from g_cli g
+                       where g.dep_id = t.cli_dep_id
+                         and g.id = t.cli_id
+                         and g.typefl = 1)) d,
+             T_PROCMEM m,
+             T_PROCESS p,
+             t_Bop_Stat_Std s
+       where d.DEP_ID = m.DEP_ID
+         and d.ID = m.ORD_ID
+         and m.MAINFL = '1'
+         and p.ID = m.ID
+         and s.ID = p.BOP_ID
+         and s.NORD = p.NSTAT
+         and s.code in ('PD_INTER_OFF', 'PD_OFF', 'ACTUAL', 'FIN')
+         and nvl(L_PKGDEAUNIREF.fGetDeaRefValCode(d.DEP_ID,
+                                                  d.ID,
+                                                  nUzVidCred),
+                 L_PKGDEAUNIREF.fGetClsRefValCode(d.dcl_id, nUzVidCred)) in
+             (24, 34);
+    end if;
+
+    dbms_output.put_line(nAllReqDea || ' ' || nAllFact);
+    insertOrUpdate(dCalcDate,
+                   trunc(nAllReqDea / 100 * nCoefficient) - nAllFact,
+                   nFact,
+                   vReqType);
+
+    commit;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure setDailyLimit is
+  begin
+    setDailyLimitType(c_req_type_all, 15);
+    setDailyLimitType(c_req_type_auto_ipoteka, 15);
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure updateFact(dDord    date,
+                       vReqType varchar2) is
+  begin
+    update z_116_daily_limit_high_loans t
+       set fact_count =
+           (select count(*)
+              from z_116_daily_limit_high_reqs w
+             where w.dord = t.dord
+               and w.req_type = t.req_type
+               and w.state not in
+                   ('CANCELED', 'REFUSAL_BANK', 'REFUSAL_CLI'))
+     where t.dord = dDord
+       and req_type = vReqType;
+
+    commit;
+  end;
+
+  function checkAvail(vReqType z_116_daily_limit_high_loans.req_type%type)
+    return boolean is
+    nLimit number;
+    nFact  number;
+  begin
+    c_pkgconnect.pOpen();
+
+    begin
+      select t.limit_count, t.fact_count
+        into nLimit, nFact
+        from z_116_daily_limit_high_loans t
+       where t.dord = p_operday
+         and t.req_type = vReqType
+         for update;
+    exception
+      when no_data_found then
+        setDailyLimit;
+
+        select t.limit_count, t.fact_count
+          into nLimit, nFact
+          from z_116_daily_limit_high_loans t
+         where t.dord = p_operday
+           and t.req_type = vReqType
+           for update;
+    end;
+
+    return nLimit > nFact;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  function checkReqDeaType(nDepId   number,
+                           nId      number,
+                           nUniqId  varchar2,
+                           vReqType varchar2) return varchar2 is
+    vState varchar2(100);
+  begin
+    c_pkgconnect.pOpen();
+
+    if checkAvail(vReqType) then
+      begin
+        select state
+          into vState
+          from z_116_daily_limit_high_reqs
+         where req_type = vReqType
+           and nUniqId is null
+           and dep_id = nDepId
+           and id = nId
+            or nUniqId is not null
+           and uniq_id = nUniqId;
+
+        updateFact(p_operday, vReqType);
+
+        if vState in ('CANCELED', 'REFUSAL_BANK', 'REFUSAL_CLI') then
+          return 'FALSE';
+        else
+          return 'TRUE';
+        end if;
+      exception
+        when no_data_found then
+          insert into z_116_daily_limit_high_reqs
+            (dep_id, id, dord, state, req_type, uniq_id)
+          values
+            (nDepId,
+             nId,
+             p_operday,
+             nvl2(nUniqId,
+                  'START',
+                  (select re.state
+                     from l_reqdea_ext re
+                    where re.dep_id = nDepId
+                      and re.id = nId)),
+             vReqType,
+             nUniqId);
+
+          updateFact(p_operday, vReqType);
+
+          return 'TRUE';
+      end;
+    else
+      return 'FALSE';
+    end if;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure checkReqDea(nDepId  number,
+                        nId     number,
+                        nUniqId varchar2,
+                        vAnswer out varchar2) is
+  begin
+    vAnswer := checkReqDeaType(nDepId, nId, nUniqId, c_req_type_all);
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure checkReqDeaAutoIpoteka(nDepId  number,
+                                   nId     number,
+                                   nUniqId varchar2,
+                                   vAnswer out varchar2) is
+  begin
+    vAnswer := checkReqDeaType(nDepId,
+                               nId,
+                               nUniqId,
+                               c_req_type_auto_ipoteka);
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure checkReqDeaAvail(vAnswer out varchar2) is
+  begin
+    if checkAvail(c_req_type_all) then
+      vAnswer := 'TRUE';
+    else
+      vAnswer := 'FALSE';
+    end if;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure refusalReqDea(nDepId  number,
+                          nId     number,
+                          nUniqId varchar2) is
+    nTemp number;
+  begin
+    c_pkgconnect.pOpen();
+
+    begin
+      select 1
+        into nTemp
+        from z_116_daily_limit_high_reqs
+       where nUniqId is null
+         and dep_id = nDepId
+         and id = nId
+          or nUniqId is not null
+         and uniq_id = nUniqId;
+
+      update z_116_daily_limit_high_reqs
+         set state = 'REFUSAL_BANK'
+       where nUniqId is null
+         and dep_id = nDepId
+         and id = nId
+          or nUniqId is not null
+         and uniq_id = nUniqId;
+
+      updateFact(p_operday, c_req_type_all);
+      updateFact(p_operday, c_req_type_auto_ipoteka);
+    exception
+      when no_data_found then
+        null;
+    end;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure updateReq(nDepId  number,
+                      nId     number,
+                      nUniqId varchar2) is
+  begin
+    update z_116_daily_limit_high_reqs
+       set dea_dep_id = nDepid,
+           dea_id     = nId
+     where uniq_id = nUniqId;
+  end;
+
+end Z_116_PKG_DAILY_LIMIT_HIGH_LOANS;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REQDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REQDEA_EXT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UNIREF"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_DAILY_LIMIT_HIGH_LOANS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_DAILY_LIMIT_HIGH_REQS"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGDEAUNIREF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="U_PKGUNIREF"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

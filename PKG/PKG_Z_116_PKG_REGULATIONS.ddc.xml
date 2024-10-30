@@ -1,0 +1,456 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_REGULATIONS" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="811097D30E59372E47CCEA0C0C056E5F">
+  <PKG 
+    NAME="Z_116_PKG_REGULATIONS">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_REGULATIONS is
+/**
+* Пакет для запуска кастомизированных процедур в регламентах
+*
+* @author Ахмеджанов Сардор
+* @version 1.0
+* @headcom
+*
+* Copyright (c) 2023 By Aloqabank. All Rights Reserved.
+*/
+
+/**
+* Сторно резервов кредитных договоров
+*/
+procedure pReturnReserves(p_Dop   Date,
+                          p_IdDep Integer);
+
+/**
+* Список договоров для сторнирования резервов
+*/
+function fReturnReserves(p_Dop   Date,
+                         p_IdDep Integer) return varchar2;
+
+end Z_116_PKG_REGULATIONS;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_REGULATIONS is
+
+procedure pLogMessage(p_Status       Integer,
+                      p_Dop          Date,
+                      p_IdDep        Integer,
+                      p_Uniqnum      Varchar2,
+                      p_ErrorMessage Varchar2) is
+  pragma autonomous_transaction;
+begin
+  insert into Z_116_REGULATIONS_LOG(P_STATUS,
+                                    P_DOP,
+                                    P_IDDEP,
+                                    Uniqnum,
+                                    P_ERRORMESSAGE)
+  values(p_Status,
+         p_Dop,
+         p_IdDep,
+         p_Uniqnum,
+         p_ErrorMessage);
+  commit;
+end pLogMessage;
+
+procedure pReturnReserves(p_Dop   Date,
+                          p_IdDep Integer) is
+  sResult c_PkgStr.TPrmTBlLst;
+begin
+  c_pkgconnect.pOpen();
+  for cur in (
+    with acc as (
+    select
+      ld.pk1,
+      ld.pk2,
+      sum(case
+            when substr(la.code, 1, 5) in ('12499',
+                                           '12599',
+                                           '12699',
+                                           '12799',
+                                           '12899',
+                                           '12999',
+                                           '13099',
+                                           '13199',
+                                           '13299',
+                                           '13399',
+                                           '14399',
+                                           '14499',
+                                           '14599',
+                                           '14899',
+                                           '14999',
+                                           '15099',
+                                           '15199',
+                                           '15299',
+                                           '15399',
+                                           '15499',
+                                           '15599',
+                                           '15799',
+                                           '16399',
+                                           '16499') then
+              t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id)
+            else
+              0
+          end) as sum_rezerv,
+      sum(case
+            when substr(la.code, 1, 5) in ('12501',
+                                           '12505',
+                                           '14901',
+                                           '14903',
+                                           '14913',
+                                           '14921',
+                                           '15703',
+                                           '16309',
+                                           '16377',
+                                           '16405') then
+              t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id)
+            else
+              0
+          end) as sum_balance_29801,
+      sum(case
+            when substr(la.code, 1, 5) in ('29801') then
+              t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id)
+            else
+              0
+          end) as sum_29801,
+      sum(case
+            when substr(la.code, 1, 5) in ('16309',
+                                           '16377',
+                                           '16379',
+                                           '16405') then
+              t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id)
+            else
+              0
+          end) as sum_16309_16377_16379_16405,
+      sum(case
+            when substr(la.code, 1, 5) in ('12501',
+                                           '12503',
+                                           '12505',
+                                           '12601',
+                                           '12605',
+                                           '12701',
+                                           '12705',
+                                           '12803',
+                                           '12805',
+                                           '12901',
+                                           '12905',
+                                           '13005',
+                                           '13101',
+                                           '13105',
+                                           '13121',
+                                           '13201',
+                                           '14402',
+                                           '14403',
+                                           '14901',
+                                           '14902',
+                                           '14903',
+                                           '14913',
+                                           '14921',
+                                           '15001',
+                                           '15021',
+                                           '15101',
+                                           '15201',
+                                           '15301',
+                                           '15401',
+                                           '15501',
+                                           '15505',
+                                           '15521',
+                                           '15613',
+                                           '15701',
+                                           '15703',
+                                           '15707',
+                                           '16309',
+                                           '16325',
+                                           '16327',
+                                           '16377',
+                                           '16405') then
+              t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id)
+            else
+              0
+          end) as sum_balance
+    from   t_acc ac,
+           ledacc_std la,
+           ledacc_det ld
+    where  ld.sgn_id = t_asgn.fCode2Id('DEA')
+    and    la.id = ld.ch_id
+    and    ac.dep_id = ld.dep_id
+    and    ac.id = ld.acc_id
+    and    ld.pk1 = p_IdDep
+    group by
+           ld.pk1,
+           ld.pk2
+    )
+    select /*+ALL_ROWS */
+           l.DEP_ID,
+           l.ID,
+           T_PkgDeaPrm.fDeaParByCode(l.ID, l.DEP_ID, 'L_UZ_UNIQNUM') as uniqnum
+    from   l_dea l,
+           T_DEA o,
+           T_DEACLS c,
+           acc
+    where  l.dep_id = p_IdDep
+    and    l.dep_id = o.dep_id
+    and    l.id = o.id
+    and    o.dcl_id = c.ID
+    and    acc.pk1 = to_char(l.dep_id)
+    and    acc.pk2 = to_char(l.id)
+           -- Балансовые счета = 0, резрвы > 0
+    and   (acc.sum_balance = 0 and acc.sum_rezerv > 0 or
+           -- Остатки в счетах - Остаток в 29801 > 0, резервы > 0
+          (acc.sum_29801 - acc.sum_balance_29801) >= 0 and acc.sum_rezerv > 0 and acc.sum_29801 > 0 or
+           -- Балансовые счета = 0, Остатки в 16309 + 16377 + 16379 + 16405 > 0
+           acc.sum_balance = 0 and acc.sum_16309_16377_16379_16405 > 0)
+    order by
+           o.dcl_id)
+  loop
+    savepoint rollback_point;
+    begin
+      if T_PkgRunOprUtl.fOprAvailable(cur.dep_id, cur.id, 'STORNORES') = 2 then
+        sResult := T_PkgRunOprUtl.fRunOprByMainOrd(cur.dep_id, cur.id, 'STORNORES');
+        pLogMessage(p_Status       => 0,
+                    p_Dop          => p_Dop,
+                    p_IdDep        => p_IdDep,
+                    p_Uniqnum      => cur.uniqnum,
+                    p_ErrorMessage => '');
+        commit;
+      else
+        pLogMessage(p_Status       => 2,
+                    p_Dop          => p_Dop,
+                    p_IdDep        => p_IdDep,
+                    p_Uniqnum      => cur.uniqnum,
+                    p_ErrorMessage => 'NO T_PkgRunOprUtl.fOprAvailable');
+      end if;
+    exception
+      when others then
+        pLogMessage(p_Status       => 1,
+                    p_Dop          => p_Dop,
+                    p_IdDep        => p_IdDep,
+                    p_Uniqnum      => cur.uniqnum,
+                    p_ErrorMessage => substr(sqlerrm, 1, 500));
+        rollback to savepoint rollback_point;
+    end;
+  end loop;
+end;
+
+function fReturnReserves(p_Dop   Date,
+                         p_IdDep Integer) return varchar2
+is
+  lResult varchar2(4000) := '';
+begin
+  c_pkgconnect.pOpen();
+  for cur in (
+    with acc as (
+    select
+      ld.pk1,
+      ld.pk2,
+      sum(case
+            when substr(la.code, 1, 5) in ('12499',
+                                           '12599',
+                                           '12699',
+                                           '12799',
+                                           '12899',
+                                           '12999',
+                                           '13099',
+                                           '13199',
+                                           '13299',
+                                           '13399',
+                                           '14399',
+                                           '14499',
+                                           '14599',
+                                           '14899',
+                                           '14999',
+                                           '15099',
+                                           '15199',
+                                           '15299',
+                                           '15399',
+                                           '15499',
+                                           '15599',
+                                           '15799',
+                                           '16399',
+                                           '16499') then
+              t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id)
+            else
+              0
+          end) as sum_rezerv,
+      sum(case
+            when substr(la.code, 1, 5) in ('12501',
+                                           '12505',
+                                           '14901',
+                                           '14903',
+                                           '14913',
+                                           '14921',
+                                           '15703',
+                                           '16309',
+                                           '16377',
+                                           '16405') then
+              t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id)
+            else
+              0
+          end) as sum_balance_29801,
+      sum(case
+            when substr(la.code, 1, 5) in ('29801') then
+              t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id)
+            else
+              0
+          end) as sum_29801,
+      sum(case
+            when substr(la.code, 1, 5) in ('16309',
+                                           '16377',
+                                           '16379',
+                                           '16405') then
+              t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id)
+            else
+              0
+          end) as sum_16309_16377_16379_16405,
+      sum(case
+            when substr(la.code, 1, 5) in ('12501',
+                                           '12503',
+                                           '12505',
+                                           '12601',
+                                           '12605',
+                                           '12701',
+                                           '12705',
+                                           '12803',
+                                           '12805',
+                                           '12901',
+                                           '12905',
+                                           '13005',
+                                           '13101',
+                                           '13105',
+                                           '13121',
+                                           '13201',
+                                           '14402',
+                                           '14403',
+                                           '14901',
+                                           '14902',
+                                           '14903',
+                                           '14913',
+                                           '14921',
+                                           '15001',
+                                           '15021',
+                                           '15101',
+                                           '15201',
+                                           '15301',
+                                           '15401',
+                                           '15501',
+                                           '15505',
+                                           '15521',
+                                           '15613',
+                                           '15701',
+                                           '15703',
+                                           '15707',
+                                           '16309',
+                                           '16325',
+                                           '16327',
+                                           '16377',
+                                           '16405') then
+              t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id)
+            else
+              0
+          end) as sum_balance
+    from   t_acc ac,
+           ledacc_std la,
+           ledacc_det ld
+    where  ld.sgn_id = t_asgn.fCode2Id('DEA')
+    and    la.id = ld.ch_id
+    and    ac.dep_id = ld.dep_id
+    and    ac.id = ld.acc_id
+    and    ld.pk1 = p_IdDep
+    group by
+           ld.pk1,
+           ld.pk2
+    )
+    select /*+ALL_ROWS */
+           l.DEP_ID,
+           l.ID,
+           T_PkgDeaPrm.fDeaParByCode(l.ID, l.DEP_ID, 'L_UZ_UNIQNUM') as uniqnum
+    from   l_dea l,
+           T_DEA o,
+           T_DEACLS c,
+           acc
+    where  l.dep_id = p_IdDep
+    and    l.dep_id = o.dep_id
+    and    l.id = o.id
+    and    o.dcl_id = c.ID
+    and    acc.pk1 = to_char(l.dep_id)
+    and    acc.pk2 = to_char(l.id)
+           -- Балансовые счета = 0, резрвы > 0
+    and   (acc.sum_balance = 0 and acc.sum_rezerv > 0 or
+           -- Остатки в счетах - Остаток в 29801 > 0, резервы > 0
+          (acc.sum_29801 - acc.sum_balance_29801) >= 0 and acc.sum_rezerv > 0 and acc.sum_29801 > 0 or
+           -- Балансовые счета = 0, Остатки в 16309 + 16377 + 16379 + 16405 > 0
+           acc.sum_balance = 0 and acc.sum_16309_16377_16379_16405 > 0)
+    order by
+           o.dcl_id)
+  loop
+    if T_PkgRunOprUtl.fOprAvailable(cur.dep_id, cur.id, 'STORNORES') = 2 then
+      lResult := lResult || ' ' || cur.uniqnum;
+    end if;
+  end loop;
+  return trim(lResult);
+end;
+
+end Z_116_PKG_REGULATIONS;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC_DET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEACLS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_REGULATIONS_LOG"/>
+    </PKGDPNENT>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGSTR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_ASGN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCBAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGRUNOPRUTL"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="FNC" 
+  KEY="Z_116_FGETCASHIERNAME" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="1CDE3F5168024AF4D9B75078005DD3DC">
+  <FNC 
+    NAME="Z_116_FGETCASHIERNAME">
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace function COLVIR.Z_116_FGETCASHIERNAME (pCashProcId in T_PROCESS.ID%type) return varchar2 deterministic is
+  sCashierName C_USER.FIO%type;
+begin
+  select
+    C_PkgUser.fFio(n.ID_USER) into sCashierName
+  from (
+    select row_number()over(order by j.njrn desc) rnum, j.*
+    from t_operjrn j, T_SCEN s
+    where j.id = pCashProcId and s.ID = j.BOP_ID and s.NORD = j.NOPER and s.CODE = 'OPEN'
+      and j.undofl = '0' and j.cancelfl = '0'
+  ) n where rnum = 1;
+  return sCashierName;
+end Z_116_FGETCASHIERNAME;
+]]>
+    </LOB_FIELD>
+    <FNCDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_USER"/>
+    </FNCDPNENT>
+    <FNCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </FNCDPNENT>
+    <FNCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </FNCDPNENT>
+    <FNCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_SCEN"/>
+    </FNCDPNENT>
+    <FNCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGUSER"/>
+    </FNCDPNPKG>
+  </FNC>
+</DDC>

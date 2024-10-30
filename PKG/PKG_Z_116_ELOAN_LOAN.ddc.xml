@@ -1,0 +1,4139 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_ELOAN_LOAN" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="58986DCC50DEC220797B705A6312C628">
+  <PKG 
+    NAME="Z_116_ELOAN_LOAN">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_ELOAN_LOAN is
+/**
+* Пакет для реализации методов работы с кредитами
+*
+* @author Ахмеджанов Сардор
+* @author Алешкевич Дмитрий
+* @author Бондаренко Анатолий
+* @author Самадов Сирож
+* @author Каюмов Денис
+* @version 17.2
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+/** Сумма действующих микрозаймов клиента
+* <br/><i>С версии 1.0</i>
+* @param pInput ПИНФЛ клиента
+* @param pOutput Параметры
+*/
+procedure pGetOperatingMicroloans(pInput in Clob,
+                                  pOutput out Clob);
+
+/** Сумма действующих микрозаймов клиента по продуктам
+* <br/><i>С версии 14.0</i>
+* @param pInput ПИНФЛ клиента
+* @param pOutput Параметры
+*/
+procedure pGetOperatingMicroloansOnProducts(pInput in Clob,
+                                            pOutput out Clob);
+
+/** Судебные кредиты клиента
+* <br/><i>С версии 1.0</i>
+* @param pInput ПИНФЛ клиента
+* @param pOutput Параметры
+*/
+procedure pGetLitigationLoans(pInput in Clob,
+                              pOutput out Clob);
+
+/** Просроченные кредиты клиента
+* <br/><i>С версии 1.0</i>
+* @param pInput ПИНФЛ клиента
+* @param pOutput Параметры
+*/
+procedure pGetOverdueLoans(pInput in Clob,
+                           pOutput out Clob);
+
+/** Внебалансовая задолженность по основному долгу
+* <br/><i>С версии 1.0</i>
+* @param pInput ПИНФЛ клиента
+* @param pOutput Параметры
+*/
+procedure pGetOffBalancePrincipalDebt(pInput in Clob,
+                                      pOutput out Clob);
+
+/** Внебалансовая задолженность по процентам
+* <br/><i>С версии 1.0</i>
+* @param pInput ПИНФЛ клиента
+* @param pOutput Параметры
+*/
+procedure pGetOffBalanceInterest(pInput in Clob,
+                                 pOutput out Clob);
+
+/** Цели использования кредита
+* <br/><i>С версии 1.0</i>
+* @param pInput productCode код продукта
+* @param pOutput Параметры clob
+*/
+procedure pGetPurposeOfLoan(pInput in clob,
+                            pOutput out clob);
+
+/** Цели использования кредита
+* <br/><i>С версии 1.0</i>
+* @param sProductCode код продукта
+* @param pOutput Параметры json
+*/
+procedure pGetPurposeOfLoanJson(sProductCode in varchar2,
+                                jPurposeOfLoan out JSON_OBJECT_T);
+
+/** Процедура для определения вида договора по сценарию продукта (Договор/Линия)
+* <br/><i>С версии 2.0</i>
+* @param pInput Код продукта
+* @param pOutput Вид договора
+*/
+procedure pGetLoanType(pInput   in Clob,
+                       pOutput  out Clob);
+
+/** Процедура получения данных договора
+* <br/><i>С версии 4.0</i>
+* @param pInput Идентификаторы договора
+* @param pOutput Данные договора
+*/
+procedure pGetLoanData(pInput   in Clob,
+                       pOutput  out Clob);
+
+/** Процедура создания КЛ
+* <br/><i>С версии 2.0</i>
+* @param pInput идентификаторы заявки
+* @param pOutput идентификаторы КЛ, номер КЛ и/или сообщение об ошибке (опционально)
+*/
+procedure pCreateLoanLine(pInput   in Clob,
+                          pOutput  out Clob);
+
+/** Подготовка договора к выдаче займа
+* <br/><i>С версии 2.0</i>
+* @param nDeaDepId идентификатор подразделения договора
+* @param nDeaId идентификатор договора
+*/
+procedure pPrepareDea(nDeaDepId in T_ORD.DEP_ID%type,
+                      nDeaId    in T_ORD.ID%type);
+
+/** Процедура проверки клиента в справочниках AML
+* <br/><i>С версии 2.0</i>
+* @param pInput JSON с входными параметрами клиента
+* @param pOutput JSON с выходными параметрами клиента и/или сообщением об ошибке поиска карточки клиента
+*/
+procedure pCheckCli(pInput   in Clob,
+                    pOutput  out Clob);
+
+/** Процедура создания клиента
+* <br/><i>С версии 2.0</i>
+* @param pInput JSON с входными параметрами клиента
+* @param pOutput JSON с выходными параметрами клиента и/или сообщением об ошибке
+*/
+procedure pCreateCli(pInput   in Clob,
+                    pOutput  out Clob);
+
+/** Процедура для получения информации о клиенте (по паспорту/ по ИНН/ ПИНФЛ)
+* <br/><i>С версии 2.0</i>
+* @param pInput JSON с входными параметрами - идентифиактором клиента
+* @param pOutput JSON с выходными параметрами клиента и/или сообщением об ошибке поиска карточки клиента
+*/
+procedure pGetCli(pInput   in Clob,
+                  pOutput  out Clob);
+
+/** Процедура регистрации договора в АБС
+* <br/><i>С версии 2.0</i>
+* @param pInput JSON с входными параметрами - идентифиакторы договора
+* @param pOutput JSON с выходными параметрами - состояние договора и/или ошибка
+*/
+procedure pRegisterLoan(pInput   in Clob,
+                        pOutput  out Clob);
+
+/** Процедура выдачи транша по КЛ
+* <br/><i>С версии 2.0</i>
+* @param pInput JSON с входными параметрами - идентифиакторы договора КЛ, сумма и IDN карты или номер счета для выдачи, если карта или счет не переданы, но КЛ - рассрочка, то счет выдачи возьмем из сиспара
+* @param pOutput JSON с выходными параметрами - null или ошибка
+*/
+procedure pIssueTranche(pInput   in Clob,
+                        pOutput  out Clob);
+
+/** Получение значения ставки по %% по кредиту на дату регистрации
+* <br/><i>С версии 2.0</i>
+* @param pInput JSON с входными параметрами - дата и код продукта
+* @param pOutput JSON с выходными параметрами - значение ставки или ошибка
+*/
+procedure pGetInterestByDateAndProductCode(pInput   in Clob,
+                                           pOutput  out Clob);
+
+/** Процедура создания договора кредита
+* <br/><i>С версии 3.0</i>
+* @param pInput идентификаторы заявки
+* @param pOutput идентификаторы КЛ, номер КЛ и/или сообщение об ошибке (опционально)
+*/
+procedure pCreateLoan(pInput   in Clob,
+                      pOutput  out Clob);
+
+/** Процедура выдачи кредита
+* <br/><i>С версии 3.0</i>
+* @param pInput идентификаторы заявки
+* @param pOutput идентификаторы КД, номер КД и/или сообщение об ошибке (опционально)
+*/
+procedure pLoanOut(pInput   in Clob,
+                   pOutput  out Clob);
+
+/** Процедура сохранения обеспечения при договоре
+* <br/><i>С версии 1.0</i>
+* @param pInput обеспечение
+* @param pOutput идентификаторы
+*/
+procedure pSavePledges(pInput   in Clob,
+                       pOutput  out Clob);
+
+/** Процедура сохранения файла страховки
+* <br/><i>С версии 1.0</i>
+* @param pInput страховка
+* @param pOutput результат
+*/
+procedure pSaveDossierFile(pInput   in Clob,
+                           pOutput  out Clob);
+
+/** Перенос файлов досье в договор COLVIR
+* <br/><i>С версии 1.0</i>
+* @param pInput параметры - dep_id, id, dea_dep_id, dea_id
+* @param pOutput результат
+*/
+procedure pAttachDocumentsToDea(pInput   in Clob,
+                                pOutput  out Clob);
+
+/** Создание обеспечения в договоре
+* <br/><i>С версии 1.0</i>
+* @param pInput параметры - deaId, deaDepId, mrtg, mrtgDate, mrtgDateEnd, decisionDate
+* @param pOutput результат
+*/
+procedure pCreateDeaPledge(pInput   in Clob,
+                           pOutput  out Clob);
+
+/** График погашения в договоре
+* <br/><i>С версии 1.0</i>
+* @param pInput параметры - deaId, deaDepId
+* @param pOutput результат
+*/
+procedure pGetDeaShdList(pInput  in Clob,
+                         pOutput out Clob);
+
+/** Получение эффективной ставки договора
+* <br/><i>С версии 5.0</i>
+* @param pDeaDepId Идентификатор подразделения договора
+* @param pDeaId Идентификатор договора
+* @param pСalcFl Признак запуска расчета ставки
+*/
+function fGetDeaEffectiveInterestRate(pDeaDepId in number,
+                                      pDeaId    in number,
+                                      pСalcFl   in integer default 0) return number;
+
+/** Получение эффективной ставки договора
+* <br/><i>С версии 11.0</i>
+* @param pInput параметры - deaDepId, deaId, calcFl, AddAmount - идентификаторы кредита, признак запуска расчета и доп. сумма к базе расчета ЭПС (сумма страховки). AddAmount учитывается только при calcFl=1
+* @param pOutput результат
+*/
+procedure pGetDeaEffectiveInterestRate(pInput  in Clob,
+                                       pOutput out Clob);
+
+/** Получение текущих платежей клиента по всем кредитным договорам
+* <br/><i>С версии 6.0</i>
+* @param pInput параметры - pinfl
+* @param pOutput результат
+*/
+procedure pGetClientCurrentPayments(pInput  in Clob,
+                                    pOutput out Clob);
+
+/** Получение списка всех страховых компаний
+* <br/><i>С версии 7.0</i>
+* @param pInput параметры - onlyNamesFl/null - признак вывода только названий компаний (опционально, 0/1)
+* @param pOutput результат
+*/
+procedure pGetInsuranceCompanies(pInput  in Clob,
+                                 pOutput out Clob);
+
+/** Получение кода клиента по cardIdn
+* <br/><i>С версии 8.0</i>
+* @param pInput параметры - cardIdn
+* @param pOutput результат - код клиента, маскированный номер карты. Если не найден - ошибка
+*/
+procedure pGetClientIdbyCardIdn(pInput  in Clob,
+                                pOutput out Clob);
+
+/** Отказ от кредита
+* <br/><i>С версии 9.0</i>
+* @param pInput параметры - идентификаторы договора
+* @param pOutput JSON с выходными параметрами - состояние договора и/или ошибка
+*/
+procedure pRefuse(pInput  in Clob,
+                  pOutput out Clob);
+
+/** Количество выданных кредитов по коду продукта
+* <br/><i>С версии 10.0</i>
+* @param pInput параметры - pinfl, productCode
+* @param pOutput JSON с выходными параметрами - количество кредитных договоров
+*/
+procedure pGetIssuedCreditCount(pInput  in Clob,
+                                pOutput out Clob);
+
+/** Сумма действующих кредитов клиента
+* <br/><i>С версии 10.0</i>
+* @param pInput pinfl клиента
+* @param pOutput Параметры
+*/
+procedure pGetOperatingLoans(pInput in Clob,
+                             pOutput out Clob);
+
+/** Сумма действующих кредитов клиента по счетам самозанятых
+* <br/><i>С версии 10.0</i>
+* @param pInput - pinfl, productCode
+* @param pOutput Параметры
+*/
+procedure pGetLFSELoans(pInput in Clob,
+                        pOutput out Clob);
+
+/** Сохранить обеспечение для поручителя
+* <br/><i>С версии 12.0</i>
+* @param pInput - объект обеспечения
+* @param pOutput Параметры
+*/
+procedure pSaveGuarantorPledge(pInput  in Clob,
+                               pOutput out Clob);
+
+/** Получить номер ЛС кредитного договора по счету ГК
+* <br/><i>С версии 15.0</i>
+* @param pInput deaDepId - Идентификатор подразделения договора, deaId - Идентификатор договора, accCode - 5-значиный код счета по ГК
+* @param pOutput Параметры
+*/
+procedure pGetDeaAccountNumberByAccCode(pInput  in Clob,
+                                        pOutput out Clob);
+
+/** Получить активные кредиты клиента за сегодня (p_operday)
+* <br/><i>С версии 16.0</i>
+* @param pInput pinfl - ПИНФЛ клиента, uniqnums - "2945486,2945493" уникальные номера договоров клиента из камунды (из КАТМ77)
+* @param pOutput Возвращает номера договоров клиента, уникальные номера, среднемесячный платеж по каждому кредиту
+*/
+procedure pGetActiveLoans(pInput  in Clob,
+                          pOutput out Clob);
+
+/** Получить сводные данные по всем кредитам клиента по ПИНФЛ
+* <br/><i>С версии 17.0</i>
+* @param pInput pinfl - ПИНФЛ клиента
+* @param pOutput Возвращает массив договоров с информацией по каждому
+*/
+procedure pGetCliLoans(pInput   in Clob,
+                       pOutput  out Clob);
+
+end Z_116_ELOAN_LOAN;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_ELOAN_LOAN is
+c3K_AML_BOP_CODE constant varchar2(30) := 'CLI43K';
+gInputObj  JSON_OBJECT_T;
+gOutputObj JSON_OBJECT_T;
+  idSignDea T_ANSIGN_STD.ID%type := t_asgn.fCode2Id('DEA');
+-- Инициализация входных и выходных параметров
+procedure pInit(pInput clob)
+is
+begin
+  gInputObj  := JSON_OBJECT_T.parse(pInput);
+  gOutputObj := new JSON_OBJECT_T();
+end;
+
+procedure addParam(params in out nocopy varchar2,
+                   key    varchar2,
+                   val    varchar2) is
+begin
+  if length(params) > 0 then
+    params := params || ',';
+  end if;
+    params := params || key || '=>' || val;
+end;
+
+
+-- создание CLOB-а с JSON-ом об ошибке
+function fErr(pErrCode in integer, pMess in varchar2, pArgs in vargs default vargs(null)) return CLOB
+is
+  ObjTmp	JSON_OBJECT_T;
+  ObjR	  JSON_OBJECT_T;
+begin
+  ObjTmp := new JSON_OBJECT_T;
+  ObjTmp.put('code', pErrCode);
+  ObjTmp.put('message', LocalFrmt(pMess||dbms_utility.format_error_backtrace, pArgs,'PKG', 'Z_116_ELOAN_LOAN'));
+  ObjR := new JSON_OBJECT_T;
+  ObjR.put('error', ObjTmp);
+  t_log.debug('Z_116_ELOAN_LOAN.fErr, ошибка: %0:s', vargs(ObjR.To_String), 'PKG', 'Z_116_ELOAN_LOAN');
+  return ObjR.To_Clob;
+end fErr;
+
+procedure pGetOperatingMicroloans(pInput in Clob,
+                                  pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  sPinfl Varchar2(50);
+  aResult JSON_OBJECT_T;
+  nCliDepId number;
+  nCliId number;
+  sClientCode g_cli.code%type;
+  nResult number;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sPinfl := aInput.get_string('pinfl');
+  aResult := JSON_OBJECT_T();
+  Z_116_ELOAN_CLIENT.pGetClientIdByPinfl(pPinfl => sPinfl,
+                                         pDepId => nCliDepId,
+                                         pId    => nCliId,
+                                         pCode  => sClientCode);
+  if sClientCode is not null then
+    select nvl(sum(t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id)), 0)
+    into   nResult
+    from T_ORD o
+    join T_DEA d on d.DEP_ID = o.DEP_ID and d.ID = o.ID
+    join G_CLI g on g.DEP_ID = d.CLI_DEP_ID and g.ID = d.CLI_ID
+    join L_DEA dd on dd.DEP_ID = d.DEP_ID and dd.ID = d.ID
+    join ledacc_det ld on ld.pk1 = dd.DEP_ID and ld.pk2 = dd.ID
+    join t_acc ac on ac.dep_id = ld.dep_id and ac.id = ld.acc_id
+    join ledacc_std la on la.id = ld.ch_id
+    where dd.RETFL = 0
+    and   L_PKGDEAUNIREF.fGetRefValCode(dd.DEP_ID, dd.ID, 'UZ_VIDCRED') in (32, 36, 58)
+    and   ld.sgn_id = t_asgn.fCode2Id('DEA')
+    and   la.code in ('12501',
+                      '12503',
+                      '12541',
+                      '14901',
+                      '14913',
+                      '15703',
+                      '91501-PRC',
+                      '91501-PPRC',
+                      '91501-POD',
+                      '91505-005',
+                      '91505-006',
+                      '91809',
+                      '95413')
+    and   g.code = sClientCode;
+  end if;
+  aResult.put('clientCode', sClientCode);
+  aResult.put('result', nResult);
+  pOutput := aResult.To_Clob;
+end pGetOperatingMicroloans;
+
+procedure pGetOperatingMicroloansOnProducts(pInput in Clob,
+                                            pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  sPinfl Varchar2(50);
+  aResult JSON_OBJECT_T;
+  nCliDepId number;
+  nCliId number;
+  sClientCode g_cli.code%type;
+  nResult number;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sPinfl := aInput.get_string('pinfl');
+  aResult := JSON_OBJECT_T();
+  Z_116_ELOAN_CLIENT.pGetClientIdByPinfl(pPinfl => sPinfl,
+                                         pDepId => nCliDepId,
+                                         pId    => nCliId,
+                                         pCode  => sClientCode);
+  if sClientCode is not null then
+    with products as (
+      select distinct cls.id
+      from   T_DEACLS_STD cls
+      join   json_table(pInput, '$.products[*]' columns (code path '$')) p on p.code = cls.code
+    )
+    select nvl(sum(t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id)), 0)
+    into   nResult
+    from T_ORD o
+    join T_DEA d on d.DEP_ID = o.DEP_ID and d.ID = o.ID
+    join G_CLI g on g.DEP_ID = d.CLI_DEP_ID and g.ID = d.CLI_ID
+    join L_DEA dd on dd.DEP_ID = d.DEP_ID and dd.ID = d.ID
+    join ledacc_det ld on ld.pk1 = dd.DEP_ID and ld.pk2 = dd.ID
+    join t_acc ac on ac.dep_id = ld.dep_id and ac.id = ld.acc_id
+    join ledacc_std la on la.id = ld.ch_id
+    join products p on p.id = d.dcl_id
+    where dd.RETFL = 0
+    and   ld.sgn_id = t_asgn.fCode2Id('DEA')
+    and   la.code in ('12501',
+                      '12503',
+                      '12541',
+                      '14901',
+                      '14913',
+                      '15703',
+                      '91501-PRC',
+                      '91501-PPRC',
+                      '91501-POD',
+                      '91505-005',
+                      '91505-006',
+                      '91809',
+                      '95413')
+    and   g.code = sClientCode;
+  end if;
+  aResult.put('result', nResult);
+  pOutput := aResult.To_Clob;
+end pGetOperatingMicroloansOnProducts;
+
+procedure pGetLitigationLoans(pInput in Clob,
+                              pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  sPinfl Varchar2(50);
+  aResult JSON_OBJECT_T;
+  nCliDepId number;
+  nCliId number;
+  sClientCode g_cli.code%type;
+  nResult number;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sPinfl := aInput.get_string('pinfl');
+  aResult := JSON_OBJECT_T();
+  Z_116_ELOAN_CLIENT.pGetClientIdByPinfl(pPinfl => sPinfl,
+                                         pDepId => nCliDepId,
+                                         pId    => nCliId,
+                                         pCode  => sClientCode);
+  if sClientCode is not null then
+    select nvl(sum(t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id)), 0)
+    into   nResult
+    from T_ORD o
+    join T_DEA d on d.DEP_ID = o.DEP_ID and d.ID = o.ID
+    join G_CLI g on g.DEP_ID = d.CLI_DEP_ID and g.ID = d.CLI_ID
+    join L_DEA dd on dd.DEP_ID = d.DEP_ID and dd.ID = d.ID
+    join ledacc_det ld on ld.pk1 = dd.DEP_ID and ld.pk2 = dd.ID
+    join t_acc ac on ac.dep_id = ld.dep_id and ac.id = ld.acc_id
+    join ledacc_std la on la.id = ld.ch_id
+    where dd.RETFL = 0
+    and   ld.sgn_id = t_asgn.fCode2Id('DEA')
+    and   la.code = '15703'
+    and   g.code = sClientCode;
+  end if;
+  aResult.put('clientCode', sClientCode);
+  aResult.put('result', nResult);
+  pOutput := aResult.To_Clob;
+end pGetLitigationLoans;
+
+procedure pGetOverdueLoans(pInput in Clob,
+                           pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  sPinfl Varchar2(50);
+  aResult JSON_OBJECT_T;
+  nCliDepId number;
+  nCliId number;
+  sClientCode g_cli.code%type;
+  nResult number;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sPinfl := aInput.get_string('pinfl');
+  aResult := JSON_OBJECT_T();
+  Z_116_ELOAN_CLIENT.pGetClientIdByPinfl(pPinfl => sPinfl,
+                                         pDepId => nCliDepId,
+                                         pId    => nCliId,
+                                         pCode  => sClientCode);
+  if sClientCode is not null then
+    select nvl(sum(t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id)), 0)
+    into   nResult
+    from T_ORD o
+    join T_DEA d on d.DEP_ID = o.DEP_ID and d.ID = o.ID
+    join G_CLI g on g.DEP_ID = d.CLI_DEP_ID and g.ID = d.CLI_ID
+    join L_DEA dd on dd.DEP_ID = d.DEP_ID and dd.ID = d.ID
+    join ledacc_det ld on ld.pk1 = dd.DEP_ID and ld.pk2 = dd.ID
+    join t_acc ac on ac.dep_id = ld.dep_id and ac.id = ld.acc_id
+    join ledacc_std la on la.id = ld.ch_id
+    where dd.RETFL = 0
+    and   ld.sgn_id = t_asgn.fCode2Id('DEA')
+    and   la.code = '12505'
+    and   g.code = sClientCode;
+  end if;
+  aResult.put('clientCode', sClientCode);
+  aResult.put('result', nResult);
+  pOutput := aResult.To_Clob;
+end pGetOverdueLoans;
+
+procedure pGetOffBalancePrincipalDebt(pInput in Clob,
+                                      pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  sPinfl Varchar2(50);
+  aResult JSON_OBJECT_T;
+  nCliDepId number;
+  nCliId number;
+  sClientCode g_cli.code%type;
+  nResult number;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sPinfl := aInput.get_string('pinfl');
+  aResult := JSON_OBJECT_T();
+  Z_116_ELOAN_CLIENT.pGetClientIdByPinfl(pPinfl => sPinfl,
+                                         pDepId => nCliDepId,
+                                         pId    => nCliId,
+                                         pCode  => sClientCode);
+  if sClientCode is not null then
+    select nvl(sum(t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id)), 0)
+    into   nResult
+    from T_ORD o
+    join T_DEA d on d.DEP_ID = o.DEP_ID and d.ID = o.ID
+    join G_CLI g on g.DEP_ID = d.CLI_DEP_ID and g.ID = d.CLI_ID
+    join L_DEA dd on dd.DEP_ID = d.DEP_ID and dd.ID = d.ID
+    join ledacc_det ld on ld.pk1 = dd.DEP_ID and ld.pk2 = dd.ID
+    join t_acc ac on ac.dep_id = ld.dep_id and ac.id = ld.acc_id
+    join ledacc_std la on la.id = ld.ch_id
+    where dd.RETFL = 0
+    and   ld.sgn_id = t_asgn.fCode2Id('DEA')
+    and   la.code = '95413'
+    and   g.code = sClientCode;
+  end if;
+  aResult.put('clientCode', sClientCode);
+  aResult.put('result', nResult);
+  pOutput := aResult.To_Clob;
+end pGetOffBalancePrincipalDebt;
+
+procedure pGetOffBalanceInterest(pInput in Clob,
+                                 pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  sPinfl Varchar2(50);
+  aResult JSON_OBJECT_T;
+  nCliDepId number;
+  nCliId number;
+  sClientCode g_cli.code%type;
+  nResult number;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sPinfl := aInput.get_string('pinfl');
+  aResult := JSON_OBJECT_T();
+  Z_116_ELOAN_CLIENT.pGetClientIdByPinfl(pPinfl => sPinfl,
+                                         pDepId => nCliDepId,
+                                         pId    => nCliId,
+                                         pCode  => sClientCode);
+  if sClientCode is not null then
+    select nvl(sum(t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id)), 0)
+    into   nResult
+    from T_ORD o
+    join T_DEA d on d.DEP_ID = o.DEP_ID and d.ID = o.ID
+    join G_CLI g on g.DEP_ID = d.CLI_DEP_ID and g.ID = d.CLI_ID
+    join L_DEA dd on dd.DEP_ID = d.DEP_ID and dd.ID = d.ID
+    join ledacc_det ld on ld.pk1 = dd.DEP_ID and ld.pk2 = dd.ID
+    join t_acc ac on ac.dep_id = ld.dep_id and ac.id = ld.acc_id
+    join ledacc_std la on la.id = ld.ch_id
+    where dd.RETFL = 0
+    and   ld.sgn_id = t_asgn.fCode2Id('DEA')
+    and   la.code in ('91501-POD', '91501-PPRC', '91501-PRC')
+    and   g.code = sClientCode;
+  end if;
+  aResult.put('clientCode', sClientCode);
+  aResult.put('result', nResult);
+  pOutput := aResult.To_Clob;
+end pGetOffBalanceInterest;
+
+procedure pGetPurposeOfLoan(pInput in clob,
+                            pOutput out clob)
+is
+  jInput JSON_OBJECT_T;
+  sProductCode varchar2(50);
+  jPurposeOfLoan JSON_OBJECT_T;
+begin
+  jInput := JSON_OBJECT_T.parse(pInput);
+  sProductCode := jInput.get_string('productCode');
+  pGetPurposeOfLoanJson(sProductCode => sProductCode,
+                        jPurposeOfLoan => jPurposeOfLoan);
+  pOutput := jPurposeOfLoan.to_clob();
+end pGetPurposeOfLoan;
+
+procedure pGetPurposeOfLoanJson(sProductCode in varchar2,
+                                jPurposeOfLoan out JSON_OBJECT_T)
+is
+  sCode L_PURDSC_STD.CODE%type;
+  sLongName varchar2(500);
+begin
+  C_PKGCONNECT.POPEN();
+  jPurposeOfLoan := JSON_OBJECT_T();
+  select
+    d.CODE,
+    d.LONGNAME
+  into
+    sCode,
+    sLongName
+  from L_DEAPUR l, L_PURDSC_STD d, T_DEACLS_STD t
+  where l.PUR_ID = d.ID and l.DCL_ID = t.ID and t.CODE = sProductCode;
+  jPurposeOfLoan.put('code', sCode);
+  jPurposeOfLoan.put('name', sLongName);
+end pGetPurposeOfLoanJson;
+
+-- Процедура для определения вида договора по сценарию продукта (Договор/Линия)
+procedure pGetLoanType(pInput   in Clob,
+                       pOutput  out Clob)
+is
+  sProductCode            t_deacls_std.code%type;
+  sBopCode                t_bop_dscr_std.code%type;
+begin
+  c_pkgconnect.pOpen();
+  pInit(pInput);
+  sProductCode := gInputObj.get_String('productCode');
+  t_log.Debug('Z_116_ELOAN_LOAN.pGetLoanType. Входные параметры: productCode = %0:s', vargs(sProductCode));
+
+  select b.code
+    into sBopCode
+    from t_bop_dscr_std b, t_deacls c
+   where c.code = sProductCode
+     and b.id = c.bop_id;
+
+  gOutputObj.put('type', sBopCode);
+  pOutput := gOutputObj.To_Clob;
+
+exception
+  when no_data_found then
+    t_log.Debug('Z_116_ELOAN_LOAN.pGetLoanType. Ошибка: не найден вид договора по указанному коду продукта');
+end;
+
+-- Процедура получения данных договора
+procedure pGetLoanData(pInput   in Clob,
+                       pOutput  out Clob)
+is
+  nDepId                  T_DEA.DEP_ID%type;
+  nId                     T_DEA.ID%type;
+  rDea                    T_DEA%rowtype;
+  lArrTmp                 JSON_ARRAY_T;
+  ObjTmp                  JSON_OBJECT_T;
+begin
+  c_pkgconnect.pOpen();
+  pInit(pInput);
+  nDepID := gInputObj.get_Number('depId');
+  nId := gInputObj.get_Number('id');
+
+  select *
+    into rDea
+    from T_DEA t
+   where t.DEP_ID = nDepId
+     and t.ID = nId;
+
+  gOutputObj.put('code', t_fGetOrdCode(nDepId, nId));
+  gOutputObj.put('dclCode', t_pkgdea.fDclCode(rDea.Dcl_Id));
+  gOutputObj.put('startDate', to_char(rDea.FROMDATE, 'yyyy-mm-dd'));
+  gOutputObj.put('endDate', to_char(rDea.TODATE, 'yyyy-mm-dd'));
+  gOutputObj.put('amount', rDea.SDOK * 100);
+
+  lArrTmp := new JSON_ARRAY_T;
+  for p in (select
+              p.code,
+              p.LONGNAME as NAME,
+              t_pkgdeaprm.fCanonical2DisplayValue(nvl(T_PkgDeaPrm.fPar(nId, nDepId, p.ID), T_PkgDeaPrm.fClsPar(rDea.Dcl_Id, p.ID)), p.ID) as VALUE
+            from T_DEAPRMRUL r, T_DEAPRMDSC p, C_DOMAIN_STD d,
+              (select ID, NLEVEL from T_DEACLS_STD connect by prior ID_HI = ID start with ID = rDea.Dcl_Id) c,
+              (select r.par_id, max(c.nlevel) as nlevel
+                 from T_DEAPRMRUL r, (select ID,NLEVEL from T_DEACLS_STD connect by prior ID_HI = ID start with ID = rDea.Dcl_Id) c
+                 where c.ID = r.DEA_ID group by PAR_ID) x
+            where x.PAR_ID = r.PAR_ID and x.NLEVEL = c.NLEVEL and c.ID = r.DEA_ID
+              and p.id = r.PAR_ID and d.CODE = p.D_CODE and r.HIDEFL = 0
+              and not exists (select ID from T_DEAPRMDSC_STD where p.ID = ID connect by prior ID = ID_HI start with CODE = 'BASEL')
+              and (nvl(p.HIDEEMPTYFL,0) = 0 or (p.HIDEEMPTYFL = 1 and T_PkgDeaPrm.fPar(nId, nDepId, p.ID) is not null))
+              and r.DYNBOX is null
+            order by r.NPP
+  ) loop
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('code',p.code);
+    ObjTmp.put('name',p.name);
+    ObjTmp.put('value',p.value);
+    lArrTmp.append(ObjTmp);
+  end loop;
+  gOutputObj.put('paramerters', lArrTmp);
+
+  lArrTmp := new JSON_ARRAY_T;
+  for a in (select t.CODE, t.LONGNAME as NAME
+               , G_PKGCON.fGetLName(t.ID, o.ID_OBJ, nDepId, nId, 0, 'L') as lvalue
+               , G_PKGCON.fGetLName(t.ID, o.ID_OBJ, nDepId, nId, 0, 'C') as cvalue
+              from G_CONSRC o, G_CON t, T_DEACLS d
+              where t.ID_HI is null and t.ARCFL = 0
+                and o.CHI_ID = t.ID and o.CON_ID = t.ID and o.ID_OBJ = d.ENT_ID  and d.ID = rDea.Dcl_Id
+  ) loop
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('code',a.code);
+    ObjTmp.put('name',a.name);
+    ObjTmp.put('value',a.lvalue);
+    lArrTmp.append(ObjTmp);
+  end loop;
+  gOutputObj.put('classifiers', lArrTmp);
+
+  ObjTmp := new JSON_OBJECT_T;
+  ObjTmp.put('OD',t_pkgdeaacc.fDeaAccBal(nDepId, nId, 'CR_BAL'));      -- основной долг
+  ObjTmp.put('POD',t_pkgdeaacc.fDeaAccBal(nDepId, nId, 'CR_EXP_PD'));  -- просроченный основной долг
+
+  gOutputObj.put('accounts', ObjTmp);
+  gOutputObj.put('effectiveInterestRate',
+                 fGetDeaEffectiveInterestRate(pDeaDepId => nDepID,
+                                              pDeaId    => nId));
+  pOutput := gOutputObj.To_Clob;
+exception
+  when no_data_found then
+    pOutput := fErr(-20000, 'Ошибка. Не найден договор.');
+  when others then
+    pOutput := fErr(sqlcode, 'Ошибка получения информации о договоре: %0:s',vargs(substr(sqlerrm,1,2000)));
+end pGetLoanData;
+
+-- Процедура создания КЛ
+procedure pCreateLoanLine(pInput   in Clob,
+                          pOutput  out Clob)
+is
+  ObjIn                   JSON_OBJECT_T;
+  ObjRes                  JSON_OBJECT_T;
+  nReqDepId               L_REQDEA.DEP_ID%type;
+  nReqId                  L_REQDEA.ID%type;
+  r                       L_REQDEA%rowtype;
+  ro                      T_ORD%rowtype;
+  pm                      T_PROCMEM%rowtype;
+  dpm                     T_PROCMEM%rowtype;
+  nNJRN                   T_OPERJRN.NJRN%type;
+  idDcl                   T_DEACLS_STD.ID%type;
+  idDeaDep                T_ORD.DEP_ID%type;
+  idDea                   T_ORD.ID%type;
+  idLimPeriodMov          T_DEAPRD_STD.ID%type;
+  idLimPeriodBal          T_DEAPRD_STD.ID%type;
+  cPerLastBalAuto         varchar2(30);
+  dateLastDeaBal          date;
+  dateLastDeaMov          date;
+  amountLimBal            number(18,2);
+  amountLimMov            number(18,2);
+
+  typeOfBorrower          varchar2(60);
+begin
+  c_pkgconnect.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  ObjRes := new JSON_OBJECT_T;
+  nReqDepID := ObjIn.get_Number('reqDepId');
+  nReqId := ObjIn.get_Number('reqId');
+
+  t_log.debug('Z_116_ELOAN_LOAN.pCreateLoanLine. Входные параметры: req_dep_id = %0:s, req_id = %1:s', vargs(nReqDepID, nReqId), 'PKG', 'Z_116_ELOAN_LOAN');
+
+  select * into r from L_REQDEA where DEP_ID=nReqDepId and ID=nReqId;
+  select * into ro from T_ORD where DEP_ID=nReqDepId and ID=nReqId;
+  select * into pm from T_PROCMEM where DEP_ID=nReqDepId and ORD_ID=nReqId and MAINFL='1';
+  begin
+    select * into dpm from T_PROCMEM where id=pm.id and MAINFL='0';
+  exception
+    when no_data_found then
+      null;
+  end;
+
+  if dpm.id is null then
+    -- Добавляем к процессу заявки псевдо операцию
+      select nvl(max(NJRN)+1, 1) into nNJRN from T_OPERJRN where ID=pm.ID;
+      insert into T_OPERJRN(ID, NJRN, BOP_ID,
+                            NOPER,
+                            DEP_ID, ORD_ID,
+                            TUS_ID,
+                            DSCR
+                        )values(
+                            pm.ID, nNJRN, pm.BOP_ID,
+                            (select NORD from T_SCEN_STD where ID=pm.BOP_ID and CODE='_RUN_ANL_ACM_'),
+                            nReqDepId, nReqId,
+                            p_idus,
+                            Localize('Создание договора','PKG', 'Z_116_ELOAN_LOAN')
+                        );
+  end if;
+
+  idDeaDep := nvl(dpm.dep_id, nReqDepID);
+  idDea := dpm.ord_id;
+
+  --idDcl := T_PkgDea.fDclId(json_value(r.json, '$.app.productCode'));  -- ???? см . след строку
+  idDcl := r.dcl_id;
+
+  -- Поиск лимита
+  if L_PkgDeaLim.fHasLineLimBal(idDcl) = 1 then
+    idLimPeriodBal := r.REQ_PRD_ID;
+
+    -- Смотрим на продукте период доступности для лимита задолженности
+    cPerLastBalAuto := T_PkgDeaPrm.fClsParByCode(idDcl, 'LL_AUTOPRDLAST');
+    if cPerLastBalAuto is not null then
+      idLimPeriodBal := T_PkgDeaPer.fId(cPerLastBalAuto);
+    end if;
+
+    dateLastDeaBal := T_PkgDeaPer.fAddPer(P_OPERDAY, idDeaDep, idLimPeriodBal, idDcl);
+    amountLimBal   := json_value(r.json, '$.app.amount');
+  elsif L_PkgDeaLim.fHasLineLimMov(idDcl) = 1 then
+    idLimPeriodMov := r.REQ_PRD_ID;
+    dateLastDeaMov := T_PkgDeaPer.fAddPer(P_OPERDAY, idDeaDep, r.REQ_PRD_ID, idDcl);
+    amountLimMov   := json_value(r.json, '$.app.amount');
+  else
+    pOutput := fErr(-20000, 'По продукту %0:s не настроены лимиты', vargs(json_value(r.json, '$.app.productCode')));
+    return;
+  end if;
+
+  t_log.debug('    Создание договора линиии L_BSLOANLINE.pSave: idLimPeriodBal = %0:s, dateLastDeaBal = %1:s, amountLimBal = %2:s, idLimPeriodMov = %3:s, dateLastDeaMov = %4:s, amountLimMov = %5:s',
+               vargs(idLimPeriodBal, to_char(dateLastDeaBal), amountLimBal, idLimPeriodMov, to_char(dateLastDeaMov), amountLimMov),
+               'PKG', 'Z_116_ELOAN_LOAN');
+
+  begin
+    L_BSLOANLINE.pSave(
+                    nDEP_ID         => idDeaDep,
+                    nID             => idDea,
+                    sDCL_CODE       => json_value(r.json, '$.app.productCode'),
+                    dFROMDATE       => P_OPERDAY,
+                    dTODATE         => T_PkgDeaPer.fAddPer(P_OPERDAY, idDeaDep, r.REQ_PRD_ID, r.DCL_ID),
+                    sCode           => null,
+                    dRecv           => null,
+                    sVAL_CODE       => json_value(r.json, '$.app.currency'),
+                    nCLI_DEP_ID     => r.CLIDEP_ID,
+                    nCLI_ID         => r.CLI_ID,
+                    nPUR_ID         => r.PUR_ID,
+                    nParentProc     => pm.ID,
+                    nParentOpr      => nNJRN,
+                    sStatCode       => null,
+                    sPRIM           => null,
+                    nTUS_ID         => null,
+                    cIMPFL          => '0',
+                    nBAL_DEP_ID     => null,
+                    nSRV_DEP_ID     => null,
+                    nSELL_DEP_ID    => null,
+                    cNOCORRLIMFL    => '0',
+                    nTRF_IDCAT      => null,
+                    idBnchMrk       => null,
+                    sTimeType       => null,
+                    nTimeUnit       => null,
+
+                    -- Лимит выдачи
+                    nPRD_ID         => idLimPeriodMov,
+                    dLastDea        => dateLastDeaMov,
+                    sSUMLIMPAY      => amountLimMov,
+
+                    -- Лимит задолженности
+                    nPRD_BAL_ID     => idLimPeriodBal,
+                    dLastDea_Bal    => dateLastDeaBal,
+                    sAMOUNT         => amountLimBal,
+
+                    cIMPORTED       => '0'
+                );
+  exception
+    when others then
+      pOutput := fErr(sqlcode, 'Ошибка при создании договора кредитной линии: %0:s', vargs(substr(sqlerrm,1,2000)));
+      return;
+  end;
+  -- заполним ответ по КЛ
+  ObjRes.put('deaDepId', idDeaDep);
+  ObjRes.put('deaId', idDea);
+  ObjRes.put('deaCode', t_fGetOrdCode(idDeaDep, idDea));
+
+  if dpm.id is null then
+    -- Добавление участника в процесс заявки
+    declare
+      op BS_OPERATION.SelfAttr;
+    begin
+      BS_OPERATION.read_process(op, pm.id);
+      BS_OPERATION.add_mem(op, P_IDDEP=>idDeaDep, p_idord=>idDea, p_nmem=>BS_BOP.fGetPosId(pm.BOP_ID, 'DEA'));
+    end;
+  end if;
+
+  -- Установка индивидуальной ставки
+  if r.RATE_REQ is not null then
+    declare
+      idClc     T_ARLDEA.CLC_ID%type;
+      idPcn     T_PCNDSC_STD.ID%type;
+      idPcnVer  T_PCNDSC_STD.NVER%type;
+    begin
+      idClc := T_PkgArl.fGetClcByArl(T_PkgArl.fArlId('CR_INTER'), idDeaDep, idDea);
+      T_PkgPcnSpec.pCre(nDEP_ID => idDeaDep,
+                        nID     => idDea,
+                        nCLC_ID => idClc,
+                        idPcn   => idPcn,
+                        iVer    => idPcnVer
+                        );
+      T_PkgPcnSpec.pAddNewValue(idPcn     => idPcn,
+                                dFromdate => P_OPERDAY,
+                                fpercent  => r.RATE_REQ
+                                );
+    exception
+      when others then
+        pOutput := fErr(sqlcode, 'Ошибка установки индивидуальной ставки (%0:s%) по КЛ: %1:s', vargs(r.RATE_REQ, substr(sqlerrm,1,2000)));
+        return;
+    end;
+  end if;
+  -- присвоение значений параметров по КЛ:
+  -- id заявки
+  T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+                      'L_UNNUMBER',
+                      json_value(r.json, '$.app.appId')
+                      );
+
+  -- День погашения процентов
+  T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+                      'LPAYDAY',
+                      json_value(r.json, '$.app.parameters.LPAYDAY')
+                      );
+
+  -- День погашения ОД
+  T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+                      'LPAYDAYOD',
+                      json_value(r.json, '$.app.parameters.LPAYDAYOD')
+                      );
+
+  -- Льготный период ОД
+  T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+                      'L_PNTGRACEOD',
+                      nvl(json_value(r.json, '$.app.parameters.L_PNTGRACEOD'), '0')
+                      );
+
+  -- Длительность льготного периода для револьверной кредитной линии
+  if json_value(r.json, '$.app.parameters.L_GRACEPERIOD') is not null then
+    T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+                        'L_GRACEPERIOD',
+                        json_value(r.json, '$.app.parameters.L_GRACEPERIOD')
+                        );
+  end if;
+
+  -- Льготный период проценты
+  T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+                      'L_PNTGRACEPRC',
+                      nvl(json_value(r.json, '$.app.parameters.L_PNTGRACEPRC'), '0')
+                      );
+
+  -- Тип заемщика
+  typeOfBorrower := json_value(r.json, '$.client.clientType');
+  L_pkgDeaUniRef.pSetRefValOnly(
+                        idDeaDep, idDea, u_pkguniref.fRefCode2Id( 'UZ_TZ'),
+                        u_pkguniref.fId('UZ_TZ', null, typeOfBorrower)
+                        );
+  -- Вид кредитования
+  if json_value(r.json, '$.app.typeOfLending') is not null then
+    L_pkgDeaUniRef.pSetRefValOnly(
+                        idDeaDep, idDea, u_pkguniref.fRefCode2Id( 'UZ_VIDCRED'),
+                        u_pkguniref.fId('UZ_VIDCRED', null, json_value(r.json, '$.app.typeOfLending'))
+                        );
+  end if;
+
+  -- Вид кредитования по классификатору
+  if json_value(r.json, '$.app.typeOfLending110') is not null then
+    L_pkgDeaUniRef.pSetRefValOnly(
+                        idDeaDep, idDea, u_pkguniref.fRefCode2Id( 'UZ_TYPECRED_110'),
+                        u_pkguniref.fId('UZ_TYPECRED_110', null, json_value(r.json, '$.app.typeOfLending110'))
+                        );
+  end if;
+  -- Нормативно правовой акт
+  if json_value(r.json, '$.app.legalAct') is not null then
+    L_pkgDeaUniRef.pSetRefValOnly(
+                        idDeaDep, idDea, u_pkguniref.fRefCode2Id( 'UZ_NPA'),
+                        u_pkguniref.fId('UZ_NPA', null, json_value(r.json, '$.app.legalAct'))
+                        );
+  end if;
+
+  -- Цель кредитной линии
+  T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+                      'L_PURPOSE_CREDLINE',
+                      json_value(r.json, '$.app.objectOfLoan')
+                      );
+
+  --  Цель кредитной линии по классификатору
+  if json_value(r.json, '$.app.purpose112OfLoan') is not null then
+    L_pkgDeaUniRef.pSetRefValOnly(
+                        idDeaDep, idDea, u_pkguniref.fRefCode2Id( 'UZ_PURPCRED_112'),
+                        u_pkguniref.fId('UZ_PURPCRED_112', null, json_value(r.json, '$.app.purpose112OfLoan'))
+                        );
+  end if;
+  -- Признак выдачи кредита по решению правительства
+  -- На договоре он всегда по решению банка
+  begin
+    T_BSDEA.pSetConMem(idDeaDep, idDea, G_PkgCon.fId('L_LOAN_ISSUED'),
+                       --case when json_value(r.json, '$.government.hasDecision') = 'true' then '0' else '0' end  -- ???
+                       '0'
+                       );
+  exception
+    when others then
+      pOutput := fErr(-20000, 'Ошибка установки значения группы консолидации L_LOAN_ISSUED для КЛ %0:s', vargs(substr(sqlerrm,1,2000)));
+      return;
+  end;
+  -- Место работы заёмщика
+  if json_value(r.json, '$.income.companyName') is not null then
+    T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+                        'L_WORK',
+                        json_value(r.json, '$.income.companyName')
+                        );
+  end if;
+
+  l_pkgloans.pAfterSavePrmAndAnl(idDeaDep, idDea, INEEDSENDMMS => 0);
+
+  -- Временное решение по копированию созаёмщиков
+  -- Но их надо создавать сразу из заявки, без промежуточного хранения
+  for cb in (select PRSDEP_ID, PRS_ID from M_DEAPRS m where m.DEP_ID = nReqDepID and m.ID = nReqId
+             ) loop
+    L_pkgLoans.pAddDeaPrs(idDeaDep, idDea, cb.PRSDEP_ID, cb.PRS_ID);
+  end loop;
+
+  ObjRes.put('error', '');
+  pOutput := ObjRes.To_Clob;
+
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'Ошибка создания кредитной линии: %0:s',vargs(substr(sqlerrm,1,2000)));
+
+end pCreateLoanLine;
+
+-- Подготовка договора к регистрации
+procedure pPrepareDea(nDeaDepId in T_ORD.DEP_ID%type,
+                      nDeaId in T_ORD.ID%type) is
+begin
+  -- Расчет графика
+  if T_PkgRunOprUtl.fOprAvailable(nDeaDepId, nDeaId, 'CALCSHD') = 2 then
+    T_PkgRunOprUtl.pRunOprByMainOrd(nDeaDepId, nDeaId, 'CALCSHD', '');
+  end if;
+  -- Расчет эффективной ставки
+  if T_PkgRunOprUtl.fOprAvailable(nDeaDepId, nDeaId, 'CREDITRATE') = 2 then
+    T_PkgRunOprUtl.pRunOprByMainOrd(nDeaDepId, nDeaId, 'CREDITRATE', 'REASON=>''Выдача займа'', REASON_VALUE=>1');
+  end if;
+end pPrepareDea;
+
+-- Процедура проверки клиента в справочниках AML
+procedure pCheckCli(pInput   in Clob,
+                    pOutput  out Clob)
+is
+  ObjIn                   JSON_OBJECT_T;
+  cRet                    CESB_BASE.BParam;
+  cS                      clob;
+  cB                      CESB_BASE.BParam;
+
+begin
+  c_pkgconnect.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  cS := ObjIn.to_Clob();
+  i_aml_pkgOnline.iExtrValue := i_aml_pkgOnline.fGetCliSoundValue('G_CLI'); -- установим свой вариант сравнения на частичное совпадение карточки
+  i_aml_pkgOnline.iExtrimPercen := i_aml_pkgOnline.fGetExtrimPercen(pLstType => '1',
+                                                                    --pBop     => 'CLIENTS'); -- вычислим пороговый процент совпадения
+                                                                    pBop     => c3K_AML_BOP_CODE);
+  i_aml_pkgOnline.iExtrimPercenDev := i_aml_pkgOnline.fGetExtrimPercenDev(pLstType => '1',
+                                                                         -- pBop     => 'CLIENTS'); -- вычислим отклонение процента совпадения
+                                                                          pBop     => c3K_AML_BOP_CODE);
+  -- вызов метода проверки пользователя
+  cRet := G_PKG_IBCLI_UZ.fCheck(B => cB, S => cS);
+
+  pOutput := to_clob(cRet);
+
+exception
+  when others then
+    pOutput := fErr(sqlcode, sys_context('USERENV','IP_ADDRESS') || ':Ошибка при проверке клиента: %0:s',vargs(substr(sqlerrm,1,2000)));
+end pCheckCli;
+
+
+-- Процедура создания клиента
+procedure pCreateCli(pInput   in Clob,
+                     pOutput  out Clob)
+is
+
+  ObjIn                   JSON_OBJECT_T;
+  cRet                    CESB_BASE.BParam;
+  cS                      clob;
+  cB                      CESB_BASE.BParam;
+
+begin
+  c_pkgconnect.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  cS := ObjIn.to_Clob();
+
+  -- вызов метода создания пользователя
+  cRet := G_PKG_IBCLI_UZ.fCreate(B => cB, S => cS);
+
+  pOutput := to_clob(cRet);
+
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'Ошибка создания карточки клиента: %0:s',vargs(substr(sqlerrm,1,2000)));
+end pCreateCli;
+
+-- Процедура для получения информации о клиенте (по паспорту/ по ИНН/ ПИНФЛ)
+procedure pGetCli(pInput   in Clob,
+                  pOutput  out Clob)
+is
+
+  ObjIn                   JSON_OBJECT_T;
+  cRet                    CESB_BASE.BParam;
+  cS                      clob;
+  cB                      CESB_BASE.BParam;
+
+begin
+  c_pkgconnect.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  cS := ObjIn.to_Clob();
+
+  -- вызов метода получения информации о клиенте
+  cRet := G_PKG_IBCLI_UZ.fGet(B => cB, S => cS);
+  pOutput := to_clob(cRet);
+
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'Ошибка получения информации о клиенте: %0:s',vargs(substr(sqlerrm,1,2000)));
+
+end pGetCli;
+
+-- Прием залога к учету
+procedure pAcceptMrt(pDepId in T_DEA.DEP_ID%type,
+                     pId    in T_DEA.ID%type)
+is
+  sParams varchar2(500);
+begin
+  for mrtgs in (select
+                  m.dep_id as MrtDepId,
+                  m.id as MrtId,
+                  md.Dea_Date as MrtDeaDate
+                from
+                  L_MRTDEA md,
+                  L_MORTGAGE m,
+                  T_PROCESS p,
+                  T_PROCMEM r,
+                  T_BOP_STAT s
+                where m.DEP_ID = md.MRT_DEP_ID
+                and m.ID = md.MRT_ID
+                and p.ID = r.ID
+                and r.ORD_ID = m.ID and r.DEP_ID = m.DEP_ID
+                and s.ID = p.BOP_ID and s.NORD = p.NSTAT
+                and s.code = 'START'
+                and md.DEA_DEP_ID = pDepId and md.DEA_ID = pId)
+  loop
+    sParams := '';
+    if T_PkgRunOprUtl.fOprExist(T_PkgProcess.fGetIdByMainOrd(mrtgs.MrtDepId, mrtgs.MrtId), 'ACCEPT') = 0 then
+      addParam(sParams, 'DORDER', mrtgs.MrtDeaDate);
+      addParam(sParams, 'NUMORDER', '1');
+      T_PkgRunOprUtl.pRunOprByMainOrd(mrtgs.MrtDepId, mrtgs.MrtId,'ACCEPT',sParams);
+    end if;
+    for opr in (select
+                  j.ID, j.NJRN
+                from
+                  T_OPERJRN j,
+                  T_PROCMEM m,
+                  L_MRTDEA md,
+                  L_MORTGAGE g
+                where md.DEA_DEP_ID = pDepId and md.DEA_ID = pId
+                and md.MRT_DEP_ID = g.DEP_ID and md.MRT_ID = g.ID
+                and m.DEP_ID = g.DEP_ID and m.ORD_ID = g.ID and m.MAINFL = '1'
+                and m.ID = j.ID
+                and exists (select 1 from dual where t_pkgprocess.fGetStatCodeByMainOrd(g.DEP_ID, g.ID)='MORTGAGE'))
+    loop
+      for rec in (select /*+rule*/
+                    o.CODE, p.DOP, m.ord_id, m.dep_id
+                  from
+                    T_PROCMEM m,
+                    T_PROCESS s,
+                    T_ORD o,
+                    S_ORDNBL p,
+                    (select CHILD_ID
+                     from T_PROCINH
+                     where UNITFL='0'
+                     start with PARENT_ID=opr.ID and NJRN = opr.NJRN connect by NOCYCLE prior CHILD_ID = PARENT_ID) i
+                  where o.DEP_ID=m.DEP_ID and o.ID = m.ORD_ID and m.MAINFL='1' and m.ID=s.ID
+                  and p.DEP_ID = o.DEP_ID and p.ID = o.ID
+                  and s.ID = i.CHILD_ID  and s.CLOSEFL = '0') --Не в конечном состоянии
+      loop
+        if T_PkgRunOprUtl.fOprExist(T_PkgProcess.fGetIdByMainOrd(rec.dep_id, rec.ord_id), 'NBLPOST') = 0 then
+          T_PkgRunOprUtl.pRunOprByMainOrd(rec.dep_id,rec.ord_id,'NBLPOST','');
+        end if;
+      end loop;
+    end loop;
+  end loop;
+end pAcceptMrt;
+
+-- Процедура регистрации договора в АБС
+procedure pRegisterLoan(pInput   in Clob,
+                        pOutput  out Clob)
+is
+  ObjIn                   JSON_OBJECT_T;
+  ObjRes                  JSON_OBJECT_T;
+  idDeaDep                T_ORD.DEP_ID%type;
+  idDea                   T_ORD.ID%type;
+  cDeaGrnFl               char(1);
+  cDeaState               T_BOP_STAT_STD.CODE%type;
+  sBopCode                T_BOP_DSCR_STD.CODE%type;
+begin
+  Z_116_PKGCONNECT.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  idDeaDep := ObjIn.get_Number('deaDepId');
+  idDea := ObjIn.get_Number('deaId');
+  -- Определяем вид сценария договора
+  sBopCode := T_PkgProcess.fGetBopCodeByMainOrd(idDeaDep, idDea);
+
+  if sBopCode in ('CS_CR_LIN') then
+    cDeaGrnFl := nvl(C_PKGPRM.fGetValPrm('N_CHECK_SCADPS_FL'),'0');
+
+    if cDeaGrnFl = '0' then
+      -- Регистрация договора
+      if T_PkgRunOprUtl.fOprAvailable(idDeaDep, idDea, 'REG') = 2 then
+        T_PkgRunOprUtl.pRunOprByMainOrd(idDeaDep, idDea, 'REG');
+      end if;
+
+      -- Расчет эффективной ставки
+      if T_PkgRunOprUtl.fOprAvailable(idDeaDep, idDea, 'CREDITRATE') = 2 then
+        if T_PkgRunOprUtl.fOprExist(T_PkgProcess.fGetIdByMainOrd(idDeaDep, idDea), 'CREDITRATE') = 0 then
+          T_PkgRunOprUtl.pRunOprByMainOrd(idDeaDep, idDea, 'CREDITRATE');
+        end if;
+      end if;
+
+      -- Актуализация
+      if T_PkgRunOprUtl.fOprAvailable(idDeaDep, idDea, 'RUN') = 2 then
+        declare
+          nikiStatus varchar2(60);
+          nikiErr varchar2(4000);
+        begin
+          -- Проверим состояние запроса в НИКИ
+          L_PKGIENIKI_API.pGetStatus(idDeaDep, idDea, 'NIKI', '03', nikiStatus, nikiErr);
+          if nikiStatus = L_PKGIENIKI_API.STATUS_CONFIRMED then
+            -- Актуализация договора только после подтверждения от ники
+            T_PkgRunOprUtl.pRunOprByMainOrd(idDeaDep, idDea, 'RUN');
+          end if;
+        end;
+      end if;
+    end if;
+  elsif sBopCode in ('CS_CRED') then
+    -- pPrepareDea(idDeaDep, idDea); --Вычислен при создании договора, поэтому тут ненужен этот вызов (удалить в будушем)
+    -- Регистрация договора
+    if T_PkgRunOprUtl.fOprAvailable(idDeaDep, idDea, 'REG_SHD') = 2 then
+      T_PkgRunOprUtl.pRunOprByMainOrd(idDeaDep, idDea, 'REG_SHD', '');
+    end if;
+  end if;
+
+  cDeaState := T_PkgProcess.fGetStatCodeByMainOrd(idDeaDep, idDea);
+
+  -- заполним ответ
+  ObjRes := new JSON_OBJECT_T;
+  ObjRes.put('state', cDeaState);
+  ObjRes.put_Null('error');
+  pOutput := ObjRes.To_Clob;
+
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'При регистрации договора %0:s произошла ошибка: %1:s',vargs(t_fGetOrdCode(idDeaDep, idDea), substr(sqlerrm,1,2000))); --
+
+end pRegisterLoan;
+
+-- Процедура выдачи транша
+procedure pIssueTranche(pInput   in Clob,
+                        pOutput  out Clob)
+
+is
+  ObjIn                   JSON_OBJECT_T;
+  ObjRes                  JSON_OBJECT_T;
+  idDeaDep                T_ORD.DEP_ID%type;
+  idDea                   T_ORD.ID%type;
+  nAmount                 number(18,2);
+  cCardIdn                N_CRD.Cardidn%type;
+  cAccCode                G_ACCBLN.CODE%type;
+  cLoaAccCode             G_ACCBLN.CODE%type;  -- счет выдачи
+  cDeferFl                char(1);
+  sBopCode                T_BOP_DSCR_STD.CODE%type;
+  ObjTmp                  JSON_OBJECT_T;
+  cInsAccCode             G_ACCBLN.CODE%type;
+  cInsDepAccCode          C_DEP_STD.CODE%type;
+  nInsAmount              number(18,2)  := 0;
+  sOperation              varchar2(50);
+  sRequestId              varchar2(50);
+  cPrevResponse           clob;
+  nResult                 number;
+begin
+  Z_116_PKGCONNECT.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+
+  idDeaDep := ObjIn.get_Number('deaDepId');
+  idDea := ObjIn.get_Number('deaId');
+
+  sOperation := ObjIn.get_String('operation');
+  sRequestId := ObjIn.get_String('requestId');
+
+
+  -- с версии 15.2
+/*
+  if sOperation is not null and sRequestId is not null then
+    Z_116_ELOAN_UTILS.pGetOperation(pRequestId => sRequestId,
+                                    pOperation => sOperation,
+                                    pResponse  => cPrevResponse);
+    if cPrevResponse is not null then
+      pOutput := cPrevResponse;
+      return;
+    end if;
+  end if;
+*/
+  -- с версии 15.2
+
+  -- Определяем вид сценария договора
+  sBopCode := T_PkgProcess.fGetBopCodeByMainOrd(idDeaDep, idDea);
+  if sBopCode in ('CS_CR_LIN') then -- БП по выдаче транша по кредитной линии
+    nAmount := ObjIn.get_Number('amount');
+    cCardIdn := ObjIn.get_string('cardIdn');
+    cAccCode := ObjIn.get_string('accCode');
+    begin
+      cDeferFl := nvl(t_pkgdeaprm.fParByCode(idDea, idDeaDep, 'Z_116_DEFERFL'), '0');
+    exception
+      when others then
+        cDeferFl := '0';
+    end;
+    -- найдем счет выдачи:
+    -- Ищем номер счета по карте, если передана карта
+    if cCardIdn is not null then
+      begin
+        select ab.code
+        into cLoaAccCode
+        from g_accbln ab, s_deaacc da, n_crd c
+        where c.cardidn = cCardIdn
+        and da.dep_id=c.deaacc_dep_id and da.id=c.deaacc_id
+        and ab.dep_id = da.acc_dep_id and ab.id = da.acc_id;
+      exception
+        when no_data_found then
+           pOutput := fErr(-20000, 'Номер счета по карте %0:s не найден.',vargs(cCardIdn));
+           return;
+      end;
+    -- или передали счет выдачи явно
+    elsif cAccCode is not null then
+      cLoaAccCode := cAccCode;
+    -- или если у нас КЛ-рассрочка (на ШП параметр Z_116_DEFERFL=1), то счет определим с сиспара
+    elsif cDeferFl = '1' then
+      cLoaAccCode := C_PKGPRM.fGetValPrm('Z_116_SELLOACCCODE');
+
+      -- контроль счета
+      if cLoaAccCode is null then
+        pOutput := fErr(-20000, dbase.IIF(cDeferFl='1', 'Не настроен счет предоставления транша для продукта-рассрочки %0:s','Не передан счет для выдачи транша по кредитной линии %0:s'),
+                         vargs(dbase.IIF(cDeferFl='1',t_pkgdea.fDeaDclCode(idDeaDep, idDea),t_fGetOrdCode(idDeaDep, idDea))));
+        return;
+      end if;
+    end if;
+
+
+    if T_PkgRunOprUtl.fOprAvailable(idDeaDep, idDea, 'NEWDEA') = 2 then
+      begin
+        --примем к учету обеспечение
+        pAcceptMrt(idDeaDep, idDea);
+        --выдадим транш
+        T_PkgRunOprUtl.pRunOprByMainOrd(idDeaDep, idDea, 'NEWDEA','amount=>'||to_char(nAmount)||', ACC_CODE=>'||cLoaAccCode);
+        --если страховка за счет кредитных средств, то должны передаваться данные по страховке
+        if ObjIn.has('insurance') then
+          ObjTmp := ObjIn.get_Object('insurance');
+          cInsDepAccCode := ObjTmp.get_String('depCode');
+          cInsAccCode := ObjTmp.get_String('accountCode');
+          nInsAmount := ObjTmp.get_Number('amount');
+        end if;
+        -- выдадим второй транш на оплату страховки
+        if nInsAmount > 0 then
+          T_PkgRunOprUtl.pRunOprByMainOrd(idDeaDep, idDea, 'NEWDEA','amount=>'||to_char(nInsAmount)||', ACC_CODE=>'||cInsAccCode);
+        end if;
+        -- заполним ответ
+        ObjRes := new JSON_OBJECT_T;
+        ObjRes.put_Null('error');
+        pOutput := ObjRes.To_Clob;
+      exception
+        when others then
+          pOutput := fErr(sqlcode, 'Операция "Выдать транш" по договору %0:s завершилась с ошибкой: %1:s',vargs(t_fGetOrdCode(idDeaDep, idDea), substr(sqlerrm,1,2000))); --
+      end;
+    else
+      pOutput := fErr(-804, 'Операция "Выдать транш" не доступна по договору %0:s',vargs(t_fGetOrdCode(idDeaDep, idDea)));
+    end if;
+  elsif sBopCode in ('CS_CRED') then -- БП по предоставлению кредита
+    pLoanOut(pInput,pOutput);
+
+    -- с версии 15.2
+    /*
+    if sRequestId is not null and sOperation is not null then
+      Z_116_ELOAN_UTILS.pSaveOperation(pRequestId => sRequestId,
+                                       pOperation => sOperation,
+                                       pResponse  => pOutput,
+                                       pResult    => nResult);
+    end if;
+    */
+    -- с версии 15.2
+
+  end if;
+
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'При выдаче транша по КЛ %0:s произошла ошибка: %1:s',vargs(t_fGetOrdCode(idDeaDep, idDea), substr(sqlerrm,1,2000))); --
+
+end pIssueTranche;
+
+-- Получение значения ставки по %% по кредиту на дату регистрации
+procedure pGetInterestByDateAndProductCode(pInput   in Clob,
+                                           pOutput  out Clob)
+is
+  ObjIn                   JSON_OBJECT_T;
+  ObjRes                  JSON_OBJECT_T;
+  dOp                     date;
+  cDclCode                T_DEACLS_STD.CODE%type;
+  idDcl                   T_DEACLS_STD.ID%type;
+  idPcnInterest           T_PCN.ID%type;
+  fPcn                    float;
+begin
+  c_pkgconnect.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  dOp := p_operday; --to_date(ObjIn.get_string('regDate'),'yyyy-mm-dd');
+  cDclCode := ObjIn.get_string('productCode');
+  idDcl := T_PKGDEA.fDclId(cDclCode);
+
+  select
+    c.PCN_ID
+    into idPcnInterest
+    from T_ARLCLS l, T_ARLCLC c, T_ARLDSC_STD a
+    where l.CLC_ID = c.ID and c.ARL_ID = a.ID
+      and l.DCL_ID = idDcl
+      and a.ALIAS||'' = 'INTEREST';
+  fPcn := T_PKGPCNCLC.GetPercentValue(idPcnInterest, T_PKGPCNCLC.GetActualNver(idPcnInterest), dOp);
+
+  ObjRes := new JSON_OBJECT_T;
+  ObjRes.put('interest', fPcn);
+  pOutput := ObjRes.To_Clob;
+
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'Ошибка определения процентной ставки по продукту %0:s на дату %1:s: %3:s',vargs(cDclCode, to_char(dOp), substr(sqlerrm,1,2000))); --
+
+end pGetInterestByDateAndProductCode;
+
+-- Процедура создания договора кредита
+procedure pCreateLoan(pInput   in Clob,
+                      pOutput  out Clob)
+is
+  idDeaDep      T_DEA.DEP_ID%type;
+  idDea         T_DEA.ID%type;
+  nReqDepId     L_REQDEA.DEP_ID%type;
+  nReqId        L_REQDEA.ID%type;
+  r             L_REQDEA%rowtype;
+  ro            T_ORD%rowtype;
+  pm            T_PROCMEM%rowtype;
+  nNJRN         T_OPERJRN.NJRN%type;
+  cOUTID        varchar2(50);
+
+  fromDate      date;
+  toDate        date;
+  idDuration    T_DEAPRD_STD.ID%type;
+  ObjIn         JSON_OBJECT_T;
+  ObjRes        JSON_OBJECT_T;
+  typeOfBorrower  varchar2(60);
+
+  function getDurationId(duration in varchar2, durationUnit in varchar2) return T_DEAPRD_STD.ID%type is
+    per T_DEAPRD_STD%rowtype;
+  begin
+    select * into per from T_DEAPRD_STD where time_type=durationUnit and time_unit=duration;
+    return per.id;
+  exception
+    when no_data_found then
+      pOutput := fErr(-20000, 'Срок %0:s/%1:s не существует в справочнике сроков.', vargs(duration, durationUnit));
+    when too_many_rows then
+      pOutput := fErr(-20000, 'Срок %0:s/%1:s описан в справочнике сроков несколько раз. Исправьте ошибку в справочнике.', vargs(duration, durationUnit));
+  end;
+
+begin
+  c_pkgconnect.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  ObjRes := new JSON_OBJECT_T;
+  nReqDepID := ObjIn.get_Number('reqDepId');
+  nReqId := ObjIn.get_Number('reqId');
+
+  select * into r from L_REQDEA where DEP_ID=nReqDepID and ID=nReqId;
+  select * into ro from T_ORD where DEP_ID=nReqDepID and ID=nReqId;
+  select * into pm from T_PROCMEM where DEP_ID=nReqDepID and ORD_ID=nReqId and MAINFL='1';
+  idDeaDep := nReqDepID;
+
+--  fromDate := nvl(to_date(substr(json_value(r.json, '$.app.registrationDate'), 1, 10), 'yyyy-mm-dd'), p_operday);
+  fromDate := p_operday;
+  if nvl(json_value(r.json, '$.product.options.durationMethod'), 'duration') = 'duration' then
+    idDuration := getDurationId(json_value(r.json, '$.app.duration'), json_value(r.json, '$.app.durationUnit'));
+    toDate := T_PkgDeaPer.fAddPer(p_operday, r.DEP_ID, idDuration, r.DCL_ID);
+  elsif json_value(r.json, '$.product.options.durationMethod') = 'endDate' then
+    toDate := to_date(substr(json_value(r.json, '$.app.durationEndDate'),1,10), 'yyyy-mm-dd');
+  else
+    pOutput := fErr(-20000, 'Невозможно определить срок для создания договора.');
+  end if;
+  -- контроль срока/даты завершения
+  if toDate is null then
+    return;
+  end if;
+
+  -- Ищем ранее созданный договор. Возможно из-за порванной транзакции
+  begin
+    select ord_id into idDea from t_procmem where id=pm.id and MAINFL='0';
+  exception
+    when no_data_found then
+      idDea := null;
+  end;
+
+  if idDea is null then
+    -- Добавляем к процессу заявки псевдо операцию
+    select nvl(max(NJRN)+1, 1) into nNJRN from T_OPERJRN where ID=pm.ID;
+    insert into T_OPERJRN(
+                    ID, NJRN, BOP_ID,
+                    NOPER,
+                    DEP_ID, ORD_ID,
+                    DOPER, TUS_ID,
+                    DSCR
+                    )
+                    values(
+                    pm.ID, nNJRN, pm.BOP_ID,
+                    (select NORD from T_SCEN_STD where ID=pm.BOP_ID and CODE='_RUN_ANL_ACM_'),
+                    nReqDepID, nReqId,
+                    P_OPERDAY, p_idus,
+                    'Создание договора'
+                    );
+  else
+    -- Берём последнюю операцию по заявке
+    select max(NJRN) into nNJRN from T_OPERJRN where ID=pm.ID;
+  end if;
+
+  -- создание договора
+  begin
+    L_BSLOAN.pSave(
+            nDEP_ID         => idDeaDep,
+            nID             => idDea,
+            sDCL_CODE       => json_value(r.json, '$.app.productCode'),
+            dFROMDATE       => fromDate,
+            dTODATE         => toDate,
+            sVAL_CODE       => T_PkgVal.fGetCode(ro.VAL_ID),
+            sAMOUNT         => json_value(r.json, '$.app.amount'),
+            nPRD_ID         => r.REQ_PRD_ID,
+            nCLI_DEP_ID     => r.CLIDEP_ID,
+            nCLI_ID         => r.CLI_ID,
+            sPRIM           => null,
+            sCode           => null,
+            idPur           => r.PUR_ID,
+            nParentProc     => pm.ID,
+            nParentOpr      => nNJRN,
+            sStatCode       => null,
+            dRecv           => null,
+            dDSF            => null,
+            sNSF            => null,
+            sREFER          => null,
+            nTUS_ID         => null,
+            cIMPFL          => '0',
+            nSELL_DEP_ID    => null,
+            nDEA_STATE      => 0,
+            nSELL_ID        => null,
+            nBAL_DEP_ID     => null,
+            nSRV_DEP_ID     => null,
+            nVAL_RAT        => null,
+            nTRF_IDCAT      => null,
+            sINDEX_VAL_CODE => null,
+            cINDEXFL        => '0',
+            nINDEX_VAL_RATE => null,
+            sNOMINAL_VALUE  => null,
+            sPURCHASE_VALUE => null,
+            cSELSRVFL       => '0',
+            idBnchMrk       => null,
+            sTimeType       => null,
+            nTimeUnit       => null,
+            nCLI_ACC_DEP_ID => null,
+            nCLI_ACC_ID     => null,
+            cIMPORTED       => '0'
+        );
+  exception
+    when others then
+      pOutput := fErr(sqlcode, 'Ошибка при создании кредитного договора: %0:s', vargs(substr(sqlerrm,1,2000)));
+      return;
+  end;
+  -- заполним ответ по договору
+  ObjRes.put('deaDepId', idDeaDep);
+  ObjRes.put('deaId', idDea);
+  ObjRes.put('deaCode', t_fGetOrdCode(idDeaDep, idDea));
+
+  -- Добавление участника в процесс заявки
+  declare
+    op BS_OPERATION.SelfAttr;
+    memCnt integer;
+  begin
+    select count(*) into memCnt from t_procmem where id=pm.id and mainfl='0' and dep_id=idDeaDep and ord_id=idDea;
+    if memCnt = 0 then
+      BS_OPERATION.read_process(op, pm.id);
+      BS_OPERATION.add_mem(op, P_IDDEP=>idDeaDep, p_idord=>idDea, p_nmem=>BS_BOP.fGetPosId(pm.BOP_ID, 'DEA'));
+    end if;
+  end;
+
+  -- Установка индивидуальной ставки
+  -- L_PCNPRODUCT - признак использования продуктовой ставки
+  if nvl(T_PkgDeaPrm.fParByCode(idDea, idDeaDep, 'L_PCNPRODUCT'), '0') = '0' then
+    declare
+      idClc     T_ARLDEA.CLC_ID%type;
+      idPcn     T_PCNDSC_STD.ID%type;
+      idPcnVer  T_PCNDSC_STD.NVER%type;
+    begin
+      idClc := T_PkgArl.fGetClcByArl(T_PkgArl.fArlId('CR_INTER'), idDeaDep, idDea);
+      T_PkgPcnSpec.pCre(
+                    nDEP_ID => idDeaDep,
+                    nID     => idDea,
+                    nCLC_ID => idClc,
+                    idPcn   => idPcn,
+                    iVer    => idPcnVer
+                    );
+      T_PkgPcnSpec.pAddNewValue(
+                    idPcn     => idPcn,
+                    dFromdate => P_OPERDAY,
+                    fpercent  => r.RATE_REQ
+                    );
+    exception
+      when others then
+        pOutput := fErr(sqlcode, 'Ошибка установки индивидуальной ставки (%0:s%) по КЛ: %1:s', vargs(r.RATE_REQ, substr(sqlerrm,1,2000)));
+        return;
+    end;
+  end if;
+
+  -- id заявки
+  T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+            'L_UNNUMBER',
+            json_value(r.json, '$.app.appId')
+            );
+  -- День погашения процентов
+  T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+            'LPAYDAY',
+            json_value(r.json, '$.app.parameters.LPAYDAY')
+            );
+
+  -- День погашения ОД
+  T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+            'LPAYDAYOD',
+            json_value(r.json, '$.app.parameters.LPAYDAYOD')
+            );
+
+  -- Льготный период ОД
+  T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+            'L_PNTGRACEOD',
+            nvl(json_value(r.json, '$.app.parameters.L_PNTGRACEOD'), '0')
+            );
+
+  -- Льготный период проценты
+  T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+            'L_PNTGRACEPRC',
+            nvl(json_value(r.json, '$.app.parameters.L_PNTGRACEPRC'), '0')
+            );
+
+  -- Вид рынка (для авто/ипотека) (первичный/вторичный)
+  if json_value(r.json, '$.objectOfCredit.marketType') is not null then
+    T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+                'L_VIDNED',
+                json_value(r.json, '$.objectOfCredit.marketType')
+                );
+  end if;
+
+
+  -- Атрибуты для ипотеки
+  if json_value(r.json, '$.objectOfCredit.objectType') = 'realty' then
+    -- Стоимость квартиры по ипотеке
+    T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+                'L_PAYALLSUMIP',
+                json_value(r.json, '$.objectOfCredit.cost')
+                );
+    -- Сумма первоначального взноса по ипотеке
+    T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+                'L_PAYFIRST_R',
+                json_value(r.json, '$.objectOfCredit.own_amount')
+                );
+    -- Сумма первоначального взноса по ипотеке
+    T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+                'Z_SUMVZN',
+                json_value(r.json, '$.objectOfCredit.own_amount')
+                );
+  end if;
+
+  -- Атрибуты для авто кредита
+  if json_value(r.json, '$.objectOfCredit.objectType') = 'auto' then
+    -- Стоимость автомобиля
+    T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+                'L_PAYALLSUMIP',
+                json_value(r.json, '$.objectOfCredit.cost')
+                );
+  end if;
+
+  -- Тип заемщика
+  typeOfBorrower := json_value(r.json, '$.client.clientType');
+  L_pkgDeaUniRef.pSetRefValOnly(
+                idDeaDep, idDea, u_pkguniref.fRefCode2Id( 'UZ_TZ'),
+                u_pkguniref.fId('UZ_TZ', null, typeOfBorrower)
+                );
+
+  -- Вид кредитования
+  if json_value(r.json, '$.app.typeOfLending') is not null then
+    L_pkgDeaUniRef.pSetRefValOnly(
+                idDeaDep, idDea, u_pkguniref.fRefCode2Id( 'UZ_VIDCRED'),
+                u_pkguniref.fId('UZ_VIDCRED', null, json_value(r.json, '$.app.typeOfLending'))
+                );
+  end if;
+
+  -- Вид кредитования по классификатору
+  if json_value(r.json, '$.app.typeOfLending110') is not null then
+    L_pkgDeaUniRef.pSetRefValOnly(
+                idDeaDep, idDea, u_pkguniref.fRefCode2Id( 'UZ_TYPECRED_110'),
+                u_pkguniref.fId('UZ_TYPECRED_110', null, json_value(r.json, '$.app.typeOfLending110'))
+                );
+  end if;
+
+  -- Нормативно правовой акт
+  if json_value(r.json, '$.app.legalAct') is not null then
+    L_pkgDeaUniRef.pSetRefValOnly(
+                idDeaDep, idDea, u_pkguniref.fRefCode2Id( 'UZ_NPA'),
+                u_pkguniref.fId('UZ_NPA', null, json_value(r.json, '$.app.legalAct'))
+                );
+  end if;
+
+  -- Первоначальный взнос
+  if json_value(r.json, '$.app.parameters.L_PAYFIRST') is not null then
+    T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+                'L_PAYFIRST',
+                json_value(r.json, '$.app.parameters.L_PAYFIRST')
+                );
+  end if;
+
+  -- Цель кредитной линии
+  T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+            'L_PURPOSE_CREDLINE',
+            json_value(r.json, '$.app.objectOfLoan')
+            );
+
+  -- Цель кредита по кассификатору
+  if json_value(r.json, '$.app.purpose112OfLoan') is not null then
+    L_pkgDeaUniRef.pSetRefValOnly(
+                idDeaDep, idDea, u_pkguniref.fRefCode2Id( 'UZ_PURPCRED_112'),
+                u_pkguniref.fId('UZ_PURPCRED_112', null, json_value(r.json, '$.app.purpose112OfLoan'))
+                );
+  end if;
+
+  -- Признак выдачи кредита по решению правительства
+  -- На договоре он всегда по решению банка
+  begin
+    T_BSDEA.pSetConMem(idDeaDep, idDea, G_PkgCon.fId('L_LOAN_ISSUED'),
+                       --case when json_value(r.json, '$.government.hasDecision') = 'true' then '0' else '0' end  -- ???
+                       '0'
+                       );
+  exception
+    when others then
+      pOutput := fErr(-20000, 'Ошибка установки значения группы консолидации L_LOAN_ISSUED: %0:s', vargs(substr(sqlerrm,1,2000)));
+      return;
+  end;
+
+  -- Место работы заёмщика
+  if json_value(r.json, '$.income.companyName') is not null then
+    T_PkgDeaPrm.pSetPrm(idDea, idDeaDep,
+                        'L_WORK',
+                        json_value(r.json, '$.income.companyName')
+                        );
+  end if;
+
+  -- Уникальный номер договора
+  if t_pkgdeaprm.fpardcllinked(r.DCL_ID, 'L_UZ_UNIQNUM') = 1 and
+     nvl(T_PkgDeaPrm.fParByCode(idDea, idDeaDep, 'L_UZ_UNIQNUM'),'0') = '0' and
+     nvl(T_PkgDeaPrm.fParByCode(idDea, idDeaDep,'L_GENCONTRACTFL'),'0') = '0' then
+    T_PkgDeaPrm.pSetPrm(idDea, idDeaDep, 'L_UZ_UNIQNUM', L_UZ_UNIQNUM_KEY.NEXTVAL);
+  end if;
+
+  -- Идентификатор для внешних систем
+  cOUTID := L_PKGINF.fGenOutId(nDepId => idDeaDep, nId => idDea);
+  T_PkgDeaPrm.pSetPrm(idDea, idDeaDep, 'L_OUTID', cOUTID);
+
+  l_pkgloans.pAfterSavePrmAndAnl(idDeaDep, idDea, INEEDSENDMMS => 0);
+
+  -- Временное решение по копированию созаёмщиков
+  -- Но их надо создавать сразу из заявки, без промежуточного хранения
+  for cb in (select PRSDEP_ID, PRS_ID from M_DEAPRS m where m.DEP_ID = nReqDepID and m.ID = nReqId
+             ) loop
+    L_pkgLoans.pAddDeaPrs(idDeaDep, idDea, cb.PRSDEP_ID, cb.PRS_ID);
+  end loop;
+
+  ObjRes.put('dOper', P_OPERDAY);
+  ObjRes.put('error', '');
+  pOutput := ObjRes.To_Clob;
+
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'Ошибка создания кредитного договора: %0:s',vargs(substr(sqlerrm,1,2000)));
+
+end pCreateLoan;
+
+-- Процедура выдачи кредита
+procedure pLoanOut(pInput   in Clob,
+                   pOutput  out Clob)
+is
+  idDeaDep         T_DEA.DEP_ID%type;
+  idDea            T_DEA.ID%type;
+  ObjIn            JSON_OBJECT_T;
+  ObjRes           JSON_OBJECT_T;
+
+  line_state       char(1);
+  l_amount         number(18,2);
+  l_card_idn       N_CRD.CARDIDN%type;
+  l_crdacc_code    G_ACCBLN.CODE%type;
+  l_acc_code       G_ACCBLN.CODE%type;
+  iAccExistsFl     pls_integer;
+
+  nNotMortageFound pls_integer := 1;
+  nMrtDepId        L_MRTDEA.Dep_Id%Type;
+  nMrtId           L_MRTDEA.Id%Type;
+  dMrtDeaDate      L_MRTDEA.Dea_Date%Type;
+  sParams          varchar2(500);
+  nikiStatus       varchar2(60);
+  nikiErr          varchar2(4000);
+  cDeaState        T_BOP_STAT_STD.CODE%type;
+
+  ObjTmp           JSON_OBJECT_T;
+  cInsAccCode      G_ACCBLN.CODE%type;
+  cInsDepAccCode   C_DEP_STD.CODE%type;
+  nInsAmount       number(18,2)  := 0;
+  idCLC            T_ARLCLC.ID%type;
+  nOldNord         T_ARLDEA.PAY_NORD%type;
+  cOldPayType      T_ARLDEA.Pay_Type%type;
+  nInsNord         T_ARLDEA.PAY_NORD%type;
+  sAttrStr         varchar2(2000);
+  ExistsFl         char(1);
+
+  cParOut          varchar2(4000);
+  lstTbl           C_PKGSTR.TPrmTBlLst;
+  nJr              T_OPERJRN.NJRN%type;
+
+begin
+  c_pkgconnect.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  idDeaDep := ObjIn.get_Number('deaDepId');
+  idDea := ObjIn.get_Number('deaId');
+  l_amount := ObjIn.get_Number('amount');
+  l_card_idn :=  ObjIn.get_string('cardIdn');
+  l_acc_code := ObjIn.get_string('accCode');
+
+  line_state := nvl(C_PKGPRM.fGetValPrm('N_CHECK_SCADPS_FL'),'0');
+  --если страховка за счет кредитных средств, то должны передаваться данные по страховке
+  if ObjIn.has('insurance') then
+    ObjTmp := ObjIn.get_Object('insurance');
+    cInsDepAccCode := ObjTmp.get_String('depCode');
+    cInsAccCode := ObjTmp.get_String('accountCode');
+    nInsAmount := ObjTmp.get_Number('amount');
+  end if;
+
+  if line_state = 0 then
+    if T_PkgRunOprUtl.fOprAvailable(idDeaDep, idDea, 'SETALLOWOUT') = 2 then
+      if nvl(T_PkgDeaPrm.fParByCode(idDea, idDeaDep, 'L_ALLOWOUTSUM'), 0) < (l_amount+nInsAmount) then
+        T_PkgRunOprUtl.pRunOprByMainOrd(idDeaDep, idDea, 'SETALLOWOUT', 'AMOUNT=>'||(l_amount+nInsAmount));
+      end if;
+    end if;
+    -- Актуализация
+    if T_PkgRunOprUtl.fOprAvailable(idDeaDep, idDea, 'LOAN_OUT') = 2 then
+      begin
+        -- если передана наша карта - определим картсчет
+        if l_card_idn is not null then
+          -- получаем номер карточного счета
+          begin
+            select ab.code
+            into l_crdacc_code
+            from g_accbln ab, s_deaacc da, n_crd c
+            where c.cardidn = l_card_idn
+            and da.dep_id=c.deaacc_dep_id and da.id=deaacc_id
+            and ab.dep_id = da.acc_dep_id and ab.id = da.acc_id;
+          exception
+            when no_data_found then
+               pOutput := fErr(-20000, 'Номер счета по карте %0:s не найден.',vargs(l_card_idn));
+               return;
+          end;
+        -- если выдача на чужую карту - то должен быть передан счет выдачи (промежуточный счет 29896 для последующей квитовки с транзитником транзитника)
+        elsif l_acc_code is not null then
+          l_crdacc_code := l_acc_code;
+        end if;
+        -- контроль счета выдачи:
+        select count(1) into iAccExistsFl from G_ACCBLN ab where ab.code = nvl(l_crdacc_code, '-');
+        if iAccExistsFl = 0 then
+          pOutput := fErr(-20000, 'Счет выдачи займа %0:s не найден.',vargs(l_crdacc_code));
+          return;
+        end if;
+
+        -- Проверим состояние запроса в НИКИ
+        L_PKGIENIKI_API.pGetStatus(idDeaDep, idDea, 'NIKI', '03', nikiStatus, nikiErr);
+        --if nikiStatus = L_PKGIENIKI_API.STATUS_CONFIRMED then
+          -- Принять к учету объекты обеспечения
+          pAcceptMrt(idDeaDep, idDea);
+          -- Актуализация договора только после подтверждения от ники
+          T_PkgRunOprUtl.pRunOperation(idDeaDep, idDea, 'LOAN_OUT', 'AMOUNT=>'||l_amount||',NDOCPAY=>1,ACC_CODE=>'||l_crdacc_code, sOutOperParams => cParOut);
+          -- запомним NJRN операции выдачи кредита клиенту для формирования ответа
+          C_PKGSTR.ParsePar2(sstr => cParOut, prmtbllst => lstTbl);
+          nJr := to_number(C_PKGSTR.fGetPrmVal(lstTbl, 'NJRN'));
+
+          -- и частичная выдача в счет страховки
+          if nInsAmount > 0 then
+            -- добавим реквизиты страховой на договор
+            idCLC := T_PkgArl.fGetClcByArlAlias('INIT_AMT', idDeaDep, idDea);
+            select PAY_NORD, PAY_TYPE  into nOldNord, cOldPayType
+            from T_ARLDEA
+            where DEP_ID = idDeaDep
+            and ORD_ID = idDea
+            and CLC_ID = idCLC;
+            sAttrStr := 'CODE_ACC=>'||cInsAccCode||';DEPCODE=>'||cInsDepAccCode||';FLLINKACC=>1; VAL_ID=>'||p_natval;
+            L_PKGLOANS.pSavePayNord4Loan(idDeaDep, idDea, 'ACCDEP', sAttrStr, nInsNord, ExistsFl);
+            T_PkgArl.pUpdArlDeaPay(idDeaDep, idDea, idCLC, null, nInsNord, 'A');
+            -- частичная выдача на счет страховой
+            T_PkgRunOprUtl.pRunOprByMainOrd(idDeaDep, idDea, 'LOAN_OUT2', 'AMOUNT=>'||nInsAmount);
+            -- возврат реквизитов по выдаче кредита
+            T_PkgArl.pUpdArlDeaPay(idDeaDep, idDea, idCLC, null, nOldNord, cOldPayType);
+          end if;
+        --end if;
+      exception
+        when others then
+          pOutput := fErr(sqlcode, 'При выдаче кредита %0:s произошла ошибка (опер день=%1:s): %2:s',vargs(t_fGetOrdCode(idDeaDep, idDea), to_char(p_operday, 'DD.MM.YYYY'), substr(sqlerrm,1,2000)));
+          rollback;
+          return;
+      end;
+    else
+      -- скорее всего еще не открылись счета и требуется запустить операцию повторно чуть позже
+      pOutput := fErr(-804, 'Операция предоставления займа не доступна.');
+      return;
+    end if;
+  end if;
+
+  -- Получаем состояние договора чтобы решить что делать дальше
+  cDeaState := T_PkgProcess.fGetStatCodeByMainOrd(idDeaDep, idDea);
+
+  -- заполним ответ  nJr
+  ObjRes := new JSON_OBJECT_T;
+  ObjRes.put('state', cDeaState);
+  ObjRes.put('njrn', nJr);
+  ObjRes.put_null('error');
+  pOutput := ObjRes.To_Clob;
+
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'При выдаче кредита %0:s произошла ошибка: %1:s',vargs(t_fGetOrdCode(idDeaDep, idDea), substr(sqlerrm,1,2000))); --
+    rollback;
+end pLoanOut;
+
+procedure pSavePledges(pInput   in Clob,
+                       pOutput  out Clob)
+is
+  jInput json_object_t;
+  jOutput json_object_t;
+  idEns number;
+  cPLEDGERFL char(1 byte);
+  bNew boolean;
+  idMrtDep number;
+  idMrt number;
+  cCode varchar2(60);
+  idValFair number;
+  nDepId number;
+  nId number;
+  mrtCostVal varchar2(50);
+  fairValueVal varchar2(50);
+  ensCode varchar2(50);
+  sDscr varchar2(200);
+  pledgeJson clob;
+  sRefer varchar2(30 BYTE);
+  sMrtCode varchar(30);
+  nMrtCost number;
+  sCompanyCode varchar2(50);
+  sCompanyName varchar2(255);
+  nIdCliDep number;
+  nIdCli number;
+  nIdOwn number;
+  idPledger number;
+  idPledgerDep number;
+  idMrtDeaDep number;
+  idMrtDea number;
+  idValMortgage number;
+  nDeaDepId number;
+  nDeaId number;
+  sParams varchar2(500);
+  dDecisionDate Date;
+  dDateDog Date;
+  dDatesPol Date;
+  sDecisionNumber varchar2(10);
+begin
+  c_pkgconnect.pOpen();
+  jInput       := json_object_t.parse(pInput);
+  mrtCostVal   := jInput.get_String('mrt_cost_val');
+  ensCode      := jInput.get_Number('ens_code');
+  nDeaDepId    := jInput.get_Number('dea_dep_id');
+  nDeaId       := jInput.get_Number('dea_id');
+  sDscr        := jInput.get_String('dscr');
+  dDateDog            := to_date(jInput.get_String('mrtgDate'), 'DD.MM.YYYY');
+  dDatesPol           := to_date(jInput.get_String('mrtgDateEnd'), 'DD.MM.YYYY');
+  dDecisionDate       := to_date(jInput.get_String('decisionDate'), 'DD.MM.YYYY');
+  sDecisionNumber     := '1';
+  pledgeJson   := jInput.get_Object('json').to_clob;
+  nMrtCost     := json_value(pledgeJson, '$.mortgage_value');
+  sCompanyCode := json_value(pledgeJson, '$.company.code');
+  sCompanyName := json_value(pledgeJson, '$.company.name');
+  jOutput      := json_object_t();
+
+  begin
+    select ID, PLEDGEFL
+    into idEns, cPLEDGERFL
+    from L_ENSDSC_STD
+    where code = ensCode;
+  exception when no_data_found then
+    raise_application_error(-20000, LocalFrmt(
+      'Вид обеспечения %%0:s не найден в справочнике',
+      vargs(ensCode)
+    ));
+  end;
+
+  idMrtDep := nDepId;
+  idMrt    := nId;
+
+  bNew := nId is null;
+
+  if not bNew then
+    select code into cCode from L_MORTGAGE where DEP_ID = idMrtDep and ID = idMrt;
+  end if;
+
+  idValMortgage := P_NATVAL;
+  if mrtCostVal is not null then
+    idValMortgage := T_PkgVal.fValCode2Id(mrtCostVal);
+  end if;
+
+  idValFair := idValMortgage;
+  if fairValueVal is not null then
+    idValFair := T_PkgVal.fValCode2Id(fairValueVal);
+  end if;
+
+  sParams := '';
+  addParam(sParams, 'NOMBERDOG', sDecisionNumber);
+  addParam(sParams, 'DATEDOG', dDateDog);
+  addParam(sParams, 'DATESPOL', dDatesPol);
+  addParam(sParams, 'CODE', '');
+  addParam(sParams, 'CODEESC', sCompanyCode);
+  addParam(sParams, 'INS_PREMIUM', '');
+  addParam(sParams, 'E_POLISFL', 1);
+  addParam(sParams, 'COUNTRY_PROD', '');
+  addParam(sParams, 'COUNTRY_NAME', '');
+
+  L_BSMORTG.pSave(
+    P_DEP_ID        => idMrtDep,
+    P_ID            => idMrt,
+    P_CODE          => cCode,
+    P_DSCR          => sDscr,
+    P_ENS_ID        => idEns,
+    P_PRIM          => null,
+    P_PRTYPE        => null,
+    P_LOCATION      => null,
+    P_MORTG_COST    => nMrtCost,
+    P_MRT_VAL_ID    => idValMortgage,
+    P_MARKET_COST   => null, --:fair_value
+    P_MRK_VAL_ID    => idValFair,
+    P_ADDDTL        => sParams,
+    P_PROPDOCTYPE   => null,
+    P_PROPDOCNUM    => null,
+    P_PROPDOCDATE   => null,
+    P_PLEDGEFL      => cPLEDGERFL
+  );
+
+  nDepId := idMrtDep;
+  nId := idMrt;
+
+  update L_MORTGAGE set OBJ_JSON = pledgeJson where DEP_ID = idMrtDep and ID = idMrt
+  returning refer into sRefer;
+
+  for r in (
+    select * from L_MRTOWN where MRT_DEP_ID = idMrtDep and MRT_ID = idMrt
+  ) loop
+    L_BSMORTG.pDelOwner(r.ID);
+  end loop;
+
+  select CODE into sMrtCode from L_MORTGAGE where DEP_ID = idMrtDep and ID = idMrt;
+
+  if sCompanyCode is not null then
+    begin
+      select CLI_DEP_ID, CLI_ID
+      into nIdCliDep, nIdCli
+      from L_INSURCMP
+      where CODE = sCompanyCode and CLI_ID is not null;
+    exception when no_data_found then
+      raise_application_error(-20000, LocalFrmt(
+        'Не найдена страховая компания с кодом %%0:s либо у неё не задан контрагент',
+        vargs(sCompanyCode)
+      ));
+    end;
+
+    L_BSMORTG.pSaveAdd(
+      nDEP_ID         => idMrtDep,
+      nID             => idMrt,
+      sCODE           => 'CODEESC',
+      sVALUE          => sCompanyCode,
+      sForm           => null
+    );
+    L_BSMORTG.pSaveAdd(
+      nDEP_ID         => idMrtDep,
+      nID             => idMrt,
+      sCODE           => 'NAMESC',
+      sVALUE          => sCompanyName,
+      sForm           => null
+    );
+
+    /*L_BSMORTG.pSaveAdd(
+      nDEP_ID         => idMrtDep,
+      nID             => idMrt,
+      sCODE           => 'DATEDOG',
+      sVALUE          => '1',
+      sForm           => null
+    );
+
+    L_BSMORTG.pSaveAdd(
+      nDEP_ID         => idMrtDep,
+      nID             => idMrt,
+      sCODE           => 'DATESPOL',
+      sVALUE          => '1',
+      sForm           => null
+    );
+    */
+  end if;
+
+  if nIdCli is not null then
+    L_BSMORTG.pSaveOwner(
+      nID         => nIdOwn,
+      nMRT_DEP_ID => idMrtDep,
+      nMRT_ID     => idMrt,
+      nCLI_DEP_ID => nIdCliDep,
+      nCLI_ID     => nIdCli,
+      sPRTYPE     => null
+    );
+  end if;
+
+-- Обновляем описание залога, потому что модуль не может сам нормально описать залог
+  update L_MORTGAGE set DSCR = sDscr where DEP_ID = idMrtDep and ID = idMrt;
+
+  idValMortgage := P_NATVAL;
+  if mrtCostVal is not null then
+    idValMortgage := T_PkgVal.fValCode2Id(mrtCostVal);
+  end if;
+
+  idMrtDeaDep := nDepId;
+
+  /*
+  dbms_output.put_line(idMrtDeaDep);
+  dbms_output.put_line(idMrtDea);
+  dbms_output.put_line(nDeaDepId);
+  dbms_output.put_line(nDeaId);
+  dbms_output.put_line(nDepId);
+  dbms_output.put_line(nId);
+  dbms_output.put_line(idPledgerDep);
+  dbms_output.put_line(idPledger);
+  dbms_output.put_line(nMrtCost);
+  dbms_output.put_line(idValMortgage);
+  */
+
+  L_BSMRTDEA.pSave(
+      P_DEP_ID              => idMrtDeaDep,
+      P_ID                  => idMrtDea,--
+      P_DEA_DEP_ID          => nDeaDepId,
+      P_DEA_ID              => nDeaId,
+      P_MRT_DEP_ID          => nDepId,
+      P_MRT_ID              => nId,
+      P_CLI_DEP_ID          => nIdCliDep,
+      P_CLI_ID              => nIdCli,
+      P_AMOUNT              => nMrtCost,--
+      P_VAL_ID              => idValMortgage,
+      P_DEA_CODE            => null,
+      P_DEA_DATE            => null,
+      P_ADDDTL_BASEL        => null,
+      P_PRIM                => null
+  );
+
+  --update l_mortgage_add l set l.value = '1' where l.code = 'DATEDOG' and l.dep_id = nDepId and id = nId;
+  --update l_mortgage_add l set l.value = '1' where l.code = 'DATESPOL' and l.dep_id = nDepId and id = nId;
+  --commit;
+
+  jOutput.put('idOwn', nIdOwn);
+  jOutput.put('idMrtDep', nDepId);
+  jOutput.put('idMrt', nId);
+  jOutput.put('codeMrt', sMrtCode);
+  jOutput.put('referMrt', sRefer);
+  pOutput := jOutput.To_Clob();
+end pSavePledges;
+
+procedure pSaveDossierFile(pInput   in Clob,
+                           pOutput  out Clob)
+is
+  idDocType   number;
+  jInput      json_object_t;
+  jOutput     json_object_t;
+  nDepId      number;
+  nId         number;
+  sFileName   varchar2(250);
+  sDocType    varchar2(50);
+  cBase64Data blob;
+begin
+  c_pkgconnect.pOpen;
+  jInput      := json_object_t.parse(pInput);
+  jOutput     := json_object_t();
+  sFileName   := jInput.get_String('fileName');
+  cBase64Data := Z_116_ELOAN_UTILS.fDecodeFromBase64(jInput.get_Clob('base64Data'));
+  nDepId      := jInput.get_Number('depId');
+  nId         := jInput.get_Number('id');
+  sDocType    := jInput.get_String('docType');
+
+  select
+    (select id from t_deadoc_std where code = sDocType)
+  into idDocType
+  from dual;
+
+  if idDocType is null then
+    raise_application_error(-20000, LocalFrmt(
+      'Тип документа досье %%0:s не существует',
+      vargs(sDocType)
+    ));
+  end if;
+
+  update L_REQDEADOS set
+    extfile = sFileName,
+    DATABLOB = cBase64Data
+  where DEP_ID = nDepId and ID = nId and DOCTYPE = idDocType;
+
+  if SQL%NOTFOUND then
+    insert into L_REQDEADOS(
+      dep_id, id, doctype, extfile
+    )values(
+      nDepId, nId, idDocType, sFileName
+    );
+
+    update L_REQDEADOS set
+      DATABLOB = cBase64Data
+    where DEP_ID = nDepId and ID = nId and DOCTYPE = idDocType;
+  end if;
+  jOutput.put('result', true);
+  jOutput.put('lenBlob', dbms_lob.getlength(cBase64Data));
+  jOutput.put_Null('error');
+  pOutput := jOutput.To_Clob();
+end pSaveDossierFile;
+
+procedure pAttachDocumentsToDea(pInput   in Clob,
+                                pOutput  out Clob)
+is
+  jInput      json_object_t;
+  jOutput     json_object_t;
+  nDepId      number;
+  nId         number;
+  nDeaDepId   number;
+  nDeaId      number;
+begin
+  c_pkgconnect.pOpen;
+  jInput      := json_object_t.parse(pInput);
+  jOutput     := json_object_t();
+  nDepId      := jInput.get_Number('depId');
+  nId         := jInput.get_Number('id');
+  nDeaDepId   := jInput.get_Number('deaDepId');
+  nDeaId      := jInput.get_Number('deaId');
+
+  for r in (
+    select d.code, dd.dep_id, dd.id, dd.datablob, dd.extfile filename
+    from T_DEADOC d, L_REQDEADOS dd
+    where d.id = dd.doctype
+      and dd.dep_id = nDepId and dd.ID = nId
+  ) loop
+      declare
+        idECpy number;
+      begin
+        -- savepoint req_doc;
+        T_PKGDOCDOS.pSaveDeaDocSimple(
+            pDEP_ID => nDeaDepId,
+            pORD_ID => nDeaId,
+            pDOCTYPE => r.CODE,
+            pECPY_ID => idECpy,
+            pFULLPATH => r.FILENAME,
+            pFILEEXT => substr(regexp_substr(r.FILENAME, '\.[^\.]*$'), 2),
+            pReplaceFl => '1'
+        );
+        update T_DOCECPY set
+            DOCBLB = r.DATABLOB
+        where ID = idECpy
+        ;
+      --exception when others then
+      --    rollback to savepoint req_doc;
+      end;
+  end loop;
+  jOutput.put('result', true);
+  jOutput.put_Null('error');
+  pOutput := jOutput.To_Clob;
+  commit;
+end pAttachDocumentsToDea;
+
+procedure pCreateDeaPledge(pInput   in Clob,
+                           pOutput  out Clob)
+is
+  jInput json_object_t;
+  jOutput json_object_t;
+  nDeaId L_MRTDEA.Dea_Id%Type;
+  nDeaDepId L_MRTDEA.Dea_Dep_Id%Type;
+  nMortageDepId L_MORTGAGE.DEP_ID%Type;
+  nMortageId L_MORTGAGE.ID%Type;
+  idMrtDep number;
+  idMrt number;
+  nNotMortageFound Number := 1;
+  sCode L_MORTGAGE.Code%Type;
+  sDscr L_MORTGAGE.Dscr%Type;
+  nEnsId L_MORTGAGE.Ens_Id%Type;
+  sPrim L_MORTGAGE.Prim%Type;
+  cPrtype L_MORTGAGE.Prtype%Type;
+  sLocation L_MORTGAGE.Location%Type;
+  nMortgCost L_MORTGAGE.Mortg_Cost%Type;
+  nMrtValId L_MORTGAGE.Mrt_Val_Id%Type;
+  nMarketCost L_MORTGAGE.Market_Cost%Type;
+  nMrkValId L_MORTGAGE.Mrk_Val_Id%Type;
+  cPropdoctype L_MORTGAGE.Propdoctype%Type;
+  sPropdocnum L_MORTGAGE.Propdocnum%Type;
+  dPropdocdate L_MORTGAGE.Propdocdate%Type;
+  nDoccount L_MORTGAGE.Doccount%Type;
+  nReasscntrDepId L_MORTGAGE.Reasscntr_Dep_Id%Type;
+  nReasscntrId L_MORTGAGE.Reasscntr_Id%Type;
+  nRegId L_MORTGAGE.Reg_Id%Type;
+  nConstrYear L_MORTGAGE.Constr_Year%Type;
+  cSecondaryfl L_MORTGAGE.Secondaryfl%Type;
+  dlDgvrreg L_MORTGAGE.l_Dgvrreg%Type;
+  sGvrno L_MORTGAGE.Gvrno%Type;
+  sGvrorg L_MORTGAGE.Gvrorg%Type;
+  sAssessment L_MORTGAGE.Assessment%Type;
+  dDapprais L_MORTGAGE.Dapprais%Type;
+  nFappraisId L_MORTGAGE.Fapprais_Id%Type;
+  nFappraisDepId L_MORTGAGE.Fapprais_Dep_Id%Type;
+  nDiscAmount L_MORTGAGE.Disc_Amount%Type;
+  cAutocalcfl L_MORTGAGE.Autocalcfl%Type;
+  cTypeLiq L_MORTGAGE.Type_Liq%Type;
+  nMrtFirstCost L_MORTGAGE.Mrt_First_Cost%Type;
+  nMrtFirstValId L_MORTGAGE.Mrt_First_Val_Id%Type;
+  nMrtFirstnatCost L_MORTGAGE.Mrt_Firstnat_Cost%Type;
+  nMrtNatCost L_MORTGAGE.Mrt_Nat_Cost%Type;
+  nDiscType L_MORTGAGE.Disc_Type%Type;
+  cPledgefl L_MORTGAGE.Pledgefl%Type;
+  nDepIdHi L_MORTGAGE.Dep_Id_Hi%Type;
+  nIdHi L_MORTGAGE.Id_Hi%Type;
+  cEnsmainfl L_MORTGAGE.Ensmainfl%Type;
+  --
+  nMrtDepId L_MRTDEA.Dep_Id%Type;
+  nMrtId L_MRTDEA.Id%Type;
+  nMrtDeaDepId L_MRTDEA.Dea_Dep_Id%Type;
+  nMrtDeaId L_MRTDEA.Dea_Id%Type;
+  nMrtMrtDepId L_MRTDEA.Mrt_Dep_Id%Type;
+  nMrtMrtId L_MRTDEA.Mrt_Id%Type;
+  nMrtCliDepId L_MRTDEA.Cli_Dep_Id%Type;
+  nMrtCliId L_MRTDEA.Cli_Id%Type;
+  nMrtVal_Id L_MRTDEA.Val_Id%Type;
+  sMrtDeaCode L_MRTDEA.Dea_Code%Type;
+  dMrtDeaDate L_MRTDEA.Dea_Date%Type;
+  sMrtPrim L_MRTDEA.Prim%Type;
+  sParams varchar2(500);
+  dDecisionDate Date;
+  dDateDog Date;
+  dDatesPol Date;
+  sDecisionNumber varchar2(10);
+  sMortageCompanyCode varchar2(20);
+  sPResult varchar2(250);
+  cErr clob;
+  --------------------------------------------------
+  procedure addParam(params in out nocopy varchar2,
+                     key    varchar2,
+                     val    varchar2) is
+  begin
+    if length(params) > 0 then
+      params := params || ',';
+    end if;
+    params := params || key || '=>' || val;
+  end;
+begin
+  c_pkgconnect.pOpen;
+  jInput      := json_object_t.parse(pInput);
+  jOutput     := json_object_t();
+  t_log.penable;
+  t_log.clean;
+  sPResult := '0';
+  nDeaId := jInput.get_Number('deaId');
+  nDeaDepId := jInput.get_Number('deaDepId');
+  idMrtDep := jInput.get_Number('idMrtDep');
+  idMrt := jInput.get_Number('idMrt');
+
+  sMortageCompanyCode := jInput.get_String('companyCode');
+  dDateDog := to_date(jInput.get_String('mrtgDate'), 'DD.MM.YYYY');
+  dDatesPol := to_date(jInput.get_String('mrtgDateEnd'), 'DD.MM.YYYY');
+  dDecisionDate := to_date(jInput.get_String('decisionDate'), 'DD.MM.YYYY');
+  sDecisionNumber := '1';
+  begin
+    select
+      m.dep_id, m.id, m.code, m.DSCR, m.ENS_ID, m.PRIM, m.PRTYPE, m.LOCATION, m.MORTG_COST, m.MRT_VAL_ID, m.MARKET_COST, m.MRK_VAL_ID,
+      m.propdoctype, m.propdocnum, m.propdocdate, m.doccount, m.reasscntr_dep_id, m.reasscntr_id, m.reg_id, m.constr_year,
+      m.secondaryfl, m.l_dgvrreg, m.gvrno, m.gvrorg, m.assessment, m.dapprais, m.fapprais_id, m.fapprais_dep_id,
+      m.disc_amount, m.autocalcfl, m.type_liq, m.mrt_first_cost, m.mrt_first_val_id, m.mrt_firstnat_cost, m.mrt_nat_cost,
+      m.disc_type, m.pledgefl, m.dep_id_hi, m.id_hi, m.ensmainfl,
+      md.Dep_Id, md.Id, md.Dea_Dep_Id, md.Dea_Id, md.Mrt_Dep_Id, md.Mrt_Id, md.Cli_Dep_Id, md.Cli_Id, md.Val_Id, md.Dea_Code, md.Dea_Date, md.Prim
+    into
+      nMortageDepId, nMortageId, sCode, sDscr, nEnsId, sPrim, cPrtype, sLocation, nMortgCost, nMrtValId, nMarketCost, nMrkValId,
+      cPropdoctype, sPropdocnum, dPropdocdate, nDoccount, nReasscntrDepId, nReasscntrId, nRegId, nConstrYear,
+      cSecondaryfl, dlDgvrreg, sGvrno, sGvrorg, sAssessment, dDapprais, nFappraisId, nFappraisDepId,
+      nDiscAmount, cAutocalcfl, cTypeLiq, nMrtFirstCost, nMrtFirstValId, nMrtFirstnatCost, nMrtNatCost,
+      nDiscType, cPledgefl, nDepIdHi, nIdHi, cEnsmainfl,
+      nMrtDepId, nMrtId, nMrtDeaDepId, nMrtDeaId, nMrtMrtDepId, nMrtMrtId, nMrtCliDepId, nMrtCliId, nMrtVal_Id, sMrtDeaCode, dMrtDeaDate, sMrtPrim
+    from
+      T_PROCESS p,
+      T_PROCMEM r,
+      L_MRTDEA md,
+      L_MORTGAGE m,
+      T_BOP_STAT s,
+      L_ENSDSC e
+    where e.id = m.ENS_ID
+      and m.DEP_ID = md.MRT_DEP_ID and m.ID = md.MRT_ID
+      and p.ID = r.ID
+      and r.ORD_ID = m.ID and r.DEP_ID = m.DEP_ID
+      and s.ID = p.BOP_ID and s.NORD = p.NSTAT
+      and md.DEA_DEP_ID = nDeaDepId and md.DEA_ID = nDeaId
+      and m.dep_id = idMrtDep and m.id = idMrt;
+  exception
+    when no_data_found then
+      nNotMortageFound := 0;
+  end;
+  --dbms_output.put_line('nNotMortageFound ' || nNotMortageFound);
+  --dbms_output.put_line('dDateDog ' || dDateDog);
+  --dbms_output.put_line('dDatesPol ' || dDatesPol);
+  if nNotMortageFound = 1 then
+    sParams := '';
+    addParam(sParams, 'NOMBERDOG', sDecisionNumber);
+    addParam(sParams, 'DATEDOG', dDateDog);
+    addParam(sParams, 'DATESPOL', dDatesPol);
+    addParam(sParams, 'CODE', '');
+    addParam(sParams, 'CODEESC', sMortageCompanyCode);
+    addParam(sParams, 'INS_PREMIUM', '');
+    addParam(sParams, 'E_POLISFL', 0);
+    addParam(sParams, 'COUNTRY_PROD', '');
+    addParam(sParams, 'COUNTRY_NAME', '');
+    L_BSMORTG.PSAVE(P_DEP_ID => nMortageDepId,
+                    P_ID => nMortageId,
+                    P_CODE => sCode,
+                    P_DSCR => sDscr,
+                    P_ENS_ID => nEnsId,
+                    P_PRIM => sPrim,
+                    P_PRTYPE => cPrtype,
+                    P_LOCATION => sLocation,
+                    P_MORTG_COST => nMortgCost,
+                    P_MRT_VAL_ID => nMrtValId,
+                    P_MARKET_COST => nMarketCost,
+                    P_MRK_VAL_ID => nMrkValId,
+                    P_ADDDTL => sParams,
+                    P_PROPDOCTYPE => cPropdoctype,
+                    P_PROPDOCNUM => sPropdocnum,
+                    P_PROPDOCDATE => dPropdocdate,
+                    P_DOCCOUNT => nDoccount,
+                    P_REASSCNTR_DEP_ID => nReasscntrDepId,
+                    P_REASSCNTR_ID => nReasscntrId,
+                    P_REG_ID => nRegId,
+                    P_CONSTR_YEAR => nConstrYear,
+                    P_SECONDARYFL => cSecondaryfl,
+                    P_L_DGVRREG => dlDgvrreg,
+                    P_GVRNO => sGvrno,
+                    P_GVRORG => sGvrorg,
+                    P_ADDDTL_BASEL => null,
+                    P_ASSESSMENT => sAssessment,
+                    P_DAPPRAIS => dDapprais,
+                    P_FAPPRAIS_ID => nFappraisId,
+                    P_FAPPRAIS_DEP_ID => nFappraisDepId,
+                    P_DISC_AMOUNT => nDiscAmount,
+                    P_AUTOCALCFL => cAutocalcfl,
+                    P_TYPE_LIQ => cTypeLiq,
+                    P_MRT_FIRST_COST => nMrtFirstCost,
+                    P_MRT_FIRST_VAL_ID => nMrtFirstValId,
+                    P_MRT_FIRSTNAT_COST => nMrtFirstnatCost,
+                    P_MRT_NAT_COST => nMrtNatCost,
+                    P_DISC_TYPE => nDiscType,
+                    P_PLEDGEFL => cPledgefl,
+                    P_DEP_ID_HI => nDepIdHi,
+                    P_ID_HI => nIdHi,
+                    P_ENSMAINFL => cEnsmainfl,
+                    P_PARENRPROC => null,
+                    P_PARENTOPR => null);
+    if nMrtCliDepId is null or nMrtCliId is null then
+      select c.dep_id,
+             c.id
+      into   nMrtCliDepId,
+             nMrtCliId
+      from   g_cli c
+      where  c.code = sMortageCompanyCode;
+    end if;
+    L_BSMRTDEA.PSAVE(P_DEP_ID => nMrtDepId,
+                     P_ID => nMrtId,
+                     P_DEA_DEP_ID => nMrtDeaDepId,
+                     P_DEA_ID => nMrtDeaId,
+                     P_MRT_DEP_ID => nMrtMrtDepId,
+                     P_MRT_ID => nMrtMrtId,
+                     P_CLI_DEP_ID => nMrtCliDepId,
+                     P_CLI_ID => nMrtCliId,
+                     P_AMOUNT => nMortgCost,
+                     P_VAL_ID => nMrtVal_Id,
+                     P_DEA_CODE => sMrtDeaCode,
+                     P_DEA_DATE => dMrtDeaDate,
+                     P_ADDDTL_BASEL => null,
+                     P_PRIM => sMrtPrim);
+    sParams := '';
+    commit;
+    sPResult := '1';
+  end if;
+
+  if sPResult = '1' then
+    jOutput.put('result', true);
+    jOutput.put_Null('error');
+  else
+    jOutput.put('result', false);
+    cErr := fErr(610, sPResult);
+    jOutput.put('error', json_object_t.parse(cErr));
+  end if;
+
+  pOutput := jOutput.To_Clob();
+
+exception
+  when others then
+    sPResult := sqlerrm;
+end pCreateDeaPledge;
+
+procedure pGetDeaShdList(pInput  in Clob,
+                         pOutput out Clob)
+is
+  jInput json_object_t;
+  lArrTmp JSON_ARRAY_T;
+  nIdDepDea T_DEA.DEP_ID%TYPE;
+  nIdDea    T_DEA.ID%TYPE;
+  nIdClcPA  T_ARLCLC.ID%TYPE;
+  nIdClcInt T_ARLCLC.ID%TYPE;
+  ObjTmp    JSON_OBJECT_T;
+begin
+  c_pkgconnect.pOpen;
+  jInput := json_object_t.parse(pInput);
+  nIdDea := jInput.get_Number('deaId');
+  nIdDepDea := jInput.get_Number('deaDepId');
+  --Получим идентификаторы видов сумм
+  nIdClcPA := t_pkgarl.fGetClcByArlAlias(sArlAlias => 'PA', nDEP_ID => nIdDepDea, nORD_ID => nIdDea, iExcept => 0);
+  nIdClcInt := t_pkgarl.fGetClcByArlAlias(sArlAlias => 'INTEREST', nDEP_ID => nIdDepDea, nORD_ID => nIdDea, iExcept => 0);
+  --Сформируем график
+  lArrTmp := new JSON_ARRAY_T;
+  for cur in (
+    select
+      rownum as rowNumber,
+      x.doper,
+     (d.SDOK - sum(x.AMOUNT_OD) over(order by x.DOPER)) as amount,
+      x.AMOUNT_OD as principal,
+      x.AMOUNT_PRC as interest,
+      x.AMOUNT as totalPayment
+    from (
+      select
+        s.DEP_ID as DEP_ID,
+        s.ORD_ID as ID,
+        sum(s.AMOUNT) as AMOUNT,
+        sum(decode(s.CLC_ID, nIdClcPA, s.AMOUNT, 0)) as AMOUNT_OD,
+        sum(decode(s.CLC_ID, nIdClcInt, s.AMOUNT, 0)) as AMOUNT_PRC,
+        s.DOPER
+      from
+        TT_POINT t,
+        T_DEASHDPNT s
+      where s.DEP_ID = nIdDepDea and s.ORD_ID = nIdDea
+        and t.ID = s.TT_ID and t.NORD = s.TT_NORD
+        and s.CLC_ID in (nIdClcPA, nIdClcInt)
+      group by s.DEP_ID, s.ORD_ID, s.DOPER
+      order by s.DOPER) x,
+      T_DEA d
+    where d.DEP_ID = x.DEP_ID
+    and d.ID = x.ID)
+  loop
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('rowNumber', cur.rowNumber);
+    ObjTmp.put('date', cur.doper);
+    ObjTmp.put('amount', to_char(cur.amount));
+    ObjTmp.put('principal', to_char(cur.principal));
+    ObjTmp.put('interest', to_char(cur.interest));
+    ObjTmp.put('totalPayment', to_char(cur.totalPayment));
+    lArrTmp.append(ObjTmp);
+  end loop;
+  pOutput := lArrTmp.To_Clob;
+end pGetDeaShdList;
+
+-- по-умолчанию запускать расчет ЭПС не будем, а вернем null, для запуска расчета "извне" надо использовтаь отдельную процедуру pGetDeaEffectiveInterestRate
+function fGetDeaEffectiveInterestRate(pDeaDepId in number,
+                                      pDeaId    in number,
+                                      pСalcFl   in integer default 0) return number
+is
+  nResult number;
+  procedure pGetEffectiveInterestRate
+  is
+  begin
+    select l.PCN * 100
+    into   nResult
+    from T_ORD o
+    join T_DEA d on o.DEP_ID = d.DEP_ID and o.ID = d.ID
+    join T_PROCMEM m on d.DEP_ID = m.DEP_ID and d.ID = m.ORD_ID and m.MAINFL = '1'
+    join T_PROCESS p on p.ID = m.ID
+    join T_BOP_STAT s on s.ID = p.BOP_ID and s.NORD = p.NSTAT
+    join L_APRRECALC l on l.ID = p.ID and l.NJRN = (select min(j.NJRN) from L_APRRECALC j where j.ID = l.ID)
+    where d.DEP_ID = pDeaDepId
+    and   d.ID = pDeaId;
+  exception
+    when no_data_found then
+      nResult := null;
+  end pGetEffectiveInterestRate;
+begin
+  pGetEffectiveInterestRate;
+  if nvl(nResult, 0) = 0 and pСalcFl = 1 then
+    pPrepareDea(nDeaDepId => pDeaDepId, nDeaId => pDeaId);
+    pGetEffectiveInterestRate;
+  end if;
+  return nResult;
+end fGetDeaEffectiveInterestRate;
+
+-- Получение эффективной ставки договора, с возможностью запуска расчета полной стоймости кредита и ЭПС
+procedure pGetDeaEffectiveInterestRate(pInput  in Clob,
+                                       pOutput out Clob)
+is
+  ObjIn                JSON_OBJECT_T;
+  ObjRes               JSON_OBJECT_T;
+  nDepId               T_DEA.DEP_ID%type;
+  nId                  T_DEA.ID%type;
+  nCalcFl              integer;
+  nAddAmount           number(18,2);
+  nResult              number;
+begin
+  z_116_pkgconnect.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  ObjRes := new JSON_OBJECT_T;
+  nDepId := ObjIn.get_Number('deaDepId');
+  nId := ObjIn.get_Number('deaId');
+  nCalcFl := nvl(ObjIn.get_Number('calcFl'),0);
+  if nCalcFl = 1 then
+    nAddAmount := nvl(ObjIn.get_Number('AddAmount'),0);
+    if nAddAmount != 0 then
+      L_PKGAPRSETCLC.pSaveThirdPayment(nDEP_ID    => nDepId,
+                                       nDEA_ID    => nId,
+                                       nNORD      => null,
+                                       dDOPER     => p_operday,  -- возможно стоит заменить на дату начала кредита\первую дату по графику?
+                                       sAMOUNT    => to_money(nAddAmount),
+                                       nVAL_ID    => p_natval,
+                                       nRATE      => 1,
+                                       sAMOUNTVAL => to_money(nAddAmount),
+                                       nORDVAL_ID => p_natval,
+                                       sKINDPAY   => '0',
+                                       cTYPECALC  => '0',
+                                       sNUMDOK    => null, -- номер документа платежа
+                                       nSHD_ID    => null,
+                                       sPRIM      => 'Сумма платежа за оплату страхового полиса.');
+    end if;
+  end if;
+
+  nResult := fGetDeaEffectiveInterestRate(pDeaDepId => nDepId,
+                                          pDeaId    => nId,
+                                          pСalcFl   => nCalcFl);
+
+  if nResult is not null then
+    ObjRes.put('effectiveInterestRate', nResult);
+  else
+    ObjRes.put_null('effectiveInterestRate');
+  end if;
+  pOutput := ObjRes.To_Clob;
+
+end pGetDeaEffectiveInterestRate;
+
+procedure pGetClientCurrentPayments(pInput  in Clob,
+                                    pOutput out Clob)
+is
+  jInput json_object_t;
+  jOutput json_object_t;
+  sPinfl Varchar2(50);
+  sClientCode g_cli.code%type;
+  nCliId number;
+  nCliDepId number;
+  nIdClcPA number;
+  nIdClcInt number;
+  nTotalPayment number;
+  nTotalSum number;
+begin
+  z_116_pkgconnect.pOpen();
+  jOutput := json_object_t();
+  jInput := JSON_OBJECT_T.parse(pInput);
+  sPinfl := jInput.get_string('pinfl');
+  Z_116_ELOAN_CLIENT.pGetClientIdByPinfl(pPinfl => sPinfl,
+                                         pDepId => nCliDepId,
+                                         pId    => nCliId,
+                                         pCode  => sClientCode);
+  nTotalSum := 0;
+  for loans in (
+    select d.dep_id,
+           d.id
+    from   t_dea d
+    join   g_cli c on c.DEP_ID = d.CLI_DEP_ID and c.ID = d.CLI_ID
+    join   T_ORD o on o.DEP_ID = d.DEP_ID and o.ID = d.ID
+    join   T_PROCMEM m on d.DEP_ID = m.DEP_ID and d.ID = m.ORD_ID
+    join   T_PROCESS p on p.ID = m.ID
+    join   T_BOP_STAT s on s.ID = p.BOP_ID and s.NORD = p.NSTAT
+    join   L_DEA dd on dd.DEP_ID = d.DEP_ID and dd.ID = d.ID
+    where  m.MAINFL = '1'
+    and    dd.RETFL = 0
+    and    s.CODE = 'ACTUAL'
+    and    c.dep_id = nCliDepId
+    and    c.id = nCliId
+    union all
+    select d.dep_id,
+           d.id
+    from   t_dea d
+    join   g_cli c on c.DEP_ID = d.CLI_DEP_ID and c.ID = d.CLI_ID
+    join   T_ORD o on o.DEP_ID = d.DEP_ID and o.ID = d.ID
+    join   T_PROCMEM m on d.DEP_ID = m.DEP_ID and d.ID = m.ORD_ID
+    join   T_PROCESS p on p.ID = m.ID
+    join   T_BOP_STAT s on s.ID = p.BOP_ID and s.NORD = p.NSTAT
+    join   L_LDEA dd on dd.DEP_ID = d.DEP_ID and dd.ID = d.ID
+    where  m.MAINFL = '1'
+    and    s.CODE = 'ACTUAL'
+    and    c.dep_id = nCliDepId
+    and    c.id = nCliId
+  )
+  loop
+    nIdClcPA := t_pkgarl.fGetClcByArlAlias(sArlAlias => 'PA', nDEP_ID => loans.dep_id, nORD_ID => loans.id, iExcept => 0);
+    nIdClcInt := t_pkgarl.fGetClcByArlAlias(sArlAlias => 'INTEREST', nDEP_ID => loans.dep_id, nORD_ID => loans.id, iExcept => 0);
+    select
+      nvl(sum(s.AMOUNT), 0) as AMOUNT
+    into
+      nTotalPayment
+    from T_DEASHDPNT s
+    join TT_POINT t on t.ID = s.TT_ID and t.NORD = s.TT_NORD
+    where s.DEP_ID = loans.dep_id and s.ORD_ID = loans.id
+    and s.CLC_ID in (nIdClcPA, nIdClcInt)
+    and s.DOPER = (select
+                     min(s.DOPER)
+                   from T_DEASHDPNT s
+                   join TT_POINT t on t.ID = s.TT_ID and t.NORD = s.TT_NORD
+                   where s.DEP_ID = loans.dep_id and s.ORD_ID = loans.id
+                   and s.CLC_ID in (nIdClcPA, nIdClcInt)
+                   and s.DOPER >= p_operday);
+    nTotalSum := nTotalSum + nTotalPayment;
+  end loop;
+  jOutput.put('result', nTotalSum);
+  pOutput := jOutput.To_Clob();
+end pGetClientCurrentPayments;
+
+-- Получение списка всех страховых компаний
+procedure pGetInsuranceCompanies(pInput  in Clob,
+                                 pOutput out Clob)
+is
+  ObjIn            JSON_OBJECT_T;
+  ObjTmp           JSON_OBJECT_T;
+  cOnlyNamesFl     char(1) := '0';
+  lArr             JSON_ARRAY_T;
+begin
+  if pInput is not null then
+    ObjIn := JSON_OBJECT_T.parse(pInput);
+      if ObjIn.has('onlyNamesFl') then
+        cOnlyNamesFl := ObjIn.get_string('onlyNamesFl');
+      end if;
+  end if;
+
+
+  lArr := new JSON_ARRAY_T;
+
+  for i in (select
+              i.id, i.code, i.longname
+              from L_INSURCMP i ) loop
+    if cOnlyNamesFl = '0' then
+      ObjTmp := new JSON_OBJECT_T;
+      ObjTmp.put('id', i.id);
+      ObjTmp.put('code', i.code);
+      ObjTmp.put('name', i.longname);
+      -- как заполнять счета???
+
+      lArr.append(ObjTmp);
+    else
+      lArr.append(i.longname);
+    end if;
+  end loop;
+  pOutput := lArr.To_Clob;
+
+end pGetInsuranceCompanies;
+
+-- Получение кода клиента по cardIdn
+procedure pGetClientIdbyCardIdn(pInput  in Clob,
+                                pOutput out Clob)
+is
+  ObjIn             JSON_OBJECT_T;
+  ObjRes            JSON_OBJECT_T;
+  cCardIdn          N_CRD.Cardidn%type;
+  cCliCode          G_CLI.CODE%type;
+  sMaskedCardNumber varchar2(30 byte);
+begin
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  cCardIdn := ObjIn.get_string('cardIdn');
+  ObjRes := new JSON_OBJECT_T;
+  select c.code,
+         n.maskcardcode
+  into   cCliCode,
+         sMaskedCardNumber
+  from   N_CRD n
+  join   T_DEA t on t.dep_id = n.dep_id and t.id = n.id
+  join   G_CLI c on c.dep_id = t.cli_dep_id and c.id = t.cli_id
+  where  n.cardidn = cCardIdn;
+  ObjRes.put('clientCode', cCliCode);
+  ObjRes.put('maskedCardNumber', sMaskedCardNumber);
+  ObjRes.put_Null('error');
+  pOutput := ObjRes.To_Clob;
+exception
+  when no_data_found then
+    ObjRes.put_Null('clientCode');
+    ObjRes.put_Null('maskedCardNumber');
+    ObjRes.put_Null('error');
+    pOutput := ObjRes.To_Clob;
+  when others then
+    pOutput := fErr(sqlcode, 'Ошибка поиска клиента по карте %0:s: %1:s',vargs(cCardIdn, substr(sqlerrm,1,2000)));
+end pGetClientIdbyCardIdn;
+
+-- Отказ от кредита
+procedure pRefuse(pInput  in Clob,
+                  pOutput out Clob)
+is
+  idDeaDep         T_DEA.DEP_ID%type;
+  idDea            T_DEA.ID%type;
+  ObjIn            JSON_OBJECT_T;
+  ObjRes           JSON_OBJECT_T;
+  cDeaState        T_BOP_STAT_STD.CODE%type;
+  idSgn            LEDACC_DET.SGN_ID%type;
+begin
+  Z_116_PKGCONNECT.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  idDeaDep := ObjIn.get_Number('deaDepId');
+  idDea := ObjIn.get_Number('deaId');
+  idSgn := t_asgn.fCode2Id('DEA');
+
+  -- Получаем состояние договора чтобы решить что с ним делать
+  cDeaState := T_PkgProcess.fGetStatCodeByMainOrd(idDeaDep, idDea);
+
+    if cDeaState = 'CALCULATED' then
+    -- отмена расчета графика
+    if T_PkgRunOprUtl.fOprAvailable(idDeaDep, idDea,'UNDO_CALCSHD') = 2 then
+      begin
+        T_PkgRunOprUtl.pRunOprByMainOrd(idDeaDep, idDea,'UNDO_CALCSHD');
+      exception
+         when others then
+           pOutput := fErr(sqlcode, 'Отмена расчета графика %0:s, произошла с ошибкой: %1:s',vargs(t_fGetOrdCode(idDeaDep, idDea), substr(sqlerrm,1,2000)));
+           return;
+      end;
+    else
+      pOutput := fErr(-20001, 'По договору %0:s не доступна операция отмены расчета графика.',vargs(t_fGetOrdCode(idDeaDep, idDea))) ;
+      return;
+    end if;
+    -- обновим состояние для удаления
+    cDeaState := T_PkgProcess.fGetStatCodeByMainOrd(idDeaDep, idDea);
+  end if;
+
+  if cDeaState = 'ENTERED' then
+    -- удаление
+    begin
+      T_PkgRunOprUtl.pRunOprByMainOrd(idDeaDep, idDea,'DELETE');
+    exception
+      when others then
+        pOutput := fErr(sqlcode, 'Удаление договора %0:s, произошло с ошибкой: %1:s',vargs(t_fGetOrdCode(idDeaDep, idDea), substr(sqlerrm,1,2000)));
+        return;
+    end;
+
+    -- Проверка на наличие открытых счетов
+  for rec in (select /*+ALL_ROWS */ g.dep_id, g.ord_id, g.id, g.code
+      from g_accbln g, ledacc_det l
+      where g.dep_id = l.dep_id and g.id = l.acc_id
+      and l.sgn_id = idSgn and to_number(l.pk1) = idDeaDep
+      and to_number(l.pk2) = idDea
+      and G_PkgAccBln.fGetAccOpnClsStat (g.dep_id,g.id) = '1' -- только счета в состоянии "Открыт"
+      )
+
+  loop
+  ------Закрытие счетов-------
+     begin
+        if G_PkgAccBln.fGetAccOpnClsStat (rec.dep_id,rec.id) = '1' then
+          if (T_PkgRunOprUtl.fOprAvailable(rec.dep_id, rec.ord_id, 'CLS') > 1) then
+            if t_pkgaccbal.fAccBal(rec.dep_id,rec.id) = 0 then -- анализ остатка счета (если 0, то выполняем операцию)
+               T_PkgRunOprUtl.pRunOprByMainOrd(rec.dep_id, rec.ord_id, 'CLS');
+               else
+               t_log.debug('  Операция "Закрытие счета" не доступна!');
+            end if;
+          end if;
+        end if;
+        exception
+            when OTHERS then
+            pOutput := fErr(sqlcode, 'При закрытии счетов по договору %0:s, произошла с ошибка: %1:s',vargs(t_fGetOrdCode(idDeaDep, idDea), substr(sqlerrm,1,2000)));
+            return;
+     end;
+  end loop;
+
+  elsif cDeaState = 'REGISTERED' then
+    -- отказ от кредита
+    if T_PkgRunOprUtl.fOprAvailable(idDeaDep, idDea, 'REFUSE1') = 2 then
+      -- отказ
+      T_PkgRunOprUtl.pRunOprByMainOrd(idDeaDep, idDea, 'REFUSE1');
+
+      -- разбор с залогами
+      for mrt in (select s.CODE as STAT_CODE,
+                    m.dep_id, m.id, md.Dea_Date, md.dea_code
+                    from
+                       L_MRTDEA md,
+                       L_MORTGAGE m,
+                       T_PROCESS p,
+                       T_PROCMEM r,
+                       T_BOP_STAT s
+                       where m.DEP_ID = md.MRT_DEP_ID and m.ID = md.MRT_ID
+                         and p.ID = r.ID
+                         and r.ORD_ID = m.ID and r.DEP_ID = m.DEP_ID
+                         and s.ID = p.BOP_ID and s.NORD = p.NSTAT
+                         and md.DEA_DEP_ID = idDeaDep and md.DEA_ID = idDea   ) loop
+        -- введенные залоги спишем
+        if mrt.stat_code = 'START' then
+          if T_PkgRunOprUtl.fOprAvailable(mrt.dep_id, mrt.id,'WRITTENOFF') = 2 then
+            begin
+              T_PkgRunOprUtl.pRunOprByMainOrd(mrt.dep_id, mrt.id,'WRITTENOFF');
+            exception
+              when others then
+                pOutput := fErr(sqlcode, 'Отказ от кредита %0:s, произошла ошибка списания с учета залога %1:s (%2:s, %3:s): %4:s',vargs(t_fGetOrdCode(idDeaDep, idDea), mrt.dea_code, mrt.dep_id, mrt.id, substr(sqlerrm,1,2000)));
+                return;
+            end;
+          else
+            pOutput := fErr(-20001, 'При отказе от кредита %0:s не доступна операция списания с учета по залогу %1:s (%2:s, %3:s)',vargs(t_fGetOrdCode(idDeaDep, idDea), mrt.dea_code, mrt.dep_id, mrt.id)) ;
+            return;
+          end if;
+        end if;
+        -- вероятно, надо что то сделать с залогами принятыми к учету???
+        -- todo...
+
+      end loop;
+
+      -- и сразу закрытие договора, без ожиданяи закрытия дня
+      if T_PkgRunOprUtl.fOprAvailable(idDeaDep, idDea, 'REFCLOSE') = 2 then
+        begin
+          T_PkgRunOprUtl.pRunOprByMainOrd(idDeaDep, idDea, 'REFCLOSE');
+        exception
+          when others then
+            pOutput := fErr(sqlcode, 'Отказ от кредита %0:s, произошла ошибка при закрытии договора: %1:s',vargs(t_fGetOrdCode(idDeaDep, idDea), substr(sqlerrm,1,2000)));
+            return;
+        end;
+      else
+        -- если вдруг что то пошло не так, то операция д.б. недоступна - поднимем ошибку
+        pOutput := fErr(-20001, 'Операция закрытия договора при отказе от кредита не доступна.');
+        return;
+      end if;
+
+    else
+      -- возможно договор не в состоянии "зарегистрирован"
+      pOutput := fErr(-20001, 'Операция отказа от кредита не доступна.');
+      return;
+    end if;
+  end if;
+  -- Получаем состояние договора чтобы решить что делать дальше
+  cDeaState := T_PkgProcess.fGetStatCodeByMainOrd(idDeaDep, idDea);
+  -- заполним ответ - конечное состояние должно быть "Отказ" (REFUSEDEND) или "Удален" (DEL)
+  ObjRes := new JSON_OBJECT_T;
+  ObjRes.put('state', cDeaState);
+  ObjRes.put_Null('error');
+  pOutput := ObjRes.To_Clob;
+
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'При отказе от кредита %0:s (состояние: %2:s) произошла ошибка: %1:s',vargs(t_fGetOrdCode(idDeaDep, idDea), substr(sqlerrm,1,2000), cDeaState));
+
+end pRefuse;
+
+procedure pGetIssuedCreditCount(pInput  in Clob,
+                                pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  sPinfl Varchar2(50);
+  sProductCode varchar2(50);
+  aResult JSON_OBJECT_T;
+  nCliDepId number;
+  nCliId number;
+  sClientCode g_cli.code%type;
+  nResult number;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sPinfl := aInput.get_string('pinfl');
+  sProductCode := aInput.get_string('productCode');
+  Z_116_ELOAN_CLIENT.pGetClientIdByPinfl(pPinfl => sPinfl,
+                                         pDepId => nCliDepId,
+                                         pId    => nCliId,
+                                         pCode  => sClientCode);
+  nResult := 0;
+  if sClientCode is not null then
+    with loans as (
+      select d.dep_id,
+             d.id
+      from   t_dea d
+      join   g_cli c on c.DEP_ID = d.CLI_DEP_ID and c.ID = d.CLI_ID
+      join   T_ORD o on o.DEP_ID = d.DEP_ID and o.ID = d.ID
+      join   T_PROCMEM m on d.DEP_ID = m.DEP_ID and d.ID = m.ORD_ID
+      join   T_PROCESS p on p.ID = m.ID
+      join   T_BOP_STAT s on s.ID = p.BOP_ID and s.NORD = p.NSTAT
+      join   L_DEA dd on dd.DEP_ID = d.DEP_ID and dd.ID = d.ID
+      join   T_DEACLS_STD cls on cls.id = d.dcl_id
+      where  m.MAINFL = '1'
+      and    dd.RETFL = 0
+      and    s.CODE in ('REGISTERED', 'ACTUAL', 'FIN', 'WRITE_OFF', 'COMPLETION', 'PD_INTER_OFF', 'PD_OFF,FIN')
+      and    c.dep_id = nCliDepId
+      and    c.id = nCliId
+      and    cls.code = sProductCode
+      union all
+      select d.dep_id,
+             d.id
+      from   t_dea d
+      join   g_cli c on c.DEP_ID = d.CLI_DEP_ID and c.ID = d.CLI_ID
+      join   T_ORD o on o.DEP_ID = d.DEP_ID and o.ID = d.ID
+      join   T_PROCMEM m on d.DEP_ID = m.DEP_ID and d.ID = m.ORD_ID
+      join   T_PROCESS p on p.ID = m.ID
+      join   T_BOP_STAT s on s.ID = p.BOP_ID and s.NORD = p.NSTAT
+      join   L_LDEA dd on dd.DEP_ID = d.DEP_ID and dd.ID = d.ID
+      join   T_DEACLS_STD cls on cls.id = d.dcl_id
+      where  m.MAINFL = '1'
+      and    s.CODE in ('REGISTERED', 'ACTUAL', 'FIN', 'WRITE_OFF', 'COMPLETION', 'PD_INTER_OFF', 'PD_OFF,FIN')
+      and    c.dep_id = nCliDepId
+      and    c.id = nCliId
+      and    cls.code = sProductCode)
+    select count(*)
+    into   nResult
+    from   loans;
+  end if;
+  aResult := JSON_OBJECT_T();
+  aResult.put('result', nResult);
+  pOutput := aResult.To_Clob;
+end pGetIssuedCreditCount;
+
+procedure pGetOperatingLoans(pInput in Clob,
+                             pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  sPinfl Varchar2(50);
+  aResult JSON_OBJECT_T;
+  nCliDepId number;
+  nCliId number;
+  sClientCode g_cli.code%type;
+  nResult number;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sPinfl := aInput.get_string('pinfl');
+  aResult := JSON_OBJECT_T();
+  Z_116_ELOAN_CLIENT.pGetClientIdByPinfl(pPinfl => sPinfl,
+                                         pDepId => nCliDepId,
+                                         pId    => nCliId,
+                                         pCode  => sClientCode);
+  if sClientCode is not null then
+    select /*+all_rows*/
+           nvl(sum(t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id)), 0)
+    into   nResult
+    from T_ORD o
+    join T_DEA d on d.DEP_ID = o.DEP_ID and d.ID = o.ID
+    join G_CLI g on g.DEP_ID = d.CLI_DEP_ID and g.ID = d.CLI_ID
+    join L_DEA dd on dd.DEP_ID = d.DEP_ID and dd.ID = d.ID
+    join ledacc_det ld on ld.pk1 = dd.DEP_ID and ld.pk2 = dd.ID
+    join t_acc ac on ac.dep_id = ld.dep_id and ac.id = ld.acc_id
+    join ledacc_std la on la.id = ld.ch_id
+    where dd.RETFL = 0
+    and   ld.sgn_id = t_asgn.fCode2Id('DEA')
+    and   la.code in ('12501',
+                      '12503',
+                      '12541',
+                      '14901',
+                      '14913',
+                      '14941',
+                      '15703',
+                      '91809')
+    and   g.code = sClientCode;
+  end if;
+  aResult.put('clientCode', sClientCode);
+  aResult.put('result', nResult);
+  pOutput := aResult.To_Clob;
+end pGetOperatingLoans;
+
+procedure pGetLFSELoans(pInput in Clob,
+                        pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  sPinfl Varchar2(50);
+  aResult JSON_OBJECT_T;
+  nCliDepId number;
+  nCliId number;
+  sClientCode g_cli.code%type;
+  sProductCode varchar2(50);
+  nResult number;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sPinfl := aInput.get_string('pinfl');
+  sProductCode := aInput.get_string('productCode');
+  aResult := JSON_OBJECT_T();
+  Z_116_ELOAN_CLIENT.pGetClientIdByPinfl(pPinfl => sPinfl,
+                                         pDepId => nCliDepId,
+                                         pId    => nCliId,
+                                         pCode  => sClientCode);
+  if sClientCode is not null then
+    select /*+all_rows*/
+           nvl(sum(t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id)), 0)
+    into   nResult
+    from T_ORD o
+    join T_DEA d on d.DEP_ID = o.DEP_ID and d.ID = o.ID
+    join G_CLI g on g.DEP_ID = d.CLI_DEP_ID and g.ID = d.CLI_ID
+    join L_DEA dd on dd.DEP_ID = d.DEP_ID and dd.ID = d.ID
+    join ledacc_det ld on ld.pk1 = dd.DEP_ID and ld.pk2 = dd.ID
+    join t_acc ac on ac.dep_id = ld.dep_id and ac.id = ld.acc_id
+    join ledacc_std la on la.id = ld.ch_id
+    join t_deacls_std cls on cls.id = d.dcl_id
+    where dd.RETFL = 0
+    and   ld.sgn_id = t_asgn.fCode2Id('DEA')
+    and   la.code in ('12541',
+                      '14941',
+                      '12505',
+                      '15703',
+                      '16377-002',
+                      '16405',
+                      '91501-PRC',
+                      '91501-PPRC',
+                      '91501-POD',
+                      '91505-005',
+                      '91505-006',
+                      '91809')
+    and   g.code = sClientCode
+    and   cls.code in ('UZ.FL.MKP.LFSE','UZ.FL.MKP.POORLFSE','UZ.FL.MKP.SELF');
+  end if;
+  aResult.put('clientCode', sClientCode);
+  aResult.put('result', nResult);
+  pOutput := aResult.To_Clob;
+end pGetLFSELoans;
+
+procedure pSaveGuarantorPledge(pInput   in Clob,
+                               pOutput  out Clob)
+is
+  jInput json_object_t;
+  jOutput json_object_t;
+  idEns number;
+  cPLEDGERFL char(1 byte);
+  bNew boolean;
+  idMrtDep number;
+  idMrt number;
+  cCode varchar2(60);
+  idValFair number;
+  nDepId number;
+  nId number;
+  mrtCostVal varchar2(50);
+  fairValueVal varchar2(50);
+  ensCode varchar2(50);
+  sDscr varchar2(200);
+  dFromDate date;
+  dToDate date;
+  pledgeJson clob;
+  sRefer varchar2(30 BYTE);
+  sMrtCode varchar(30);
+  nMrtCost number;
+  sOwnerCode varchar2(50);
+  sOwnerName varchar2(50);
+  nIdCliDep number;
+  nIdCli number;
+  nIdOwn number;
+  idMrtDeaDep number;
+  idMrtDea number;
+  idValMortgage number;
+  nDeaDepId number;
+  nDeaId number;
+begin
+  c_pkgconnect.pOpen();
+  jInput     := json_object_t.parse(pInput);
+  idMrtDep   := jInput.get_Number('dep_id');
+  idMrt      := jInput.get_Number('id');
+  nMrtCost   := jInput.get_Number('mrt_cost');
+  mrtCostVal := jInput.get_Number('mrt_cost_val');
+  ensCode    := jInput.get_Number('ens_code');
+  nDeaDepId  := jInput.get_Number('dea_dep_id');
+  nDeaId     := jInput.get_Number('dea_id');
+  sDscr      := jInput.get_String('dscr');
+  dFromDate  := nvl(to_date(substr(jInput.get_String('start_date'), 1, 10), 'yyyy-mm-dd'), p_operday);
+  dToDate    := to_date(substr(jInput.get_String('end_date'), 1, 10), 'yyyy-mm-dd');
+  pledgeJson := jInput.get_Object('json').to_clob;
+  sOwnerCode := json_value(pledgeJson, '$.owner.code');
+  sOwnerName := json_value(pledgeJson, '$.owner.name');
+  jOutput    := json_object_t();
+
+  begin
+    select ID, PLEDGEFL
+    into   idEns, cPLEDGERFL
+    from   L_ENSDSC_STD
+    where  code = ensCode;
+  exception when no_data_found then
+    raise_application_error(-20000, LocalFrmt(
+      'Вид обеспечения %%0:s не найден в справочнике',
+      vargs(ensCode)
+    ));
+  end;
+
+  bNew := idMrt is null;
+
+  if not bNew then
+    select code into cCode from L_MORTGAGE where DEP_ID = idMrtDep and ID = idMrt;
+  end if;
+
+  idValMortgage := P_NATVAL;
+  if mrtCostVal is not null then
+    idValMortgage := T_PkgVal.fValCode2Id(mrtCostVal);
+  end if;
+
+  idValFair := idValMortgage;
+  if fairValueVal is not null then
+    idValFair := T_PkgVal.fValCode2Id(fairValueVal);
+  end if;
+
+  L_BSMORTG.pSave(
+    P_DEP_ID        => idMrtDep,
+    P_ID            => idMrt,
+    P_CODE          => cCode,
+    P_DSCR          => sDscr,
+    P_ENS_ID        => idEns,
+    P_PRIM          => null,
+    P_PRTYPE        => null,
+    P_LOCATION      => null,
+    P_MORTG_COST    => nMrtCost,
+    P_MRT_VAL_ID    => idValMortgage,
+    P_MARKET_COST   => null, --:fair_value
+    P_MRK_VAL_ID    => idValFair,
+    P_ADDDTL        => null,
+    P_PROPDOCTYPE   => null,
+    P_PROPDOCNUM    => null,
+    P_PROPDOCDATE   => null,
+    P_PLEDGEFL      => cPLEDGERFL
+  );
+
+  nDepId := idMrtDep;
+  nId := idMrt;
+
+  update L_MORTGAGE
+  set    OBJ_JSON = pledgeJson
+  where  DEP_ID = idMrtDep
+  and    ID = idMrt
+  returning refer
+  into   sRefer;
+
+  for r in (
+    select * from L_MRTOWN where MRT_DEP_ID = idMrtDep and MRT_ID = idMrt
+  ) loop
+    L_BSMORTG.pDelOwner(r.ID);
+  end loop;
+
+  select CODE into sMrtCode from L_MORTGAGE where DEP_ID = idMrtDep and ID = idMrt;
+
+  if sOwnerCode is not null then
+    begin
+      select g.DEP_ID, g.ID
+      into   nIdCliDep, nIdCli
+      from   G_CLI g
+      where  g.code = sOwnerCode;
+    exception
+      when no_data_found then
+        raise_application_error(-20000, LocalFrmt('Не найден клиент с кодом %%0:s', vargs(sOwnerCode)));
+    end;
+
+    L_BSMORTG.pSaveAdd(
+      nDEP_ID         => idMrtDep,
+      nID             => idMrt,
+      sCODE           => 'CODEESC',
+      sVALUE          => sOwnerCode,
+      sForm           => null
+    );
+    L_BSMORTG.pSaveAdd(
+      nDEP_ID         => idMrtDep,
+      nID             => idMrt,
+      sCODE           => 'NAMESC',
+      sVALUE          => sOwnerName,
+      sForm           => null
+    );
+
+  end if;
+
+  if nIdCli is not null then
+     L_BSMORTG.pSaveGuarantee(P_DEP_ID => nDepId,
+                              P_ID => nId,
+                              P_DEA_DEP_ID => null,
+                              P_DEA_ID => null,
+                              P_GRNT_DEP_ID => nIdCliDep,
+                              P_GRNT_ID => nIdCli,
+                              P_AMOUNT => nMrtCost,
+                              P_VAL_ID => idValMortgage,
+                              P_CNT_NUM => '1',
+                              P_DATE_FROM => dFromDate,
+                              P_DATE_TO => dToDate,
+                              P_LIMITS => '',
+                              P_DEA_NAME => '');
+     L_BSMORTG.pSaveGarant(nId => nIdOwn,
+                           nGua_Dep_Id => idMrtDep,
+                           nGua_Id => idMrt,
+                           nGrnt_Dep_Id => nIdCliDep,
+                           nGrnt_Id => nIdCli);
+  end if;
+
+  -- Обновляем описание залога, потому что модуль не может сам нормально описать залог
+  update L_MORTGAGE set DSCR = sDscr where DEP_ID = idMrtDep and ID = idMrt;
+  idValMortgage := P_NATVAL;
+  if mrtCostVal is not null then
+    idValMortgage := T_PkgVal.fValCode2Id(mrtCostVal);
+  end if;
+  idMrtDeaDep := nDepId;
+  L_BSMRTDEA.pSave(
+      P_DEP_ID              => idMrtDeaDep,
+      P_ID                  => idMrtDea,--
+      P_DEA_DEP_ID          => nDeaDepId,
+      P_DEA_ID              => nDeaId,
+      P_MRT_DEP_ID          => nDepId,
+      P_MRT_ID              => nId,
+      P_CLI_DEP_ID          => nIdCliDep,--
+      P_CLI_ID              => nIdCli,--
+      P_AMOUNT              => nMrtCost,--
+      P_VAL_ID              => idValMortgage,
+      P_DEA_CODE            => null,
+      P_DEA_DATE            => null,
+      P_ADDDTL_BASEL        => null,
+      P_PRIM                => null
+  );
+
+  jOutput.put('idOwn', nIdOwn);
+  jOutput.put('idMrtDep', nDepId);
+  jOutput.put('idMrt', nId);
+  jOutput.put('codeMrt', sMrtCode);
+  jOutput.put('referMrt', sRefer);
+  pOutput := jOutput.To_Clob();
+end pSaveGuarantorPledge;
+
+procedure pGetDeaAccountNumberByAccCode(pInput  in Clob,
+                                        pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  sDeaDepId Varchar2(20);
+  sDeaId Varchar2(20);
+  sAccCode Varchar2(20);
+  sAccount Varchar2(20);
+  aResult JSON_OBJECT_T;
+begin
+  c_pkgconnect.pOpen();
+  begin
+    aResult := JSON_OBJECT_T();
+    aInput := JSON_OBJECT_T.parse(pInput);
+    sDeaDepId := aInput.get_string('deaDepId');
+    sDeaId := aInput.get_string('deaId');
+    sAccCode := aInput.get_string('accCode');
+    select ab.code
+    into   sAccount
+    from LEDACC_DET d
+    join T_ACC a on a.DEP_ID = d.DEP_ID and a.ID = d.ACC_ID
+    join G_ACCBLN ab on ab.dep_id = a.dep_id and ab.id = a.id
+    where d.SGN_ID = T_ASGN.fCode2Id('DEA')
+    and substr(ab.code, 1, 5) = sAccCode
+    and d.PK1 = sDeaDepId
+    and d.PK2 = sDeaId
+    and rownum = 1;
+    aResult.put('result', sAccount);
+  exception
+    when no_data_found then
+      aResult.put_Null('result');
+  end;
+  pOutput := aResult.To_Clob;
+end pGetDeaAccountNumberByAccCode;
+
+procedure pGetActiveLoans(pInput  in Clob,
+                          pOutput out Clob)
+
+is
+  nCliDepId number;
+  nCliId    number;
+  sCliCode  varchar2(255);
+  sPinfl    varchar2(255);
+  ObjIn     JSON_OBJECT_T;
+  sUniqNums varchar2(4000);
+  uniqnums  SYS.ODCIVARCHAR2LIST := SYS.ODCIVARCHAR2LIST();
+  vCount    integer;
+  ObjTmp    json_object_t;
+  ClobTmp   clob;
+  totalAmount number;
+  totalInterest number;
+  totalPrincipal number;
+  avgPayment number;
+  jsonArray JSON_ARRAY_T := JSON_ARRAY_T();
+  loopTpmObj JSON_OBJECT_T;
+
+  type DeaRecord is record (
+    dep_id number,
+    id     number,
+    code   varchar2(255),
+    uniqnum number,
+    vidcred varchar2(100),
+    amount number(18, 2)
+  );
+
+  type DeaTable is table of DeaRecord;
+  deaResults DeaTable;
+
+begin
+  -- Парсинг JSON
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  ObjTmp := json_object_t;
+  sPinfl := ObjIn.get_string('pinfl'); --50608036460017
+  sUniqNums := ObjIn.get_string('uniqnums'); --2945486,2945493
+
+  -- Преобразование строки в коллекцию
+  vCount := 0;
+  for str in (select regexp_substr(sUniqNums, '[^,]+', 1, level) as num
+              from dual
+              connect by regexp_substr(sUniqNums, '[^,]+', 1, level) is not null) loop
+    vCount := vCount + 1;
+    uniqnums.extend;
+    uniqnums(vCount) := str.num;
+  end loop;
+
+  c_pkgconnect.pOpen();
+  Z_116_ELOAN_CLIENT.pGetClientIdByPinfl(pPinfl => sPinfl,
+                                         pDepId => nCliDepId,
+                                         pId => nCliId,
+                                         pCode => sCliCode);
+
+  begin
+    -- Выполнение SELECT INTO для получения значений в переменные
+    select
+      d.DEP_ID,
+      d.ID,
+      o.CODE,
+      T_PkgDeaPrm.fDeaParByCode(d.ID, d.DEP_ID, 'L_UZ_UNIQNUM') as UNIQNUM,
+      L_PKGDEAUNIREF.fGetRefValCode(d.DEP_ID, d.ID, 'UZ_VIDCRED') as VIDCRED,
+      d.SDOK as AMOUNT
+    bulk collect into
+      deaResults
+    from
+      T_ORD o, T_DEA d, T_PROCESS p, G_CLI g, T_BOP_STAT s, T_PROCMEM m,
+      T_DEACLS c, C_DEP_STD srvd, C_DEP_STD cd, L_DEA dd
+    where o.DEP_ID = d.DEP_ID and o.ID = d.ID
+      and d.DEP_ID = m.DEP_ID and d.ID = m.ORD_ID and m.MAINFL = '1'
+      and p.ID = m.ID and s.ID = p.BOP_ID and s.NORD = p.NSTAT
+      and c.ID = d.DCL_ID
+      and dd.DEP_ID = d.DEP_ID and dd.ID = d.ID
+      and exists (select 1 from DUAL where
+        c_pkgGrant.fChkUsrOrd_2(d.DEP_ID,d.ID,3)=1 and BS_OPERATION.fIsParentWait(p.ID)=0)
+      and dd.RETFL = 0
+      and dd.DEP_ID = cd.ID
+      and g.DEP_ID = d.CLI_DEP_ID
+      and g.ID = d.CLI_ID
+      and srvd.ID = d.SRV_DEP_ID
+      and exists (select 1 from dual where C_PkgGrant.FChkCliDet(d.CLI_DEP_ID, d.CLI_ID)=1)
+      and s.CODE = 'ACTUAL'
+      and T_PkgDeaPrm.fDeaParByCode(d.ID, d.DEP_ID, 'L_UZ_UNIQNUM') not in (select column_value from table(cast(uniqnums as SYS.ODCIVARCHAR2LIST)))
+      and d.CLI_ID = nCliId and d.CLI_DEP_ID = nCliDepId
+      and d.FROMDATE >= p_operday;
+
+    -- Обработка результатов в цикле
+    for i in 1 .. deaResults.count loop
+      ObjTmp := JSON_OBJECT_T();
+      ObjTmp.put('deaId', deaResults(i).id);
+      ObjTmp.put('deaDepId', deaResults(i).dep_id);
+      Z_116_ELOAN_LOAN.pGetDeaShdList(ObjTmp.to_clob, ClobTmp);
+
+      -- Инициализация сумм
+      totalAmount := 0;
+      totalInterest := 0;
+
+      -- Суммирование всех amount и interest
+      for rec in (select principal, interest
+                  from json_table(ClobTmp, '$[*]'
+                    columns (
+                      principal number path '$.principal',
+                      interest number path '$.interest'
+                    ))) loop
+        totalAmount := totalAmount + rec.principal;
+        totalInterest := totalInterest + rec.interest;
+      end loop;
+
+      -- Получение суммы погашенного основного долга
+      totalPrincipal := T_PkgArlRun.fDeaAccBal(deaResults(i).dep_id, deaResults(i).id, 'CR_PD_T');
+
+      -- Получение количества месяцев
+      vCount := 0;
+      for rec in (select 1
+                  from json_table(ClobTmp, '$[*]'
+                    columns (
+                      dummy number path '$'
+                    ))) loop
+        vCount := vCount + 1;
+      end loop;
+
+      -- Вычисление среднего ежемесячного платежа
+      if vCount > 0 then
+        avgPayment := round((totalAmount + totalInterest - totalPrincipal) / vCount, 2);
+      else
+        avgPayment := 0;
+      end if;
+
+      -- Логирование значений
+      /*dbms_output.put_line('DEP_ID: ' || deaResults(i).dep_id || ', ID: ' || deaResults(i).id ||
+                           ', TotalAmount: ' || totalAmount || ', TotalInterest: ' || totalInterest ||
+                           ', TotalPrincipal: ' || totalPrincipal || ', Months: ' || vCount);*/
+
+      --dbms_output.put_line(to_number(to_char(avgPayment, '9999999.99')));
+      loopTpmObj := JSON_OBJECT_T();
+      loopTpmObj.put('deaCode', nvl(deaResults(i).code, ''));
+      loopTpmObj.put('uniqnum', nvl(deaResults(i).uniqnum, ''));
+      loopTpmObj.put('vidcred', nvl(deaResults(i).vidcred, ''));
+      loopTpmObj.put('amount', nvl(deaResults(i).amount, 0));
+      loopTpmObj.put('avgPayment', nvl(to_number(to_char(avgPayment, '9999999.99')), 0));
+      jsonArray.append(loopTpmObj);
+    end loop;
+
+  pOutput := jsonArray.To_Clob;
+  --dbms_output.put_line(pOutput);
+
+  exception
+    when NO_DATA_FOUND then
+      pOutput := fErr(sqlcode, 'Данные не найдены');
+    when others then
+      pOutput := fErr(sqlcode, 'Произошла ошибка: ' || sqlerrm);
+  end;
+
+  -- Дополнительная логика может быть добавлена здесь
+
+end pGetActiveLoans;
+
+-- Получить сводные данные по всем кредитам клиента по ПИНФЛ
+procedure pGetCliLoans(pInput   in Clob,
+                       pOutput  out Clob)
+is
+
+  ObjTmp           JSON_OBJECT_T;
+  ObjIn            JSON_OBJECT_T;
+  ObjRes           JSON_OBJECT_T;
+  lArrTmp          JSON_ARRAY_T;
+  lArr	           JSON_ARRAY_T;
+  sPinfl           varchar2(30);
+  nCliDepId        G_CLI.DEP_ID%type;
+  nCliId           G_CLI.ID%type;
+  sCliCode         G_CLI.Code%type;
+  iCntDea          pls_integer := 0;
+  nTotSum          number(18,2);
+  nOverSum         number(18,2);
+  nOffPDSum        number(18,2);
+  nOffPrcSum       number(18,2);
+  nLitigSum        number(18,2);
+
+begin
+  c_pkgconnect.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  sPinfl := ObjIn.get_string('pinfl');
+
+  Z_116_ELOAN_CLIENT.pGetClientIdByPinfl(pPinfl => sPinfl,
+                                         pDepId => nCliDepId,
+                                         pId => nCliId,
+                                         pCode => sCliCode);
+
+  if nCliId is null then
+    pOutput := fErr(sqlcode, 'Не найден клиент с ПИНФЛ: %0:s',vargs(sPinfl));
+    return;
+  end if;
+
+  lArrTmp := new JSON_ARRAY_T;
+  for rec in (select
+                  d.DEP_ID,
+                  d.ID,
+                  o.CODE,
+                  d.fromdate,
+                  d.todate,
+                  d.SDOK as AMOUNT,
+                  o.val_id,
+                  srvd.code as SRV_DEP_CODE,
+                  c.CODE as DCL_CODE,
+                  c.LONGNAME DCL_NAME,
+                  s.CODE as STAT_CODE,
+                  s.LONGNAME as STAT_NAME,
+                  d.closefl
+                from
+                  T_ORD o, T_DEA d, T_PROCESS p, G_CLI g, T_BOP_STAT s, T_PROCMEM m,
+                  T_DEACLS c, C_DEP_STD srvd, L_DEA dd
+                where o.DEP_ID = d.DEP_ID and o.ID = d.ID
+                  and d.DEP_ID = m.DEP_ID and d.ID = m.ORD_ID and m.MAINFL = '1'
+                  and p.ID = m.ID and s.ID = p.BOP_ID and s.NORD = p.NSTAT
+                  and c.ID = d.DCL_ID
+                  and dd.DEP_ID = d.DEP_ID and dd.ID = d.ID
+                  and g.DEP_ID = d.CLI_DEP_ID
+                  and g.ID = d.CLI_ID
+                  and srvd.ID = d.SRV_DEP_ID
+                  and d.CLI_ID = nCliId and d.CLI_DEP_ID = nCliDepId
+                  ) loop
+    iCntDea := iCntDea + 1; --счетчик кол-ва договоров
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('deaDepId', rec.dep_id);
+    ObjTmp.put('deaId', rec.id);
+    ObjTmp.put('deaCode', rec.code);
+    ObjTmp.put('uniqnum', T_PkgDeaPrm.fDeaParByCode(rec.id, rec.dep_id, 'L_UZ_UNIQNUM'));
+    ObjTmp.put('vidcred', L_PKGDEAUNIREF.fGetRefValCode(rec.dep_id, rec.id, 'UZ_VIDCRED'));
+    ObjTmp.put('fromdate', rec.fromdate);
+    ObjTmp.put('todate', rec.todate);
+    ObjTmp.put('amount', rec.amount);
+    ObjTmp.put('valCode', t_pkgval.fGetCode(rec.val_id));
+    ObjTmp.put('srvDepCode', rec.srv_dep_code);
+    ObjTmp.put('dclCode', rec.dcl_code);
+    ObjTmp.put('dclName', rec.dcl_name);
+    ObjTmp.put('statCode', rec.stat_code);
+    ObjTmp.put('statName', rec.stat_name);
+    ObjTmp.put('closefl', rec.closefl);
+
+    ------------- все остатки в разрезах ГК:
+    select
+        nvl(sum(case
+                  when la.code in ('12501',
+                                   '12503',
+                                   '12541',
+                                   '14901',
+                                   '14913',
+                                   '15703',
+                                   '91501-PRC',
+                                   '91501-PPRC',
+                                   '91501-POD',
+                                   '91505-005',
+                                   '91505-006',
+                                   '91809',
+                                   '95413') then t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id) else 0 end),0), --текущая задолженность
+        nvl(sum(case
+                  when la.code in ('12505') then t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id) else 0 end),0), --просроченная задолженность
+        nvl(sum(case
+                  when la.code in ('95413') then t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id) else 0 end),0), --внебалансовая задолженность по ОД
+        nvl(sum(case
+                  when la.code in ('91501-POD', '91501-PPRC', '91501-PRC') then t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id) else 0 end),0), --внебалансовая задолженность по процентам
+        nvl(sum(case
+                  when la.code in ('15703') then t_pkgaccbal.fAbs(ac.dep_id, ac.id, idVal => ac.val_id) else 0 end),0) --судебная задолженность
+      into
+           nTotSum,
+           nOverSum,
+           nOffPDSum,
+           nOffPrcSum,
+           nLitigSum
+      from ledacc_det ld , t_acc ac, ledacc_std la
+        where ld.pk1 = to_char(rec.DEP_ID) and ld.pk2 = to_char(rec.ID)
+          and ac.dep_id = ld.dep_id and ac.id = ld.acc_id
+          and la.id = ld.ch_id
+          and ld.sgn_id = idSignDea
+          and la.code in ('12501',
+                          '12503',
+                          '12541',
+                          '14901',
+                          '14913',
+                          '15703',
+                          '91501-PRC',
+                          '91501-PPRC',
+                          '91501-POD',
+                          '91505-005',
+                          '91505-006',
+                          '91809',
+                          '95413',
+                          '12505'
+                          );
+
+    ObjTmp.put('totalDebt', nTotSum);
+    ObjTmp.put('overdueDebt', nOverSum);
+    ObjTmp.put('offBalPrincipalDebt', nOffPDSum);
+    ObjTmp.put('offBalInterest', nOffPrcSum);
+    ObjTmp.put('litigationDebt', nLitigSum);
+
+    lArrTmp.append(ObjTmp);
+  end loop;
+
+  ObjRes := new JSON_OBJECT_T;
+  ObjRes.put('clientCode', sCliCode);
+  ObjRes.put('loansCount', iCntDea);
+  ObjRes.put('loans', lArrTmp);
+  pOutput := ObjRes.To_Clob;
+
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'Ошибка получения информации о кредитах клиента %1:s: %0:s',vargs(substr(sqlerrm,1,2000)));
+
+end pGetCliLoans;
+
+end Z_116_ELOAN_LOAN;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_BOP"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_OPERATION"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="L_BSLOAN"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="L_BSLOANLINE"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="L_BSMORTG"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="L_BSMRTDEA"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="T_ANLACC"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="T_BSDEA"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DOMAIN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CON"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CONSRC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC_DET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_APRRECALC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEAPUR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_ENSDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_INSURCMP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_LDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MORTGAGE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MRTDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MRTOWN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_PURDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REQDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REQDEADOS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_DEAPRS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="S_DEAACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="S_ORDNBL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="TT_POINT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ANSIGN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ARLCLC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ARLCLS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ARLDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ARLDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_DSCR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEACLS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEADOC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPRD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPRMDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPRMRUL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEASHDPNT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCECPY"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PCN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PCNDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCINH"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_SCEN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UNIREF"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_IDUS"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_LOCID"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_NATVAL"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="TO_MONEY"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="T_FGETORDCODE"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="CESB_BASE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGGRANT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGSTR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="DBASE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGACCBLN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCON"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKG_IBCLI_UZ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="I_AML_PKGONLINE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGAPRSETCLC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGDEALIM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGDEAUNIREF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGIENIKI_API"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGINF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGLOANS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_ASGN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCBAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARLRUN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEA"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAACC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPER"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDOCDOS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGPCNCLC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGPCNSPEC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGPROCESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGRUNOPRUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="U_PKGUNIREF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_ELOAN_CLIENT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_ELOAN_UTILS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNSEQ>
+      <LINK:SEQ 
+        REF_NAME="L_UZ_UNIQNUM_KEY"/>
+    </PKGDPNSEQ>
+  </PKG>
+</DDC>

@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGMTSUTIL" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="C0AED0AF4AB3F49EAB69E8A87108C2FA">
+  <PKG 
+    NAME="Z_116_PKGMTSUTIL">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGMTSUTIL is
+
+   function fGetAmountPayOut(nDEP_ID in M_ORDPAY.DEP_ID%type, nID in M_ORDPAY.ID%type, sValCode in T_VAL_STD.CODE%type) return varchar2;
+
+end Z_116_PKGMTSUTIL;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGMTSUTIL is
+
+
+
+  function fGetAmountPayOut(nDEP_ID in M_ORDPAY.DEP_ID%type, nID in M_ORDPAY.ID%type,  sValCode in T_VAL_STD.CODE%type) return varchar2
+    as
+    sRes varchar2(50);
+  begin
+    sRes:='0.00';
+    begin
+      select to_money(T_PKGVAL.FCROSSRATE(SOPR, VAL_ID1, VAL_ID, DOP)) into sRes
+       from
+         (select
+            nvl(T_PkgRunOprUtl.fGetJrnAttr(j.ID, j.NOPER, 'VALOTH_ID', j.NJRN+1), j.VAL_ID) VAL_ID,
+            j.VAL_ID as VAL_ID1, j.SOPR, m.DOP
+              from M_ORDPAY m, T_PROCMEM pm, T_BOP_DSCR_STD b, T_SCEN s, T_OPERJRN j
+              where m.DEP_ID = pm.DEP_ID and m.ID = pm.ORD_ID
+                    and pm.BOP_ID = b.ID
+                    and c_pkgstring.fiChkCond(b.CODE, nvl(c_fprm('MMDTRANSF_IN'), '*')) = '1'
+                    and T_PKGDEAPRM.fParByCode(m.DEA_ID, m.DEA_DEP_ID, 'DTL_ID') = '80450' and m.INFL = '1'
+                    and j.ID = pm.ID and j.CANCELFL = '0' and j.UNDOFL = '0'
+                    and j.BOP_ID = b.ID
+                    and j.BOP_ID = s.ID
+                    and s.CODE in ('PAY', 'PAYPART', 'PAYPART2')
+                    and j.NOPER = s.NORD
+                    and m.id=nID and m.dep_id=nDEP_ID
+           )
+           where val_id = T_PKGVAL.fValCode2Id(sValCode);
+    exception when others then
+       null;
+    end;
+    return sRes;
+  end;
+
+
+end Z_116_PKGMTSUTIL;
+--74222108
+--3004
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_ORDPAY"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_DSCR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_SCEN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_VAL"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="C_FPRM"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="TO_MONEY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGSTRING"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGRUNOPRUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

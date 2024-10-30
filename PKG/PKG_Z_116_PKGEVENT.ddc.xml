@@ -1,0 +1,333 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGEVENT" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="4A5147AEFC7912467A52C34018C8A66E">
+  <PKG 
+    NAME="Z_116_PKGEVENT">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGEVENT is
+/**
+* Пакет методов работы с событиями - кастомные события для интеграций с внешними сервисами и др. модулями/системами
+*
+* @author Бондаренко Анатолий
+* @version 3.0
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+
+  /** Получение идентификатора события по его коду
+  * @param pCode код события
+  * @param pRaiseEx признак поднятия исключения
+  * @return идентифиактор события
+  */
+  function fCode2Id(
+    pCode            in Z_116_EVENTDSC.CODE%type,
+    pRaiseExFl       in integer default 0
+  ) return Z_116_EVENTDSC.ID%type;
+
+  /** Получение кода события по его идентифиактору
+  * @param pId идентифиактор события
+  * @param pRaiseEx признак поднятия исключения
+  * @return код события
+  */
+  function fId2Code(
+    pId              in Z_116_EVENTDSC.ID%type,
+    pRaiseExFl       in integer default 0
+  ) return Z_116_EVENTDSC.CODE%type;
+
+  /** Справочник событий
+  * @param pInput ничего не принимается на вход, оставлен для совместимости
+  * @param pOutput  JSON со структурой справочника всех событий
+  */
+  procedure pGetEventList(pInput in clob,
+                          pOutput out Clob);
+
+
+  /** Создание факта события в журнале
+  * @param pEveDscId идентифиактор вида события
+  * @param pStatus статус создаваемого события (домен Z_116_EVENT_STATUS)
+  * @param pParams параметры события (строка вида: key1=>value1,key2=>value2...)
+  * @param pErrMsg сообщение об ошибке (опционально при возврате 0)
+  * @return идентифиактор события в журнале, или 0 при ошибке
+  */
+  function fSetEventJrn(
+    pEveDscId        in   Z_116_EVENTJRN.DSC_ID%type,
+    pStatus          in   Z_116_EVENTJRN.STATUS%type default null,
+    pDFrom           in   date default null,
+    pParams          in   varchar2,
+    pErrMsg          out  varchar2
+  ) return Z_116_EVENTJRN.ID%type;
+
+  /** Создание факта события в журнале
+  * <br/><i>Появилась в 3.0</i>
+  * @param pEveDsc Код вида события
+  * @param pStatus статус создаваемого события (домен Z_116_EVENT_STATUS)
+  * @param pParams параметры события (строка вида: key1=>value1,key2=>value2...)
+  * @param pErrMsg сообщение об ошибке (опционально при возврате 0)
+  * @return идентифиактор события в журнале, или 0 при ошибке
+  */
+  function fSetEventJrnByCode(
+    pEveDsc          in   Z_116_EVENTDSC.CODE%type,
+    pStatus          in   Z_116_EVENTJRN.STATUS%type default null,
+    pDFrom           in   date default null,
+    pParams          in   varchar2,
+    pErrMsg          out  varchar2
+  ) return Z_116_EVENTJRN.ID%type;
+
+  /** Создание факта события в журнале
+  * @param pInput входные параметры
+  * @param pOutput  JSON с результатом и текстом ошибки (опционально)
+  */
+  procedure pSetEventJrn(pInput in clob,
+                         pOutput out Clob);
+
+
+  /** Изменение факта события в журнале
+  * <br/><i>Появилась в 2.0</i>
+  * @param pEveJrnId идентифиактор события в журнале
+  * @param pDSnd
+  * @param pDRcv
+  * @param pStatus статус создаваемого события (домен Z_116_EVENT_STATUS)
+  * @param pCancelFl
+  * @param pParams параметры события (строка вида: key1=>value1,key2=>value2...)
+  * @param pErrmPrim статус создаваемого события (домен Z_116_EVENT_STATUS)
+  * @param pErrorMsg сообщение об ошибке (опционально при возврате 0)
+  * @return идентифиактор 1 при успехе или 0 при ошибке
+  */
+  function fUpdEventJrn(
+    pEveJrnId        in   Z_116_EVENTJRN.ID%type,
+    pDSnd            in   Z_116_EVENTJRN.SND_DT%type default null,
+    pDRcv            in   Z_116_EVENTJRN.RCV_DT%type default null,
+    pStatus          in   Z_116_EVENTJRN.STATUS%type default null,
+    pCancelFl        in   Z_116_EVENTJRN.CANCELFL%type default null,
+    pParams          in   Z_116_EVENTJRN.PARAMS%type default null,
+    pErrmPrim        in   Z_116_EVENTJRN.ERRM%type default null,
+    pErrorMsg        out  varchar2
+  ) return integer;
+
+end Z_116_PKGEVENT;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGEVENT is
+
+
+  -- Получение идентификатора события по его коду
+  function fCode2Id(
+    pCode            in Z_116_EVENTDSC.CODE%type,
+    pRaiseExFl       in integer default 0
+  ) return Z_116_EVENTDSC.ID%type
+  is
+    nRes Z_116_EVENTDSC.ID%type;
+  begin
+    select c.id
+      into nRes
+      from Z_116_EVENTDSC c
+        where c.code = pCode;
+    return nRes;
+
+  exception
+    when others then
+      if pRaiseExFl <> 0 then
+        raise;
+      else
+        return null;
+      end if;
+  end fCode2Id;
+
+  -- Получение кода события по его идентифиактору
+  function fId2Code(
+    pId              in Z_116_EVENTDSC.ID%type,
+    pRaiseExFl       in integer default 0
+  ) return Z_116_EVENTDSC.CODE%type
+  is
+    nRes Z_116_EVENTDSC.CODE%type;
+  begin
+    select c.CODE
+      into nRes
+      from Z_116_EVENTDSC c
+        where c.code = pId;
+    return nRes;
+
+  exception
+    when others then
+      if pRaiseExFl <> 0 then
+        raise;
+      else
+        return null;
+      end if;
+  end fId2Code;
+
+  -- Справочник событий
+  procedure pGetEventList(pInput in clob,
+                          pOutput out Clob)
+  is
+    lArr	                  JSON_ARRAY_T;
+    ObjTmp                  JSON_OBJECT_T;
+  begin
+    lArr := new JSON_ARRAY_T;
+    for rec in(select ed.id, ed.code, ed.longname, ed.prim, ed.arcfl
+                 from z_116_eventdsc ed
+                   order by ed.code
+    ) loop
+      ObjTmp := new JSON_OBJECT_T;
+      ObjTmp.put('id', rec.ID);
+      ObjTmp.put('code', rec.CODE );
+      ObjTmp.put('name', rec.LONGNAME);
+      ObjTmp.put('prim', rec.prim);
+      ObjTmp.put('arcfl', rec.arcfl);
+      lArr.append(ObjTmp);
+    end loop;
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('events', lArr);
+    pOutput := ObjTmp.To_Clob;
+
+  end pGetEventList;
+
+  -- Создание факта события в журнале
+  function fSetEventJrn(
+    pEveDscId        in   Z_116_EVENTJRN.DSC_ID%type,
+    pStatus          in   Z_116_EVENTJRN.STATUS%type default null,
+    pDFrom           in   date default null,
+    pParams          in   varchar2,
+    pErrMsg          out  varchar2
+  ) return Z_116_EVENTJRN.ID%type is
+    nRes Z_116_EVENTJRN.ID%type;
+  begin
+    insert into Z_116_EVENTJRN (DSC_ID,SND_DT,STATUS,PARAMS)
+      values (pEveDscId, nvl(pDFrom,sysdate), pStatus, pParams) returning ID into nRes;
+    return nRes;
+
+  exception
+    when others then
+      pErrMsg := substr(SQLERRM||dbms_utility.format_error_backtrace,1,2000);
+      return 0;
+  end fSetEventJrn;
+
+  -- Создание факта события в журнале
+  function fSetEventJrnByCode(
+    pEveDsc          in   Z_116_EVENTDSC.CODE%type,
+    pStatus          in   Z_116_EVENTJRN.STATUS%type default null,
+    pDFrom           in   date default null,
+    pParams          in   varchar2,
+    pErrMsg          out  varchar2
+  ) return Z_116_EVENTJRN.ID%type is
+    nRes             Z_116_EVENTJRN.ID%type;
+    nEveDscId        Z_116_EVENTJRN.DSC_ID%type;
+  begin
+    nEveDscId := fCode2Id(pEveDsc, 1);
+
+    insert into Z_116_EVENTJRN (DSC_ID,SND_DT,STATUS,PARAMS)
+      values (nEveDscId, nvl(pDFrom,sysdate), pStatus, pParams) returning ID into nRes;
+    return nRes;
+
+  exception
+    when others then
+      pErrMsg := substr(SQLERRM||dbms_utility.format_error_backtrace,1,2000);
+      return 0;
+  end fSetEventJrnByCode;
+
+  -- Создание факта события в журнале
+  procedure pSetEventJrn(pInput in clob,
+                         pOutput out Clob) is
+    nRes             pls_integer;
+    ObjIn            JSON_OBJECT_T;
+    ObjTmp           JSON_OBJECT_T;
+    ObjRes           JSON_OBJECT_T;
+    cEveDscCode      Z_116_EVENTDSC.CODE%type;
+    nEveDscId        Z_116_EVENTJRN.DSC_ID%type;
+    cStatus          Z_116_EVENTJRN.STATUS%type;
+    cParams          Z_116_EVENTJRN.PARAMS%type;
+    cErr             varchar2(2000);
+    dFrom            date;
+  begin
+    ObjIn := JSON_OBJECT_T.parse(pInput);
+    cEveDscCode := ObjIn.get_string('event');
+    if ObjIn.has('status') then
+      cStatus := ObjIn.get_string('status');
+    end if;
+    cParams := ObjIn.get_string('params');
+    if ObjIn.has('fromDate') then
+      dFrom := to_date(ObjIn.get_string('fromDate'),'YYYY-MM-DD HH24:MI:SS');
+    end if;
+
+    nEveDscId := fCode2Id(cEveDscCode, 1);
+
+    nRes := fSetEventJrn(nEveDscId,cStatus,dFrom,cParams,
+                         pErrMsg => cErr);
+
+    -- заполним ответ
+
+    if nRes > 0 then
+      ObjTmp := new JSON_OBJECT_T;
+      ObjTmp.put('id', nRes);
+      ObjTmp.put_null('error');
+      ObjRes := new JSON_OBJECT_T;
+      ObjRes.put('result', ObjTmp);
+      pOutput := ObjRes.To_Clob;
+    else
+      pOutput := Z_116_ELOAN_UTILS.fErr(-20000, 'Ошибка записи события %0:s в журнал: %1:s',vargs(cEveDscCode, cErr));
+      return;
+    end if;
+
+  exception
+    when others then
+      pOutput := Z_116_ELOAN_UTILS.fErr(sqlcode, 'Ошибка в процедуре создания события %0:s: %1:s',vargs(cEveDscCode, substr(SQLERRM||dbms_utility.format_error_backtrace,1,2000)));
+  end pSetEventJrn;
+
+
+  -- Изменение факта события в журнале
+  function fUpdEventJrn(
+    pEveJrnId        in   Z_116_EVENTJRN.ID%type,
+    pDSnd            in   Z_116_EVENTJRN.SND_DT%type default null,
+    pDRcv            in   Z_116_EVENTJRN.RCV_DT%type default null,
+    pStatus          in   Z_116_EVENTJRN.STATUS%type default null,
+    pCancelFl        in   Z_116_EVENTJRN.CANCELFL%type default null,
+    pParams          in   Z_116_EVENTJRN.PARAMS%type default null,
+    pErrmPrim        in   Z_116_EVENTJRN.ERRM%type default null,
+    pErrorMsg        out  varchar2
+  ) return integer is
+    nRes integer;
+  begin
+    update Z_116_EVENTJRN j set j.snd_dt = nvl(pDSnd, j.snd_dt),
+                                j.rcv_dt = nvl(pDRcv, j.rcv_dt),
+                                j.status = nvl(pStatus, j.status),
+                                j.cancelfl = nvl(pCancelFl, j.cancelfl),
+                                j.params = nvl(pParams, j.params),
+                                j.errm = nvl(pErrmPrim,j.errm)
+                            where j.id = pEveJrnId;
+    nRes := sign(sql%rowcount);
+    return nRes;
+
+  exception
+    when others then
+      pErrorMsg := substr(SQLERRM||dbms_utility.format_error_backtrace,1,2000);
+      return 0;
+  end fUpdEventJrn;
+
+
+end Z_116_PKGEVENT;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_EVENTDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_EVENTJRN"/>
+    </PKGDPNENT>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_ELOAN_UTILS"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

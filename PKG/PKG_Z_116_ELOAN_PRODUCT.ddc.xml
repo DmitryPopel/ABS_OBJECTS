@@ -1,0 +1,285 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_ELOAN_PRODUCT" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="C669B34CC0B06D209583DBF2F672FB1A">
+  <PKG 
+    NAME="Z_116_ELOAN_PRODUCT">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_ELOAN_PRODUCT is
+/**
+* Пакет для реализации методов работы с продуктами
+*
+* @author Ахмеджанов Сардор
+* @version 1.0
+* @headcom
+*
+* Copyright (c) 2023 By Aloqabank. All Rights Reserved.
+*/
+
+/** Получение параметров продукта
+* <br/><i>С версии 1.0</i>
+* @param pInput Код продукта
+* @param pOutput Параметры
+*/
+procedure pGetParameters(pInput in Clob,
+                         pOutput out Clob);
+
+/** Получение классификаторов продукта
+* <br/><i>С версии 1.0</i>
+* @param pInput Код продукта
+* @param pOutput Параметры
+*/
+procedure pGetСlassifiers(pInput in Clob,
+                          pOutput out Clob);
+
+/** Получение ограничения продукта
+* <br/><i>С версии 1.0</i>
+* @param pInput Код продукта
+* @param pOutput Параметры
+*/
+procedure pGetConstraints(pInput in Clob,
+                          pOutput out Clob);
+
+/** Получение допустимые сроки продукта
+* <br/><i>С версии 1.0</i>
+* @param pInput Код продукта
+* @param pOutput Параметры
+*/
+procedure pGetPeriods(pInput in Clob,
+                      pOutput out Clob);
+
+end Z_116_ELOAN_PRODUCT;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_ELOAN_PRODUCT is
+
+procedure pGetParameters(pInput in Clob,
+                         pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  sProductCode Varchar2(50);
+  aParameters JSON_OBJECT_T;
+  aParameter JSON_OBJECT_T;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sProductCode := aInput.get_string('productCode');
+  aParameters := JSON_OBJECT_T();
+  for cur in (with all_parameters as (
+                select distinct
+                  dc.id dcl_id,
+                  dpd.id prm_id,
+                  dpd.code prm_code,
+                  dpd.longname prm_name,
+                  dom.dat ora_type
+                from c_domain_std dom, t_deacls dc, t_deaprmdsc_std dpd, t_deaprmrul dcp
+                where dcp.dea_id = any(select ID from T_DEACLS_STD start with code = dc.code connect by prior id_HI = id)
+                and   dpd.id = dcp.par_id
+                and   dpd.groupfl = 0
+                and   dom.code(+) = dpd.d_code
+                and   dc.code = sProductCode
+              )
+              select
+                dc.code,
+                prm_dcl.code prm_dcl_code,
+                ap.prm_code,
+                ap.prm_name,
+                ap.ora_type,
+                dcp.parvalue,
+                dcp.lparvalue,
+                dcp.mandfl,
+                dcp.editfl,
+                dcp.hidefl,
+                dcp.minvalue,
+                dcp.maxvalue
+              from all_parameters ap
+              join t_deacls_std dc on dc.id = ap.dcl_id
+              join t_deaprmrul dcp on dcp.par_id = ap.prm_id
+              join t_deacls_std prm_dcl on prm_dcl.id = dcp.dea_id
+              where dcp.dea_id = any(select dea_id
+                                     from (select p.dea_id
+                                           from   t_deaprmrul p,
+                                                 (select ID, CODE, level lvl
+                                                  from  T_DEACLS_STD start with code=sProductCode connect by prior id_HI = id) c
+                                           where  p.dea_id = c.id
+                                           and    p.par_id = ap.prm_id
+                                           order by c.lvl)
+                                     where rownum = 1))
+  loop
+    aParameter := JSON_OBJECT_T();
+    if cur.parvalue is null and cur.lparvalue is not null then
+      aParameter.put('value', cur.lparvalue);
+    else
+      aParameter.put('value', cur.parvalue);
+    end if;
+    aParameter.put('type', cur.ora_type);
+    aParameter.put('name', cur.prm_name);
+    aParameter.put('isRequired', cur.mandfl);
+    aParameter.put('isReadOnly', cur.editfl);
+    aParameter.put('isHidden', cur.hidefl);
+    aParameter.put('minValue', cur.minvalue);
+    aParameter.put('maxValue', cur.maxvalue);
+    aParameters.put(cur.prm_code, aParameter);
+  end loop;
+  pOutput := aParameters.To_Clob;
+end pGetParameters;
+
+procedure pGetСlassifiers(pInput in Clob,
+                          pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  sProductCode Varchar2(50);
+  aСlassifiers JSON_OBJECT_T;
+  aСlassifier JSON_OBJECT_T;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sProductCode := aInput.get_string('productCode');
+  aСlassifiers := JSON_OBJECT_T();
+  for cur in (select
+                nvl(r.MANDFL,'1') MANDFL,
+                r.DEF_VALUE  DEF_VALUE,
+                U_PKGUNIREF.fCode(u.CODE, u.ENT_CODE, r.DEF_VALUE, 0)  DEF_VALUE_CODE,
+                U_PKGUNIREF.fLongname(u.CODE, u.ENT_CODE, r.DEF_VALUE, 0, 0) DEF_VALUE_NAME,
+                u.CODE||'.'||u.LONGNAME as LONGNAME,
+                u.CODE,
+                u.LONGNAME as NAME
+              from
+                L_DEAUNIREFRUL R,
+                U_UNIREF U,
+                T_DEACLS_STD S
+              where S.ID=R.DCL_ID
+              and R.REF_ID=U.ID
+              and R.DCL_ID in (select id from T_DEACLS_STD start with CODE = sProductCode
+                               connect by prior ID_HI=ID)
+              and L_PKGDEAUNIREF.fChkRef(r.DCL_ID, T_PkgDea.fDclId(sProductCode), r.REF_ID, s.NLEVEL) = 1)
+  loop
+    aСlassifier := JSON_OBJECT_T();
+    aСlassifier.put('value', cur.DEF_VALUE_CODE);
+    aСlassifier.put('name', cur.NAME);
+    aСlassifier.put('isRequired', cur.MANDFL);
+    aСlassifiers.put(cur.CODE, aСlassifier);
+  end loop;
+  pOutput := aСlassifiers.To_Clob;
+end pGetСlassifiers;
+
+procedure pGetConstraints(pInput in Clob,
+                          pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  sProductCode Varchar2(50);
+  aConstraint JSON_OBJECT_T;
+  aConstraints JSON_OBJECT_T;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sProductCode := aInput.get_string('productCode');
+  aConstraints := JSON_OBJECT_T();
+  for cur in (select
+                v.code as currency_code,
+                vd.min_sum,
+                vd.max_sum
+              from T_VALDEPCLS vd
+              join T_VAL_STD v on v.ID = vd.VAL_ID
+              join T_DEACLS_STD t on t.ID = vd.DCL_ID
+              where t.code = sProductCode)
+  loop
+    aConstraint := JSON_OBJECT_T();
+    aConstraint.put('minAmount', cur.min_sum);
+    aConstraint.put('maxAmount', cur.max_sum);
+    aConstraints.put(cur.currency_code, aConstraint);
+  end loop;
+  pOutput := aConstraints.To_Clob;
+end pGetConstraints;
+
+procedure pGetPeriods(pInput in Clob,
+                      pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  sProductCode Varchar2(50);
+  aPeriods JSON_ARRAY_T;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sProductCode := aInput.get_string('productCode');
+  aPeriods := JSON_ARRAY_T();
+  for cur in (select
+                p.time_unit || p.time_type as period
+              from T_DEALNKPRD m
+              join T_DEAPRD_STD p on p.ID = m.PRD_ID
+              join T_DEACLS_STD t on t.ID = m.DCL_ID
+              where t.code = sProductCode)
+  loop
+    aPeriods.append(cur.period);
+  end loop;
+  pOutput := aPeriods.To_Clob;
+end pGetPeriods;
+
+end Z_116_ELOAN_PRODUCT;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DOMAIN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEAUNIREFRUL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEACLS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEALNKPRD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPRD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPRMDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPRMRUL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_VAL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_VALDEPCLS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UNIREF"/>
+    </PKGDPNENT>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGDEAUNIREF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEA"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="U_PKGUNIREF"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

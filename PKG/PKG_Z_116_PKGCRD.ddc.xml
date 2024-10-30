@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGCRD" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="55BA730694D1F5B8F5FC7AA637AF49A7">
+  <PKG 
+    NAME="Z_116_PKGCRD">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGCRD as
+/**
+* Функции и процедуры карточного бэк-офиса
+*
+* @author Джеймс Бонд
+* @version 1.0
+* @headcom
+*
+*/
+
+  /** Процедура проверки соответствия кода НИББД добавляемого счета устройства с типом TRANSIT и кода НИББД счета из "Расчеты по договору"
+  * <br/><i>С версии 1.0</i>
+  * @param nDevDepID Идентификатор подразделения устройства
+  * @param nDevID Идентификатор устройства
+  * @param nAccDepId Идентификатор подразделения счета
+  * @param nAccId Идентификатор счета
+  * @param cAccTyp тип добавляемого счета
+  */
+  procedure pIsErrTRANSITAcc(
+    nDevDepId        in N_DEVACC.DEV_DEP_ID%type,
+    nDevId           in N_DEVACC.DEV_ID%type,
+    nAccDepId        in N_DEVACC.DEP_ID%type default null,
+    nAccId           in N_DEVACC.ID%type default null,
+    cAccTyp          in N_DEVACC.ACCTYP%type default null
+  );
+
+end Z_116_PKGCRD;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGCRD is
+
+  -- Процедура проверки соответствия кода НИББД добавляемого счета устройства с типом TRANSIT и кода НИББД счета из "Расчеты по договору"
+  procedure pIsErrTRANSITAcc(
+    nDevDepId        in N_DEVACC.DEV_DEP_ID%type,
+    nDevId           in N_DEVACC.DEV_ID%type,
+    nAccDepId        in N_DEVACC.DEP_ID%type default null,
+    nAccId           in N_DEVACC.ID%type default null,
+    cAccTyp          in N_DEVACC.ACCTYP%type default null
+  )
+  as
+    cTransitAccCode     G_ACCBLN.Code%type;
+    cNIBBDCode          G_CLIIDN.IDN_NUM%type;
+    cSyscode            N_SPRDEV.Syscode%type;
+    nDEA_DEP_ID         N_DEVLNK.DEP_ID%type;
+    nDEA_ID             N_DEVLNK.ID%type;
+    cArlCode_CMSPB      T_ARLDSC_STD.CODE%type := 'N_TSE_DEVTRN_CMSPB';
+
+    cNIBBDCodeArl       G_CLIIDN.IDN_NUM%type;
+    cAccCodeArl         G_ACCBLN.Code%type;
+    cArlName            T_ARLDSC.LONGNAME%type;
+  begin
+    -- найдем договор ТСП по устройству:
+    select d.DEP_ID, d.ID into nDEA_DEP_ID, nDEA_ID
+      from N_DEVLNK d
+      where d.DEV_DEP_ID = nDevDepID and d.DEV_ID = nDevID;
+    cSyscode := N_PKGSPRDEV.fGetDevData(nDevDepID, nDevID).SYSCODE;
+
+    -- если передан конкретный счет и тип счета устройства:
+    if nAccDepId is not null and nAccId is not null and nvl(cAccTyp,'-') = 'TRANSIT' then
+      select  b.code, g_pkgnibbdutl.fGetNIBBDCodeByAccCode(b.code)
+        into cTransitAccCode, cNIBBDCode
+        from N_DEVACC a, G_ACCBLN b, N_SPRDEV d, LEDACC_STD la
+        where a.DEV_ID = nDevId and a.DEV_DEP_ID = nDevDepId
+          and a.ID = nAccId and a.DEP_ID = nAccDepId
+          and a.ID = b.ID and a.DEP_ID = b.DEP_ID
+          and a.dev_id = d.ID and a.dev_dep_id = d.dep_id
+          and a.acctyp = cAccTyp
+          and b.cha_id = la.id
+          -- проверяем только конкретные ГК
+          and c_pkgprm.fInList(la.code, 'Z_116_DEVTRANSITCHKLEDLST') = 1;
+    else
+      cTransitAccCode := n_pkgsprdev.fGetAccCode(nDevDepId, nDevId, 'TRANSIT');
+      cNIBBDCode := g_pkgnibbdutl.fGetNIBBDCodeByAccCode(cTransitAccCode);
+    end if;
+
+    if cNIBBDCode is not null then
+      -- найдем счет из Расчетов по договору:
+      select longname, code_acc, NIBBDCode
+        into cArlName, cAccCodeArl, cNIBBDCodeArl
+        from
+         (select
+            a.longname, o.CLC_ID, p.code_acc, g_pkgnibbdutl.fGetNIBBDCodeByAccCode(p.code_acc) as NIBBDCode
+          from T_ARLDEA o, T_ARLCLC c, T_ARLDSC a, T_DEAPAYATR p --, T_PAYATRTYP_STD t
+          where o.CLC_ID = c.ID and c.ARL_ID = a.ID
+            and p.DEP_ID(+) = o.DEP_ID and p.ID(+) = o.ORD_ID and p.NORD(+) = o.PAY_NORD
+            and a.NOPAYFL = '0'
+            and a.code = cArlCode_CMSPB
+            and o.pay_type = 'A'
+            and o.DEP_ID = nDevDepId and o.ORD_ID = nDevId
+          union all
+          select
+             a.longname, o.CLC_ID, p.code_acc , g_pkgnibbdutl.fGetNIBBDCodeByAccCode(p.code_acc)
+          from T_ARLDEA o, T_ARLCLC c, T_ARLDSC a, T_DEAPAYATR p
+          where o.CLC_ID = c.ID and c.ARL_ID = a.ID
+            and p.DEP_ID(+) = o.DEP_ID and p.ID(+) = o.ORD_ID and p.NORD(+) = o.PAY_NORD
+            and a.NOPAYFL = '0'
+            and a.code = cArlCode_CMSPB
+            and o.DEP_ID = nDEA_DEP_ID and o.ORD_ID = nDEA_ID
+            and exists(select 1 from T_ARLMETHPRM am where am.ID = o.CLC_ID and upper(am.PAR_CODE) = 'SDEVCODE' and am.VALUE = cSyscode)
+          ) rpd;
+      -- если коды НИББД в счетах не совпадают, значит ошибка
+      if cNIBBDCodeArl <> cNIBBDCode then
+        raise_application_error(-20001,LocalFrmt('Код НИББД в транзитном счете %0:s не совпадает с кодом НИББД счета %1:s, заданного в расчетах по виду суммы %2:s'
+          , vargs(cTransitAccCode, cAccCodeArl, cArlName),'PKG','Z_116_PKGCRD'));
+      end if;
+
+    end if;
+
+  exception
+    when NO_DATA_FOUND then
+      t_log.debug('  Z_116_PKGCRD.pIsErrTRANSITAcc: exception NO_DATA_FOUND',sType => 'PKG',sCode => 'Z_116_PKGCRD');
+      return;  -- ничего не делаем
+
+  end pIsErrTRANSITAcc;
+
+end Z_116_PKGCRD;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIIDN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_DEVACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_DEVLNK"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_SPRDEV"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ARLCLC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ARLDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ARLDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ARLMETHPRM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPAYATR"/>
+    </PKGDPNENT>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGNIBBDUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="N_PKGSPRDEV"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

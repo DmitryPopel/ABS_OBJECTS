@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGEVENT_INF" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="01105E8FDBDC8490B62C5D20896D98AB">
+  <PKG 
+    NAME="Z_116_PKGEVENT_INF">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGEVENT_INF is
+/**
+* Прикладные методы работы с событиями информирования
+*
+* @author Бондаренко Анатолий
+* @version 1.0
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+  /** Событие информирования поручителя по кредиту
+  * @param op Текущая операция
+  */
+  procedure pEveInfGrnt(op in out bs_operation.selfattr);
+
+end Z_116_PKGEVENT_INF;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGEVENT_INF is
+
+  idEvL_GRNT_INF z_116_eventdsc.id%type := z_116_pkgevent.fCode2Id('L_GRNT_INF');
+
+  -- Событие информирования поручителя по кредиту
+  procedure pEveInfGrnt(op in out bs_operation.selfattr) is
+    cText                  varchar2(500);
+    cErrText               varchar2(2000);
+    cErrUpd                varchar2(2000);
+    nDeaSdok               T_DEA.Sdok%type;
+    cDeaCode               T_ORD.Code%type;
+    cName                  G_CLIHST.Longname%type;
+    cPhone                 G_CLICONT.CONT%type;
+    i                      integer;
+
+    сlResult clob;
+    oRequestResult JSON_OBJECT_T;
+    oData JSON_OBJECT_T;
+    cSrvcURL varchar2(500) := 'POST '||C_PKGPRM.fGetValPrm('Z_116_EV_L_GRNT_INF_URL');
+    oWHeaders JSON_OBJECT_T;
+    oStrategy JSON_OBJECT_T;
+    iReqID z_116_eventjrn.id%type;
+    oResult JSON_OBJECT_T;
+    oTmp JSON_OBJECT_T;
+    bSuccess boolean;
+  begin
+    -- Hurmatli mijoz siz fuqaro Ivanov Ivan Ivanovichning  00985F00066-sonli kredit shartnomasi (50000000 so’m) bo’yicha kafil bo’layotganligizni ma’lum qilamiz.
+
+    if nvl(c_pkgprm.fGetValPrm('Z_116_EV_L_GRNT_INF_FL'),'0') = '1' then
+
+      select  t.sdok, o.code, nvl(ch.llongname, ch.longname)
+            into nDeaSdok, cDeaCode, cName
+            from T_DEA t, T_ORD o, G_CLIHST ch
+              where t.dep_id = op.DEP_ID$ and t.id = op.ORD_ID$
+                and t.dep_id = o.dep_id and t.id = o.id
+                and t.cli_dep_id = ch.dep_id and t.cli_id = ch.id
+                and p_operday between ch.fromdate and ch.todate;
+
+      -- текст сообщения формируем по шаблону из системного параметра
+      cText := format(C_PKGPRM.fGetValPrm('Z_116_EV_L_GRNT_INF_TXT'),vargs(cName,cDeaCode,nDeaSdok));
+
+      -- рассылка по всем поручителям
+      for grn in ( select  md.CLI_DEP_ID, md.CLI_ID
+                     from l_dea l, t_dea t, t_procmem pm, t_process p, t_bop_stat_std s, L_MRTDEA md, l_mortgage m, L_ENSDSC_STD e
+                     where l.dep_id = t.dep_id and l.id = t.id
+                       and l.dep_id = op.DEP_ID$ and l.id = op.ORD_ID$
+                       and p.ID = pm.ID
+                       and pm.ORD_ID = md.mrt_id and pm.DEP_ID = md.mrt_dep_id  and pm.mainfl = '1'
+                       and s.ID = p.BOP_ID and s.NORD = p.NSTAT and s.code||'' = 'MORTGAGE'  -- "Принят к учету"
+                       and l.dep_id = md.dea_dep_id and l.id = md.dea_id
+                       and e.ID = M.ENS_ID and m.DEP_ID = md.mrt_dep_id and m.ID = md.mrt_id and e.styp = 'GRNT' -- Поручительство
+                       ) loop
+        cPhone := coalesce(G_PKGCLICONT.fGetCLICont(grn.cli_dep_id, grn.cli_id, 'MOB',pBASFL => '1')
+                           , G_PKGCLICONT.fGetCLICont(grn.cli_dep_id, grn.cli_id, 'MOB',pBASFL => '0'));
+        cPhone := substr(trim(cPhone), instr(trim(cPhone),'+')+1);
+        -- сделаем запись в журнале событий для каждого сообщения
+        iReqID := Z_116_PKGEVENT.fSetEventJrn(idEvL_GRNT_INF, pParams => cPhone||'=>'||cText,pErrMsg => cErrText);
+
+        if iReqID <> 0 then
+          oRequestResult := CESB_BASE.CreateJSONObject;
+          oData := CESB_BASE.CreateJSONObject;
+          oWHeaders := CESB_BASE.CreateJSONObject;
+          CESB_BASE_MQ.SetJsonResultStrategy(Strategy => oStrategy);
+          oData.put('phoneNumber',cPhone);
+          oData.put('text',cText);
+
+          -- вызов сервиса отправки СМС
+          oRequestResult := CESB_BASE_MQ.CESBProxyRequestDef(
+                                                  RequestID => iReqID,
+                                                  RequestUID => to_char(iReqID),
+                                                  Sender => 'DB',
+                                                  Data => oData.STRINGIFY,
+                                                  URL => cSrvcURL,
+                                                  WType => null,
+                                                  WHeaders => oWHeaders,
+                                                  Strategy => oStrategy,
+                                                  Response => сlResult,
+                                                  NeedExceptionIfNo200 => false
+                                                  );
+          -- обработка ответа сервиса из сlResult
+          oResult := JSON_OBJECT_T.parse(сlResult);
+          oTmp := oResult.get_Object('result');
+          bSuccess := oTmp.get_Boolean('success');
+          cErrText := oResult.get_String('error');
+
+          i := Z_116_PKGEVENT.fUpdEventJrn(iReqID, pDRcv     => sysdate,
+                                                   pStatus   => dbase.IIF(bSuccess, '3', '1'),
+                                                   pErrmPrim => cErrText,
+                                                   pErrorMsg => cErrUpd);
+
+        else
+          null; -- todo: обработка ошибки
+        end if;
+      end loop;
+    end if;  -- проверка сиспара Z_116_EV_L_GRNT_INF_FL
+
+  end pEveInfGrnt;
+
+end Z_116_PKGEVENT_INF;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_OPERATION"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLICONT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_ENSDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MORTGAGE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MRTDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_EVENTDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_EVENTJRN"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_LOCID"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="CESB_BASE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="CESB_BASE_MQ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="DBASE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLICONT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKGEVENT"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

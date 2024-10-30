@@ -1,0 +1,752 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_IMV_CREDIT_DETAILS" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="222CA7CF235DA9E819D120DC13D0313C">
+  <PKG 
+    NAME="Z_116_PKG_IMV_CREDIT_DETAILS">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_IMV_CREDIT_DETAILS is
+  /**
+  * Информация об ипотечных кредитах
+  *
+  * @author Farziddin Nasriddinov
+  * @author Хакимов Муроджон
+  * @author Siroj Samadov
+  * @author Farhod Marufjonov
+  * @version 1.3
+  * @headcom
+  *
+  * Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+  */
+
+  Procedure Pgetdeapinfl
+  (
+    Pinput  in clob,
+    Poutput out clob
+  );
+  Procedure Psaveeducationdata
+  (
+    Pinput  in clob,
+    Poutput out clob
+  );
+  Procedure Pgetdata
+  (
+    Pinput  in clob,
+    Poutput out clob
+  );
+  Procedure Psaveloandata
+  (
+    Credit_Id in varchar,
+    Pinfl     in varchar
+  );
+  Procedure Pgetloandata
+  (
+    Pinput  in clob,
+    Poutput out clob
+  );
+
+end Z_116_PKG_IMV_CREDIT_DETAILS;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_IMV_CREDIT_DETAILS as
+  Procedure Pgetdeapinfl
+  (
+    Pinput  in clob,
+    Poutput out clob
+  ) is
+    Jinput     Json_Object_t := Json_Object_t.Parse(Pinput);
+    Nyear      number;
+    Dstartdate date;
+    Denddate   date;
+    Jitem      Json_Object_t;
+    Aitems     Json_Array_t := Json_Array_t();
+  begin
+    c_Pkgconnect.Popen();
+
+    Nyear := Jinput.Get_Number('year');
+
+    Dstartdate := Trunc(to_date(Nyear, 'yyyy'), 'year');
+    Denddate   := Add_Months(Dstartdate, 12) - 1;
+
+    for Dcl in (select Id
+                  from t_Deacls_Std
+                 where l_Pkgdeauniref.Fgetclsrefvalcode(Id, u_Pkguniref.Frefcode2id('UZ_VIDCRED')) = 59
+                   and Code not in ('UZ.FL.OBR', 'UZ.FL.ARC.OBR.59'))
+    loop
+      for r in (select t.Dep_Id,
+                       t.Id,
+                       t.Fromdate,
+                       g_Pkgcliidn.Fcliidn(c.Dep_Id, c.Id, g_Pkgidn.Fid('IDN_PRS_UZ')) as Pinfl
+                  from t_Dea t, t_Ord o, t_Procmem m, t_Process p, t_Bop_Stat s, g_Clihst c
+                 where t.Dep_Id = o.Dep_Id
+                   and t.Id = o.Id
+                   and c.Dep_Id = t.Cli_Dep_Id
+                   and c.Id = t.Cli_Id
+                   and m.Dep_Id = t.Dep_Id
+                   and m.Ord_Id = t.Id
+                   and m.Mainfl = '1'
+                   and p.Id = m.Id
+                   and s.Id = p.Bop_Id
+                   and s.Nord = p.Nstat
+                   and p_Operday between c.Fromdate and c.Todate
+                   and t.Dcl_Id = Dcl.Id
+                   and t.Fromdate between Dstartdate and Denddate
+                   and t_Pkgdeaprm.Fdeaparbycode(t.Id, t.Dep_Id, 'EDU_NAME') is null)
+      loop
+        Jitem := Json_Object_t();
+
+        Jitem.Put('depId', r.Dep_Id);
+        Jitem.Put('id', r.Id);
+        Jitem.Put('pinfl', r.Pinfl);
+        Aitems.Append(Jitem);
+      end loop;
+    end loop;
+
+    Poutput := Aitems.To_Clob;
+  end;
+
+  Procedure Psaveeducationdata
+  (
+    Pinput  in clob,
+    Poutput out clob
+  ) is
+    Jinput Json_Object_t := Json_Object_t.Parse(Pinput);
+    Ndepid number;
+    Nid    number;
+    Jdata  Json_Object_t;
+  begin
+    Ndepid := Jinput.Get_Number('depId');
+    Nid    := Jinput.Get_Number('id');
+    Jdata  := Jinput.Get_Object('education');
+
+    t_Pkgdeaprm.Psetprm(Nid, Ndepid, 'EDU_NAME', Jdata.Get_String('university_name'));
+    t_Pkgdeaprm.Psetprm(Nid, Ndepid, 'EDU_COURSE', Jdata.Get_Number('course_code') - 10);
+    Poutput := '{}';
+  end;
+
+  Procedure Pgetdata
+  (
+    Pinput  in clob,
+    Poutput out clob
+  ) is
+    Jinput     Json_Object_t := Json_Object_t.Parse(Pinput);
+    Dstartdate date;
+    Denddate   date;
+    Jitem      Json_Object_t;
+    Aitems     Json_Array_t := Json_Array_t();
+    Joutput    Json_Object_t := Json_Object_t();
+    Jerr       Json_Object_t := Json_Object_t();
+
+    Procedure Getprm
+    (
+      Jitem  in out nocopy Json_Object_t,
+      Vname  varchar2,
+      Ndepid number,
+      Nid    number,
+      Vcode  varchar2
+    ) is
+    begin
+      begin
+        Jitem.Put(Vname, t_Pkgdeaprm.Fdeaparbycode(Nid, Ndepid, Vcode));
+      exception
+        when others then
+          Jitem.Put_Null(Vname);
+      end;
+    end;
+  begin
+    c_Pkgconnect.Popen();
+
+    begin
+      Dstartdate := to_date(Jinput.Get_String('startDate'), 'YYYY-MM-DD');
+      Denddate   := to_date(Jinput.Get_String('endDate'), 'YYYY-MM-DD');
+
+    exception
+      when others then
+        Jerr.Put('error', '400');
+        Jerr.Put('message', 'parameter value is invalid');
+
+        Poutput := Jerr.To_Clob;
+
+        return;
+    end;
+
+    if Dstartdate > Denddate then
+      Jerr.Put('error', '400');
+      Jerr.Put('message', 'parameter value is invalid');
+
+      Poutput := Jerr.To_Clob;
+
+      return;
+    end if;
+
+    for Dcl in (select Id
+                  from t_Deacls_Std
+                 where l_Pkgdeauniref.Fgetclsrefvalcode(Id, u_Pkguniref.Frefcode2id('UZ_VIDCRED')) = 59
+                   and l_Pkgdeauniref.Fgetclsrefvalcode(Id, u_Pkguniref.Frefcode2id('UZ_VIDIST')) = 22 /* МинФин */
+                )
+    loop
+      for r in (select t.Dep_Id,
+                       t.Id,
+                       g_Pkgcli.Fgetclicode(c.Dep_Id, c.Id) as Code,
+                       g_Pkgcliidn.Fcliidn(c.Dep_Id, c.Id, g_Pkgidn.Fid('IDN_PRS_UZ')) as Pinfl,
+                       c.Longname as Fullname,
+                       Decode(c.Psex, 'F', 'female', 'male') as Gender,
+                       c.Passser || c.Passnum as Passport_Number,
+                       c.Passdat as Passport_Date,
+                       o.Code as Credit_Contract_Number,
+                       to_char(t.Fromdate, 'YYYY-MM-DD') as Credit_Contract_Date,
+                       t.Sdok as Credit_Contract_Amount,
+                       to_char(t.Fromdate, 'YYYY-MM-DD') as Allocated_Contract_Date,
+                       t.Sdok as Allocated_Contract_Amount,
+                       t_Pkgarl.Fpcnvalbyarlalias(t.Dep_Id, t.Id, 'INTEREST', p_Operday, 1) as Credit_Procent,
+                       o.Correctdt,
+                       to_char(Json_Value(Rd.Json, '$.app.regionName')) Region,
+                       to_char(Json_Value(Rd.Json, '$.app.districtName')) District,
+                       Decode(s.Name, 'Завершение', 1, 0) as Credit_Contract_Active
+                  from t_Dea        t,
+                       t_Ord        o,
+                       t_Procmem    m,
+                       t_Process    p,
+                       t_Bop_Stat   s,
+                       g_Clihst     c,
+                       l_Reqdea_Ext e,
+                       l_Reqdea     Rd
+                 where t.Dep_Id = o.Dep_Id
+                   and t.Id = o.Id
+                   and c.Dep_Id = t.Cli_Dep_Id
+                   and c.Id = t.Cli_Id
+                   and m.Dep_Id = t.Dep_Id
+                   and m.Ord_Id = t.Id
+                   and m.Mainfl = '1'
+                   and p.Id = m.Id
+                   and s.Id = p.Bop_Id
+                   and s.Nord = p.Nstat
+                   and p_Operday between c.Fromdate and c.Todate
+                   and e.Appid(+) = t_Pkgdeaprm.Fparbycode(t.Id, t.Dep_Id, 'L_UNNUMBER')
+                   and Rd.Dep_Id(+) = e.Dep_Id
+                   and Rd.Id(+) = e.Id
+                   and t.Dcl_Id = Dcl.Id
+                   and t.Fromdate between Dstartdate and Denddate
+                   and l_Pkgaccreq.Fprocandaccstate(s.Code, s.Longname, t.Dep_Id, t.Id, Praise => 0) in
+                       ('Погашен',
+                        'Завершение',
+                        'Списан',
+                        'Списан ОД',
+                        'Списан ОД и %%',
+                        'Передан в суд',
+                        'Погашен по решению суда',
+                        'Актуален'))
+      loop
+        Jitem := Json_Object_t();
+
+        Jitem.Put('id', r.Code); -- talaba id (bank da saqlangan id)
+        Jitem.Put('pinfl', r.Pinfl); -- talaba JSHSHIR
+        Jitem.Put('created_at', to_char(r.Correctdt, 'YYYY-MM-DD HH:MI:SS')); -- 2023-12-26 15:10:42.998612 +00:00
+        Jitem.Put('fullname', r.Fullname); -- talaba F.I.O
+        Jitem.Put('gender', r.Gender); -- talaba jinsi
+        Jitem.Put('passport_number', r.Passport_Number); -- passport seriya va raqami (AA1234567)
+        Jitem.Put('passport_date', to_char(r.Passport_Date, 'YYYY-MM-DD')); -- passport berilgan sanasi
+        Getprm(Jitem, 'university_name', r.Dep_Id, r.Id, 'EDU_NAME'); -- University Name
+        Getprm(Jitem, 'university_tin', r.Dep_Id, r.Id, 'EDU_TIN'); -- University INN (optional)
+
+        Jitem.Put_Null('credit_contract_course');
+        --         getPrm(jItem,
+        --                'credit_contract_course',
+        --                r.dep_id,
+        --                r.id,
+        --                'EDU_COURSE'); -- talaba qaysi kursda shartnoma olinganligi (1, 2, 3, 4, 5)
+        Jitem.Put('credit_contract_number', r.Credit_Contract_Number); -- Kredit shartnoma raqami
+        Jitem.Put('credit_contract_date', r.Credit_Contract_Date); -- Kredit shartnoma sanasi
+        Jitem.Put('credit_contract_amount', r.Credit_Contract_Amount); -- Kredit shartnoma tuzilgan summasi miqdori(so'mda)
+        Jitem.Put('allocated_contract_date', r.Allocated_Contract_Date); -- Ajratilgan kredit summasi sanasi
+        Jitem.Put('allocated_contract_amount', r.Allocated_Contract_Amount); -- Ajratilgan kredit summasi (so'mda)
+        Jitem.Put('credit_procent', r.Credit_Procent); -- Kredit %
+        Jitem.Put('bank_mfo', '00401'); --  Bank MFO number
+        Jitem.Put('bank_code', '00401'); -- Bank code
+        Jitem.Put('bank_name', 'AT «AloqaBank»'); -- Bank Nomi
+        Jitem.Put('bank_region', r.Region); -- Kredit berilgan bank viloyati
+        Jitem.Put('bank_district', r.District); -- Kredit berilgan bank tumani
+        Jitem.Put('credit_contract_active', r.Credit_Contract_Active); -- Joriy Kredit shartnoma activeligi (To'lanayotgan(0), Yopilgan(1))
+
+        Aitems.Append(Jitem);
+      end loop;
+    end loop;
+
+    Joutput.Put('data', Aitems);
+
+    Poutput := Joutput.To_Clob;
+  end;
+
+  Procedure Psaveloandata
+  (
+    Credit_Id in varchar,
+    Pinfl     in varchar
+  ) is
+    Nclidepid number;
+    Ncliid    number;
+    Screditid varchar2(100) := Regexp_Replace(Credit_Id, '\s', '');
+    Spinfl    varchar2(100) := Regexp_Replace(Pinfl, '\s', '');
+  begin
+    c_Pkgconnect.Popen();
+
+    select c.Dep_Id, c.Id
+      into Nclidepid, Ncliid
+      from g_Cliidn Ci,
+           g_Cli c,
+           t_Bop_Stat s,
+           t_Procmem m,
+           (select Id, Bop_Id, Nstat
+              from t_Process
+             where Bop_Id = Bs_Bop.Fgetbopid('CLIENTS')) p
+     where Idn_Num = Spinfl
+       and Idn_Id in (select Id
+                        from g_Idndsc_Std
+                       where Code = 'IDN_PRS_UZ')
+       and p_Operday between Fromdate and Todate
+       and c.Dep_Id = Ci.Dep_Id
+       and c.Id = Ci.Id
+       and m.Ord_Id = c.Ord_Id
+       and m.Dep_Id = c.Dep_Id
+       and p.Id = m.Id
+       and m.Mainfl = '1'
+       and s.Id = p.Bop_Id
+       and s.Nord = p.Nstat
+     order by Decode(s.Code, 'CLOSED', 1, 0)
+     fetch first 1 row only;
+
+    insert into z_116_Get_Loan_Review
+      (Credit_Id,
+       Loan_Pnfl,
+       Bank_Mfo,
+       Bank_Name,
+       Loan_Person_Name,
+       Pas_Series_Number,
+       Tin,
+       Region,
+       District,
+       Address,
+       Date_Of_Contract,
+       Loan_Allocated_Date,
+       Contract_End_Date,
+       Contract_Number,
+       Contract_Summ,
+       Disbursed_Loan_Amount,
+       Loan_Interest_Rate,
+       Credit_Balance,
+       Paid_Precent_Amount,
+       Cadastral_Number,
+       Credit_Provision_Amount,
+       Tin_Of_Company,
+       Name_Of_Company,
+       Type_Of_Credit,
+       Type_Of_Supply)
+      select Screditid,
+             Loan_Pnfl,
+             Bank_Mfo,
+             Bank_Name,
+             Loan_Person_Name,
+             Pas_Series_Number,
+             Tin,
+             Region,
+             District,
+             Address,
+             trim(Date_Of_Contract) as Date_Of_Contract,
+             to_char(Loan_Allocated_Date, 'dd.mm.yyyy') as Loan_Allocated_Date,
+             to_char(Contract_End_Date, 'dd.mm.yyyy') as Contract_End_Date,
+             Contract_Number,
+             (Contract_Summ) * 100 as Contract_Summ,
+             (Disbursed_Loan_Amount) * 100 as Disbursed_Loan_Amount,
+             Loan_Interest_Rate,
+             (Credit_Balance) * 100 as Credit_Balance,
+             (Paid_Precent_Amount) * 100 as Paid_Precent_Amount,
+             Cadastral_Number,
+             (Credit_Provision_Amount) * 100 as Credit_Provision_Amount,
+             Tin_Of_Company,
+             Name_Of_Company,
+             Type_Of_Credit,
+             Type_Of_Supply
+
+        from (select c_Pkgdep.Fgetcodedep(Vv.Dep_Id) as Bank_Mfo,
+                     (select Longname
+                        from c_Dep_Std
+                       where Id = Vv.Dep_Id) as Bank_Name,
+                     g_Pkgcli.Fgetclilongname(Vv.Cli_Dep_Id, Vv.Cli_Id) as Loan_Person_Name,
+                     g_Pkgcliidn.Fcliidn(Vv.Cli_Dep_Id, Vv.Cli_Id, g_Pkgidn.Fid('IDN_PRS_UZ')) as Loan_Pnfl,
+                     (select Passser || Passnum
+                        from g_Clihst
+                       where Dep_Id = Vv.Cli_Dep_Id
+                         and Id = Vv.Cli_Id
+                         and p_Operday between Fromdate and Todate) as Pas_Series_Number,
+                     g_Pkgcli.Fgetclitaxcode(Vv.Cli_Dep_Id, Vv.Cli_Id) as Tin,
+                     u_Pkguniref_Uz.Fgetoblnamebycode(g_Pkgaddress_Uz.Fgetobl(Vv.Adr_Id)) as Region,
+                     u_Pkguniref_Uz.Fgetrnnamebycode(g_Pkgaddress_Uz.Fgetrn(Vv.Adr_Id)) as District,
+                     (select Json_Value(r.Json, '$.app.objectOfLoan')
+                        from l_Reqdea_Ext e, l_Reqdea r
+                       where e.Appid = t_Pkgdeaprm.Fparbycode(Vv.Id, Vv.Dep_Id, 'L_UNNUMBER')
+                         and r.Dep_Id = e.Dep_Id
+                         and r.Id = e.Id) as Address, --g_pkgaddress.fGetPartName(vv.adr_id, G_ADDR_FULL) AS address,
+                     (select to_char(Dord, 'dd.mm.yyyy')
+                        from t_Ord
+                       where Dep_Id = Vv.Dep_Id
+                         and Id = Vv.Id) as Date_Of_Contract,
+                     to_date(t_Pkgdeaprm.Fcanonical2displayvalue(Nvl(t_Pkgdeaprm.Fpar(Vv.Id,
+                                                                                      Vv.Dep_Id,
+                                                                                      1001),
+                                                                     t_Pkgdeaprm.Fclspar(Vv.Dcl_Id,
+                                                                                         1001)),
+                                                                 1001),
+                             'dd.mm.yyyy') as Loan_Allocated_Date,
+                     /*Nvl(Vv.Loan_Allocated_Date,
+                     to_date(t_Pkgdeaprm.Fcanonical2displayvalue(Nvl(t_Pkgdeaprm.Fpar(Vv.Id,
+                                                                                      Vv.Dep_Id,
+                                                                                      1001),
+                                                                     t_Pkgdeaprm.Fclspar(Vv.Dcl_Id,
+                                                                                         1001)),
+                                                                 1001),
+                             'dd.mm.yyyy')) as Loan_Allocated_Date,*/
+                     (select Todate
+                        from t_Dea
+                       where Dep_Id = Vv.Dep_Id
+                         and Id = Vv.Id) as Contract_End_Date,
+                     (select Code
+                        from t_Ord
+                       where Dep_Id = Vv.Dep_Id
+                         and Id = Vv.Id) as Contract_Number,
+                     Nvl(t_Pkgdeaprm.Fparbycode(Vv.Id, Vv.Dep_Id, 'Z_116_FACTSUMSUBS'),
+                         (select Sdok
+                            from t_Dea
+                           where Dep_Id = Vv.Dep_Id
+                             and Id = Vv.Id)) as Contract_Summ,
+                     t_Pkgdeaacc.Fdeaaccbal(Vv.Dep_Id, Vv.Id, 'CR_AMT', Vv.Val_Id) as Disbursed_Loan_Amount,
+                     (select Pcn
+                        from Lv_Qr_Arl
+                       where Dep_Id = Vv.Dep_Id
+                         and Id = Vv.Id
+                         and Pcn_Id = Vv.Pcn_Id) as Loan_Interest_Rate,
+                     t_Pkgdeaacc.Fdeaaccbal(Vv.Dep_Id, Vv.Id, 'CR_BAL', Vv.Val_Id) +
+                     t_Pkgdeaacc.Fdeaaccbal(Vv.Dep_Id, Vv.Id, 'CR_EXP_PD', Vv.Val_Id) as Credit_Balance,
+                     t_Pkgdeaacc.Fdeaaccbal(Vv.Dep_Id, Vv.Id, 'CR_INT_T', Vv.Val_Id) as Paid_Precent_Amount,
+                     (select Cadnum_Object
+                        from l_Real_Estate
+                       where Dep_Id = Vv.Mrt_Dep_Id
+                         and Id = Vv.Mrt_Id) as Cadastral_Number,
+                     (select Mortg_Cost
+                        from l_Mortgage
+                       where Dep_Id = Vv.Mrt_Dep_Id
+                         and Id = Vv.Mrt_Id) as Credit_Provision_Amount,
+                     g_Pkgcli.Fgetclitaxcode(Vv.Cli_Dep_Id, Vv.Cli_Id) as Tin_Of_Company,
+                     (select Json_Value(r.Json, '$.objectOfCredit.seller')
+                        from l_Reqdea_Ext e, l_Reqdea r
+                       where e.Appid = t_Pkgdeaprm.Fparbycode(Vv.Id, Vv.Dep_Id, 'L_UNNUMBER')
+                         and r.Dep_Id = e.Dep_Id
+                         and r.Id = e.Id) as Name_Of_Company, --g_Pkgcli.Fgetclilongname(Vv.Cli_Dep_Id, Vv.Cli_Id) as Name_Of_Company,
+                     Vv.Pur_Name as Type_Of_Credit,
+                     Vv.Dep_Id,
+                     Vv.Id,
+                     (select Listagg(e.Longname, ', ') Within group(order by e.Longname) as Ens_Knd_Name
+                        from t_Process  p,
+                             t_Procmem  r,
+                             l_Mrtdea   Md,
+                             l_Mortgage m,
+                             t_Bop_Stat s,
+                             l_Ensdsc   e
+                       where e.Id = m.Ens_Id
+                         and m.Dep_Id = Md.Mrt_Dep_Id
+                         and m.Id = Md.Mrt_Id
+                         and p.Id = r.Id
+                         and r.Ord_Id = m.Id
+                         and r.Dep_Id = m.Dep_Id
+                         and s.Id = p.Bop_Id
+                         and s.Nord = p.Nstat
+                         and Md.Dea_Dep_Id = Vv.Dep_Id
+                         and Md.Dea_Id = Vv.Id
+                         and p.Nstat = '2'
+                         and s.Code like 'MORTGAGE') as Type_Of_Supply
+                from (select t.Dep_Id      Dep_Id,
+                             t.Id          Id,
+                             t.Cli_Dep_Id  Cli_Dep_Id,
+                             t.Cli_Id      Cli_Id,
+                             t.Dcl_Id,
+                             x.Adr_Id,
+                             Ox.Val_Id,
+                             Om.Pcn_Id,
+                             Dd.Mrt_Dep_Id,
+                             Dd.Mrt_Id,
+                             t.Fromdate    as Loan_Allocated_Date,
+                             Fj.Pur_Name
+                        from t_Dea           t,
+                             t_Deaprm        o,
+                             t_Deaprmdsc_Std q,
+                             g_Cliaddress    x,
+                             l_Mrtdea        Dd,
+                             l_Mortgage      f,
+                             t_Ord           Ox,
+                             Tv_Arldea       Om,
+                             Lv_Main_Fj      Fj
+                       where t.Dep_Id = o.Dep_Id
+                         and t.Id = o.Id
+                         and t.Cli_Dep_Id = Nclidepid
+                         and t.Cli_Id = Ncliid
+                         and x.Dep_Id = t.Cli_Dep_Id
+                         and x.Id = t.Cli_Id
+                         and x.Nord = (select max(w.Nord)
+                                         from g_Cliaddress w
+                                        where w.Dep_Id = t.Cli_Dep_Id
+                                          and w.Id = t.Cli_Id)
+                         and Ox.Dep_Id = o.Dep_Id
+                         and Ox.Id = o.Id
+                         and Om.Dep_Id = o.Dep_Id
+                         and Om.Ord_Id = o.Id
+                         and o.Dea_Id = q.Id
+                         and q.Code || '' = 'L_UZ_UNIQNUM'
+                         and o.Parvalue = Screditid
+                         and Om.Code || '' = 'CR_INTER'
+                         and Fj.Dep_Id = t.Dep_Id
+                         and Fj.Id = t.Id
+                         and Dd.Dea_Dep_Id = t.Dep_Id
+                         and Dd.Dea_Id = t.Id
+                         and f.Dep_Id = Dd.Mrt_Dep_Id
+                         and f.Id = Dd.Mrt_Id
+                         and f.Ens_Id in ('482', '483', '514') -- Недвижимость (Ипотека)
+                      ) Vv)
+       where Rownum = 1;
+    commit;
+
+  exception
+    when No_Data_Found then
+      null;
+  end;
+
+  Procedure Pgetloandata
+  (
+    Pinput  in clob,
+    Poutput out clob
+  ) is
+    Jinput    Json_Object_t := Json_Object_t.Parse(Pinput);
+    Screditid varchar(100);
+    Spinfl    varchar(100);
+    Ncnt      number;
+    Objtml    Json_Object_t;
+  begin
+    Screditid := Regexp_Replace(Jinput.Get_String('credit_id'), '\s', '');
+    Spinfl    := Regexp_Replace(Jinput.Get_String('pinfl'), '\s', '');
+
+    select count(*)
+      into Ncnt
+      from z_116_Get_Loan_Review a
+     where a.Credit_Id = Screditid
+       and a.Loan_Pnfl = Spinfl;
+
+    if Ncnt = 0 then
+      z_116_Pkg_Imv_Credit_Details.Psaveloandata(Credit_Id => Screditid, Pinfl => Spinfl);
+    end if;
+
+    Objtml := new Json_Object_t;
+
+    for r in (select *
+                from z_116_Get_Loan_Review t
+               where t.Credit_Id = Screditid
+                 and t.Loan_Pnfl = Spinfl)
+    loop
+      Objtml.Put('credit_id', r.Credit_Id);
+      Objtml.Put('bank_mfo', r.Bank_Mfo);
+      Objtml.Put('bank_name', r.Bank_Name);
+      Objtml.Put('loan_person_name', r.Loan_Person_Name);
+      Objtml.Put('loan_pnfl', r.Loan_Pnfl);
+      Objtml.Put('pas_series_number', r.Pas_Series_Number);
+      Objtml.Put('tin', r.Tin);
+      Objtml.Put('region', r.Region);
+      Objtml.Put('district', r.District);
+      Objtml.Put('address', r.Address);
+      Objtml.Put('date_of_contract', r.Date_Of_Contract);
+      Objtml.Put('loan_allocated_date', r.Loan_Allocated_Date);
+      Objtml.Put('contract_end_date', r.Contract_End_Date);
+      Objtml.Put('contract_number', r.Contract_Number);
+      Objtml.Put('contract_summ', r.Contract_Summ);
+      Objtml.Put('disbursed_loan_amount', r.Disbursed_Loan_Amount);
+      Objtml.Put('loan_interest_rate', r.Loan_Interest_Rate);
+      Objtml.Put('credit_balance', r.Credit_Balance);
+      Objtml.Put('paid_precent_amount', r.Paid_Precent_Amount);
+      Objtml.Put('cadastral_number', r.Cadastral_Number);
+      Objtml.Put('credit_provision_amount', r.Credit_Provision_Amount);
+      Objtml.Put('tin_of_company', r.Tin_Of_Company);
+      Objtml.Put('name_of_company', r.Name_Of_Company);
+      Objtml.Put('type_of_credit', r.Type_Of_Credit);
+      Objtml.Put('type_of_supply', r.Type_Of_Supply);
+    end loop;
+
+    Poutput := Objtml.To_Clob;
+  end;
+
+end Z_116_PKG_IMV_CREDIT_DETAILS;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_BOP"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="T_ANLACC"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIADDRESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIIDN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_IDNDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LV_MAIN_FJ"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LV_QR_ARL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_ENSDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MORTGAGE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MRTDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REAL_ESTATE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REQDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REQDEA_EXT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="TV_ARLDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEACLS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPRM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPRMDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_GET_LOAN_REVIEW"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDEP"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGADDRESS_UZ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGACCREQ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGDEAUNIREF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAACC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="U_PKGUNIREF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="U_PKGUNIREF_UZ"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

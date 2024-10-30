@@ -1,0 +1,273 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_KPI_CREDIT_NUMBER" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="7B675C8674FA5B17EEC05FA8BAC90A10">
+  <PKG 
+    NAME="Z_116_KPI_CREDIT_NUMBER">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_KPI_CREDIT_NUMBER is
+
+  /**
+  * Сведения о работнике, выдавшем кредит, и количестве выделенных кредитов
+  *
+  * @author Хакимов Муроджон
+   * @version 1.0
+  * @headcom
+  *
+  * Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+  */
+
+  /**
+  *  Информация о выделенных кредитах
+  * <br/><i>Появилась в 1.0</i>
+  * @param pInput интервал дат выдачи кредита и Таб номер сотрудника
+  * @param pOutput JSON данные по статистике
+  */
+  PROCEDURE getCreditData(pInput IN CLOB, pOutput OUT CLOB);
+
+  /**
+  *  Информация о выпущенной пластиковой карте
+  * <br/><i>Появилась в 1.0</i>
+  * @param pInput интервал дат выдача  пластиковой карты и Таб номер сотрудника
+  * @param pOutput JSON данные по статистике
+  */
+
+  PROCEDURE getPlasticData(pInput IN CLOB, pOutput OUT CLOB);
+
+end Z_116_KPI_CREDIT_NUMBER;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_KPI_CREDIT_NUMBER as
+
+  -- Статистика по  выдавшем кредит, и количестве выделенных кредитов
+  PROCEDURE getCreditData(pInput in clob, pOutput out Clob) is
+    ObjTm       JSON_OBJECT_T;
+    ObjTmp      JSON_OBJECT_T;
+    lArrr       JSON_ARRAY_T;
+    ObjTmpp     JSON_OBJECT_T;
+    stab_number varchar(100);
+
+    start_date date;
+    end_date   date;
+
+  BEGIN
+    Z_116_PKGCONNECT.pOpen();
+
+    ObjTm       := JSON_OBJECT_T.parse(pInput);
+    start_date  := to_date(ObjTm.get_String('sstartDate'), 'dd.mm.yyyy');
+    end_date    := to_date(ObjTm.get_String('sendDate'), 'dd.mm.yyyy');
+    stab_number := ObjTm.get_String('sstabNumber');
+
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put_Null('tabNumber');
+    ObjTmp.put_Null('fullName');
+    ObjTmp.put_Null('currPosName');
+    ObjTmp.put_Null('depId');
+
+    lArrr   := new JSON_ARRAY_T;
+    ObjTmpp := new JSON_OBJECT_T;
+    ObjTmpp.put_Null('productType');
+    ObjTmpp.put_Null('number');
+    lArrr.append(ObjTmpp);
+
+    ObjTmp.put('completed', lArrr);
+
+    for dep in (SELECT p.tab_number, p.full_name, p.curr_pos_name, f.DEP_ID
+                  FROM LV_MAIN_FJ f
+                  LEFT JOIN HV_PERSON p
+                    ON f.TUSER_NAME = p.TUS_CODE
+                 WHERE f.fromdate BETWEEN start_date AND end_date
+                   and f.STATNAME in ('Актуален',
+                                      'Завершение',
+                                      'Погашен',
+                                      'Списан',
+                                      'Списан ОД')
+                   AND p.TAB_NUMBER = stab_number
+                 group by p.tab_number,
+                          p.full_name,
+                          p.curr_pos_name,
+                          f.DEP_ID) loop
+
+      ObjTmp := new JSON_OBJECT_T;
+
+      ObjTmp.put('tabNumber', dep.tab_number);
+      ObjTmp.put('fullName', dep.full_name);
+      ObjTmp.put('currPosName', dep.curr_pos_name);
+      ObjTmp.put('depId', dep.dep_id);
+
+      lArrr := new JSON_ARRAY_T;
+      for depp in (SELECT f.DCL_CODE, COUNT(f.DCL_CODE) as Totol_Number
+                     FROM LV_MAIN_FJ f
+                     LEFT JOIN HV_PERSON p
+                       ON f.TUSER_NAME = p.TUS_CODE
+                    WHERE f.fromdate BETWEEN start_date AND end_date
+                      and f.STATNAME in ('Актуален',
+                                         'Завершение',
+                                         'Погашен',
+                                         'Списан',
+                                         'Списан ОД')
+                      AND p.TAB_NUMBER = stab_number
+                    GROUP BY f.DCL_CODE
+                    ORDER BY COUNT(f.DCL_CODE)) loop
+
+        ObjTmpp := new JSON_OBJECT_T;
+
+        ObjTmpp.put('productType', depp.DCL_CODE);
+        ObjTmpp.put('number', depp.Totol_Number);
+
+        lArrr.append(ObjTmpp);
+      end loop;
+
+      ObjTmp.put('completed', lArrr);
+
+      pOutput := ObjTmp.To_Clob;
+
+    end loop;
+
+    IF pOutput IS NULL THEN
+      ObjTmp := new JSON_OBJECT_T;
+      ObjTmp.put('tabNumber', stab_number);
+      ObjTmp.put_Null('fullName');
+      ObjTmp.put_Null('currPosName');
+      ObjTmp.put_Null('depId');
+
+      lArrr := new JSON_ARRAY_T;
+
+      ObjTmp.put('completed', lArrr);
+      pOutput := ObjTmp.To_Clob;
+    END IF;
+
+  END getCreditData;
+
+  -- Статистика по выпущенной Пластиковой карты и количеству
+  PROCEDURE getPlasticData(pInput in clob, pOutput out Clob) is
+
+    ObjTml      JSON_OBJECT_T;
+    ObjTm       JSON_OBJECT_T;
+    ObjTmp      JSON_OBJECT_T;
+    start_date  date;
+    end_date    date;
+    stab_number varchar(100);
+    lArrr       JSON_ARRAY_T;
+  begin
+
+    Z_116_PKGCONNECT.pOpen();
+
+    ObjTm       := JSON_OBJECT_T.parse(pInput);
+    start_date  := to_date(ObjTm.get_String('sstartDate'), 'dd.mm.yyyy');
+    end_date    := to_date(ObjTm.get_String('sendDate'), 'dd.mm.yyyy');
+    stab_number := ObjTm.get_String('sstabNumber');
+
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('tabNumber', stab_number);
+    ObjTmp.put_Null('fullName');
+    ObjTmp.put_Null('currPosName');
+    ObjTmp.put_Null('depId');
+
+    lArrr  := new JSON_ARRAY_T;
+    ObjTml := new JSON_OBJECT_T;
+    ObjTml.put_Null('productType');
+    ObjTml.put_Null('number');
+    lArrr.append(ObjTml);
+
+    for dep in (
+
+                select /*+ PARALLEL(8) */
+                distinct pp.tab_number as tabNumber,
+                          pp.full_name as fullName,
+                          pp.curr_pos_name as currPosName,
+                          pp.DEP_ID as depId,
+                          'Plastic_card' as plasticCard,
+                          COUNT(1) as numberofProduct
+                  from T_PROCESS p,
+                        T_PROCMEM m,
+                        T_ORD     o,
+                        N_CRD     crd,
+                        t_operjrn j,
+                        c_user    u,
+                        HV_PERSON pp
+                 where p.ID = m.ID
+                   and m.MAINFL = '1'
+                   and o.DEP_ID = m.DEP_ID
+                   and o.ID = m.ORD_ID
+                   and o.DEP_ID = crd.DEP_ID
+                   and o.ID = crd.ID
+                   and p.id = j.id
+                   and j.id_user = u.id
+                   and pp.TUS_CODE = u.code
+                   and crd.REQDT between start_date and end_date
+                   and pp.tab_number = stab_number
+                   and j.njrn = 1
+                 group by pp.tab_number,
+                           pp.full_name,
+                           pp.curr_pos_name,
+                           pp.DEP_ID) loop
+
+      ObjTmp := new JSON_OBJECT_T;
+
+      ObjTmp.put('tabNumber', dep.tabNumber);
+      ObjTmp.put('fullName', dep.fullName);
+      ObjTmp.put('currPosName', dep.currPosName);
+      ObjTmp.put('depId', dep.depId);
+
+      ObjTml := new JSON_OBJECT_T;
+      lArrr  := new JSON_ARRAY_T;
+      ObjTml.put('productType', dep.plasticCard);
+      ObjTml.put('number', dep.numberofProduct);
+
+      lArrr.append(ObjTml);
+
+    end loop;
+    ObjTmp.put('completed', lArrr);
+    pOutput := ObjTmp.To_Clob;
+
+  END getPlasticData;
+
+end Z_116_KPI_CREDIT_NUMBER;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_USER"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="HV_PERSON"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LV_MAIN_FJ"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKGCONNECT"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

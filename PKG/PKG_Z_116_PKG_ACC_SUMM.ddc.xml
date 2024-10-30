@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_ACC_SUMM" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="042D25CBCA9E41485ACDFD1C52DBF95D">
+  <PKG 
+    NAME="Z_116_PKG_ACC_SUMM">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_ACC_SUMM is
+  /**
+  * Информация об Получение списка просрочек
+  *
+  * @author Хакимов Муроджон
+
+  * @version 1.0
+  * @headcom
+  *
+  * Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+  */
+  Procedure Pgetaccsumm
+  (
+    Pinput  in clob,
+    Poutput out clob
+  );
+  Procedure Sgetaccsumm
+  (
+    Pinput  in clob,
+    Poutput out clob
+  );
+
+end Z_116_PKG_ACC_SUMM;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_ACC_SUMM as
+  Procedure Pgetaccsumm
+  (
+    Pinput  in clob,
+    Poutput out clob
+  ) is
+
+    Jinput    Json_Object_t := Json_Object_t.Parse(Pinput);
+    Sclientid varchar2(30 byte);
+    Objtml    Json_Object_t;
+  begin
+    Sclientid := Jinput.Get_String('clientid');
+
+    Objtml := new Json_Object_t;
+
+    for r in (select Abs(Nvl(sum(t_Pkgaccbal.Fbal(b.Dep_Id, b.Id)), 0)) as Summa
+                from g_Accbln b, Ledacc_Std s, Ledacc_Det d, t_Ansign_Std a, g_Cli Gg
+               where b.Cha_Id = s.Id
+                 and s.Code in ('12405',
+                                '12605',
+                                '12705',
+                                '12805',
+                                '12905',
+                                '13005',
+                                '13105',
+                                '13205',
+                                '13305',
+                                '16377',
+                                '16397',
+                                '16405')
+                 and to_number(d.Pk1) = Gg.Dep_Id
+                 and to_number(d.Pk2) = Gg.Id
+                 and b.Dep_Id = d.Dep_Id
+                 and b.Id = d.Acc_Id
+                 and d.Sgn_Id = a.Id
+                 and a.Code = 'CLIENT'
+                 and Gg.Code = Sclientid)
+    loop
+
+      Objtml.Put('Summa', r.Summa);
+
+    end loop;
+
+    Poutput := Objtml.To_Clob;
+  exception
+    when No_Data_Found then
+      null;
+  end;
+
+  Procedure Sgetaccsumm
+  (
+    Pinput  in clob,
+    Poutput out clob
+  ) is
+
+    Linput     Json_Object_t := Json_Object_t.Parse(Pinput);
+    Sclientid  varchar2(30 byte);
+    Objtml     Json_Object_t;
+    Astartdate date;
+    Aenddate   date;
+    Jsonarray  Json_Array_t := Json_Array_t();
+  begin
+    Sclientid  := Linput.Get_String('clientid');
+    Astartdate := to_date(Linput.Get_String('startdate'), 'DD.MM.YYYY');
+    Aenddate   := to_date(Linput.Get_String('enddate'), 'DD.MM.YYYY');
+
+    for r in (select sum(w.Sdokkt) as Summ, to_char(w.Doper, 'MM-YYYY') as Months
+
+                from (select /*+ index_desc (T_TRNDTL IE_T_TRNDTL_ACC) */
+                       Bln.Code as Acccode,
+                       Dtl1.Doper,
+                       Nvl(Ord.Dord, Dtl1.Doper) as Dord,
+                       Nvl(Decode(Dtl1.Incomfl,
+                                  '0',
+                                  Decode(j.Incomfl, 0, j.Code_Acl, j.Code_Acr),
+                                  Decode(j.Incomfl, 0, j.Code_Acr, j.Code_Acl)),
+                           Bln2.Code) as Acc,
+                       Decode(Dtl1.Incomfl, '0', Dtl1.Sdok, 0) as Sdokkt,
+                       j.Rnn_Cl,
+                       s.Code
+                        from g_Accbln     Bln,
+                             t_Trndtl     Dtl1,
+                             t_Trndtl     Dtl2,
+                             g_Accbln     Bln2,
+                             g_Accblnhst  h,
+                             t_Trnatr     Atr,
+                             t_Operjrn    Jrn,
+                             t_Ord        Ord,
+                             Uv_Ordpayrpt j,
+                             Ledacc_Std   s,
+                             g_Cli        Ii
+                       where Ii.Dep_Id = h.Clidep_Id
+                         and Ii.Id = h.Cli_Id
+                         and Bln.Dep_Id = Dtl1.Dep_Id
+                         and Bln.Cha_Id = s.Id
+                         and Bln.Id = Dtl1.Acc_Id
+                         and Dtl1.Id = Dtl2.Id(+)
+                         and Dtl1.Nord = Dtl2.Nord(+)
+                         and Bln2.Dep_Id(+) = Dtl2.Dep_Id
+                         and Bln2.Id(+) = Dtl2.Acc_Id
+                         and Dtl1.Incomfl != Dtl2.Incomfl(+)
+                         and Dtl1.Id = Jrn.Tra_Id(+)
+                         and Jrn.Dep_Id = Ord.Dep_Id(+)
+                         and Jrn.Ord_Id = Ord.Id(+)
+                         and Ord.Dep_Id = j.Dep_Id(+)
+                         and Ord.Id = j.Id(+)
+                         and Dtl1.Id = Atr.Id(+)
+                         and Dtl1.Nord = Atr.Nord(+)
+                         and Bln.Dep_Id = h.Dep_Id
+                         and Bln.Id = h.Id
+                         and p_Operday between h.Fromdate and h.Todate
+                         and Ii.Code = Sclientid
+                         and Dtl1.Doper between Astartdate and Aenddate
+                         and Dtl1.Postfl = '1'
+                         and Dtl2.Postfl(+) = '1'
+                         and Dtl1.Sdok <> 0
+                         and s.Code in
+                             ('20203', '20208', '20210', '20212', '20214', '20216', '20218')
+                       order by Acccode, Doper, Dtl1.Incomfl desc, Dtl1.Sdok) w
+               where w.Acc not like '17101%'
+               group by to_char(w.Doper, 'MM-YYYY'), w.Code)
+    loop
+
+      Objtml := new Json_Object_t;
+      Objtml.Put('Summa', r.Summ);
+      Objtml.Put('MONTH', r.Months);
+      Jsonarray.Append(Objtml);
+    end loop;
+
+    Poutput := Jsonarray.To_Clob;
+  exception
+    when No_Data_Found then
+      null;
+  end;
+
+end Z_116_PKG_ACC_SUMM;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLNHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC_DET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ANSIGN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNATR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNDTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="UV_ORDPAYRPT"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCBAL"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

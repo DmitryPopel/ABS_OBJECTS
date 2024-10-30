@@ -1,0 +1,1076 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_ELOAN_CLIENT" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="E04BDC792D6420EE704336C13C8B6C18">
+  <PKG 
+    NAME="Z_116_ELOAN_CLIENT">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_ELOAN_CLIENT is
+/**
+* Пакет для реализации методов работы с клиентами
+*
+* @author Ахмеджанов Сардор
+* @author Алешкевич Дмитрий
+* @version 4.3
+* @headcom
+*
+* Copyright (c) 2023 By Aloqabank. All Rights Reserved.
+*/
+
+/** Поиск клиента по ПИНФЛ
+* <br/><i>С версии 1.0</i>
+* @param pPinfl ПИНЛ
+* @param pDepId Идентификатор подразделения
+* @param pId Идентификатор клиента
+* @param pCode Код клиента
+*/
+procedure pGetClientIdByPinfl(pPinfl in varchar2,
+                              pDepId out number,
+                              pId out number,
+                              pCode out varchar2);
+
+/** Получение данных клиента по ПИНФЛ
+* <br/><i>С версии 1.0</i>
+* @param pInput ПИНФЛ клиента
+* @param pOutput Параметры
+*/
+procedure pGetClientDetailsByPinfl(pInput in Clob,
+                                   pOutput out Clob);
+
+/** Получение документа клиента по nCliDepId, nCliId, sDocType
+* <br/><i>С версии 1.0</i>
+* @params nCliDepId, nCliId, sDocType
+* @param jDoc json документ
+*/
+procedure pGetClientIdentDocById(nCliDepId in number,
+                                nCliId in number,
+                                sDocType in varchar2,
+                                jDoc out JSON_OBJECT_T);
+
+/** Получение адреса клиента по nCliDepId, nCliId, sAddressType
+* <br/><i>С версии 1.0</i>
+* @params nCliDepId, nCliId, sAddressType
+* @param jAddress json адрес
+*/
+procedure pGetClientAddressByType(nCliDepId in number,
+                                  nCliId in number,
+                                  bWithAddressIdentification in boolean,
+                                  sAddressType in varchar2,
+                                  jAddress out JSON_OBJECT_T);
+
+/** Генерация нового кода НИББД
+* <br/><i>С версии 1.0</i>
+* @param pInput пустой
+* @param pOutput Сгенерированный код
+*/
+procedure pGenNibbdCode(pInput in Clob,
+                       pOutput out Clob);
+
+/** Параметры Request Header для запросов в НИББД
+* <br/><i>С версии 1.0</i>
+* @param pInput пустой
+* @param pOutput Параметры
+*/
+procedure pGetNibbdRequestHeader(pInput  in Clob,
+                                 pOutput out Clob);
+
+/** Проверка данных клиента по АМЛ
+* <br/><i>С версии 1.0</i>
+* @param pInput пустой
+* @param pOutput Параметры
+*/
+procedure fCheckAML(pInput  in Clob,
+                    pOutput out Clob);
+
+/** Получить зарплату клиента в АБС
+* <br/><i>С версии 1.0</i>
+* @param pInput пустой
+* @param pOutput Параметры
+*/
+procedure pGetClientSalary(pInput  in Clob,
+                           pOutput out Clob);
+
+/** Процедура обновления клиента
+* <br/><i>С версии 2.0</i>
+* @param pInput JSON с входными параметрами клиента
+* @param pOutput JSON с выходными параметрами клиента и/или сообщением об ошибке
+*/
+procedure pUpdateClient(pInput   in Clob,
+                        pOutput  out Clob);
+
+/** Получение наименования области по коду района (функция перенесена из u_pkguniref для устранения зависимостей от U_PKGUNIREF_UZ)
+* @param pCode Код области
+* @param iRaise Показывать ошибку
+* @return Наименование области
+*/
+function fGetOblNameByCode(pCode in varchar2, iRaise in integer default 0) return varchar2;
+
+/** Получение наименования района по коду района (функция перенесена из u_pkguniref для устранения зависимостей от U_PKGUNIREF_UZ)
+* @param pCode Код района
+* @param iRaise Показывать ошибку
+* @return Наименование района
+*/
+function fGetRnNameByCode(pCode in varchar2, iRaise in integer default 0) return varchar2;
+
+/** Получение количество клиентов с одним ПИНФЛ
+* @param pInput - pinfl ПИНФЛ клиента
+* @param pOutput - result количество клиентов
+*/
+procedure pGetClientCountByPinfl(pInput  in Clob,
+                                 pOutput out Clob);
+
+/** Получение количество клиентов с одним ПИНФЛ
+* <br/><i>С версии 3.0</i>
+* @param pInput - pinfl ПИНФЛ клиента
+* @param pOutput - result результат выполнения, maintenanceGroup - группа обслуживания
+*/
+procedure pGetMaintenanceGroupByPinfl(pInput in Clob,
+                                      pOutput out Clob);
+
+/** Обновление региона и района регистрации по справочнику через МВД
+* <br/><i>С версии 4.0</i>
+* @param pInput - cliCode код клиента, пример: {"cliCode": "000001253252"}
+* @param pOutput - result результат выполнения: (1 - выполнили, 0 - не выполняли, операция не доступна,  -1 - упали по ошибке)
+*/
+procedure pUpdAdr(pInput in Clob,
+                  pOutput out Clob);
+
+end Z_116_ELOAN_CLIENT;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_ELOAN_CLIENT is
+
+  sRefRn     constant U_UNIREF_STD.CODE%type:='UZ_RN';             --Классификатор Район адреса
+  sRefObl    constant U_UNIREF_STD.CODE%type:='UZ_OBL';            --Классификатор Область адреса
+
+-- создание CLOB-а с JSON-ом об ошибке
+function fErr(pErrCode in integer, pMess in varchar2, pArgs in vargs default vargs(null)) return CLOB
+is
+  ObjTmp  JSON_OBJECT_T;
+  ObjR    JSON_OBJECT_T;
+begin
+  ObjTmp := new JSON_OBJECT_T;
+  ObjTmp.put('code', pErrCode);
+  ObjTmp.put('message', LocalFrmt(pMess||dbms_utility.format_error_backtrace, pArgs,'PKG', 'Z_116_ELOAN_LOAN'));
+  ObjR := new JSON_OBJECT_T;
+  ObjR.put('error', ObjTmp);
+  t_log.debug('Z_116_ELOAN_LOAN.fErr, ошибка: %0:s', vargs(ObjR.To_String), 'PKG', 'Z_116_ELOAN_LOAN');
+  return ObjR.To_Clob;
+end fErr;
+
+procedure pGetClientIdByPinfl(pPinfl in varchar2,
+                              pDepId out number,
+                              pId out number,
+                              pCode out varchar2)
+is
+begin
+  c_pkgconnect.POPEN();
+  begin
+    select i.DEP_ID, i.ID, g.code
+    into   pDepId, pId, pCode
+    from   G_CLI g
+    join   G_CLIIDN i on i.dep_id = g.dep_id and i.id = g.id
+    join   G_IDNDSC d on d.ID = i.IDN_ID
+    join   T_PROCMEM M on M.ORD_ID = G.ORD_ID and M.DEP_ID = G.DEP_ID
+    join   (select ID, BOP_ID, NSTAT from T_PROCESS where BOP_ID = Bs_Bop.fGetBopId ('CLIENTS')) P on P.ID = M.ID
+    join   T_BOP_STAT S on S.ID = P.BOP_ID and S.NORD = P.NSTAT
+    where  d.CODE = 'IDN_PRS_UZ' -- ПИНФЛ
+    and    i.IDN_NUM = pPinfl
+    and    G_PKGCLIROLE.fGetCliMinStatus(g.dep_id, g.id, null) in ('0', '1', '3')
+    and    g.TYPEFL = 1
+    and    s.CODE = 'OPENED'
+    and    P_OPERDAY() between i.FROMDATE and i.TODATE;
+  exception
+    when NO_DATA_FOUND then
+      pDepId := null;
+      pId := null;
+      pCode := null;
+  end;
+end pGetClientIdByPinfl;
+
+procedure pGetClientPinflById(pCode in varchar2,
+                              pDepId out number,
+                              pId out number,
+                              pPinfl out varchar2)
+is
+begin
+  c_pkgconnect.POPEN();
+  begin
+    select i.IDN_NUM, i.DEP_ID, i.ID
+    into   pPinfl, pDepId, pId
+    from   G_CLI g
+    join   G_CLIIDN i on i.dep_id = g.dep_id and i.id = g.id
+    join   G_IDNDSC d on d.ID = i.IDN_ID
+    join   T_PROCMEM M on M.ORD_ID = G.ORD_ID and M.DEP_ID = G.DEP_ID
+    join   (select ID, BOP_ID, NSTAT from T_PROCESS where BOP_ID = Bs_Bop.fGetBopId ('CLIENTS')) P on P.ID = M.ID
+    join   T_BOP_STAT S on S.ID = P.BOP_ID and S.NORD = P.NSTAT
+    where  d.CODE = 'IDN_PRS_UZ' -- ПИНФЛ
+    and    G_PKGCLIROLE.fGetCliMinStatus(g.dep_id, g.id, null) in ('0', '1', '3')
+    and    g.TYPEFL = 1
+    and    s.CODE = 'OPENED'
+    and    g.code = pCode
+    and    P_OPERDAY() between i.FROMDATE and i.TODATE;
+  exception
+    when NO_DATA_FOUND then
+      pDepId := null;
+      pId := null;
+      pPinfl := null;
+  end;
+end pGetClientPinflById;
+
+procedure pGetClientIdByPinflAndBirthDate(pPinfl in varchar2,
+                                          pBirthDate in date,
+                                          pDepId out number,
+                                          pId out number,
+                                          pCode out varchar2)
+is
+begin
+  begin
+    select i.DEP_ID, i.ID, g.code
+    into   pDepId, pId, pCode
+    from   G_CLI g
+    join   G_CLIIDN i on i.dep_id = g.dep_id and i.id = g.id
+    join   G_IDNDSC d on d.ID = i.IDN_ID
+    join   T_PROCMEM M on M.ORD_ID = G.ORD_ID and M.DEP_ID = G.DEP_ID
+    join   (select ID, BOP_ID, NSTAT from T_PROCESS where BOP_ID = Bs_Bop.fGetBopId ('CLIENTS')) P on P.ID = M.ID
+    join   T_BOP_STAT S on S.ID = P.BOP_ID and S.NORD = P.NSTAT
+    where  d.CODE = 'IDN_PRS_UZ' -- ПИНФЛ
+    and    i.IDN_NUM = pPinfl
+    and    G_PKGCLIROLE.fGetCliMinStatus(g.dep_id, g.id, null) in ('0', '1', '3')
+    and    g.TYPEFL = 1
+    and    s.CODE = 'OPENED'
+    and    g.birdate = pBirthDate
+    and    P_OPERDAY() between i.FROMDATE and i.TODATE;
+  exception
+    when NO_DATA_FOUND then
+      pDepId := null;
+      pId := null;
+      pCode := null;
+  end;
+end pGetClientIdByPinflAndBirthDate;
+
+procedure pGetClientDetailsByPinfl(pInput in Clob,
+                                   pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  sPinfl Varchar2(50);
+  jClient JSON_OBJECT_T;
+  nCliDepId number;
+  nCliId number;
+  sClientCode g_cli.code%type;
+  sLongName G_CLIHST.Longname%type;
+  sLLongName G_CLIHST.LLongname%type;
+  sPname1 G_CLIHST.Pname1%type;
+  sPname2 G_CLIHST.Pname2%type;
+  sPname3 G_CLIHST.Pname3%type;
+  sPlName1 G_CLIHST.Plname1%type;
+  sPlName2 G_CLIHST.Plname2%type;
+  sPlName3 G_CLIHST.Plname3%type;
+  chPSex G_CLIHST.Psex%type;
+  dBirdate G_CLI.Birdate%type;
+  cJurfl G_CLI.Jurfl%type;
+  cPboYulFl G_CLI.Pboyulfl%type;
+  nResidFl G_CLIHST.Residfl%type;
+  nArcFl G_CLIHST.Arcfl%type;
+  sPasstypCode G_IDENTDOCDSC_STD.Code%type;
+  sNibbd varchar2(30);
+  sTaxCode G_CLIHST.Taxcode%type;
+  sMaintenanceGroup T_ACCGRP.Code%type;
+  sRetirementAccount varchar(30);
+  nFizDepId number(10);
+  nFizId number(10);
+  sFizCode varchar2(30 BYTE);
+  bWithIdentDoc boolean;
+  bWithRegistrationAddress boolean;
+  bWithLiveAddress boolean;
+  bWithAddressIdentification boolean;
+  jIdDoc JSON_OBJECT_T;
+  jRegistrationAddress JSON_OBJECT_T;
+  jLiveAddress JSON_OBJECT_T;
+  sCitizenship varchar2(10);
+  nBanAccOpen number;
+  nIsAml number;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sPinfl := aInput.get_string('pinfl');
+  sClientCode := aInput.get_string('clientCode');
+  bWithIdentDoc := nvl(aInput.get_Boolean('withIdentDoc'), false);
+  bWithRegistrationAddress := nvl(aInput.get_Boolean('withRegistrationAddress'), false);
+  bWithLiveAddress := nvl(aInput.get_Boolean('withLiveAddress'), false);
+  bWithAddressIdentification := nvl(aInput.get_Boolean('withAddressIdentification'), false);
+  jClient := JSON_OBJECT_T();
+  jRegistrationAddress := JSON_OBJECT_T();
+  jLiveAddress := JSON_OBJECT_T();
+  if sClientCode is null then
+    pGetClientIdByPinfl(pPinfl => sPinfl,
+                        pDepId => nCliDepId,
+                        pId    => nCliId,
+                        pCode  => sClientCode);
+  else
+    pGetClientPinflById(pCode  => sClientCode,
+                        pDepId => nCliDepId,
+                        pId    => nCliId,
+                        pPinfl => sPinfl);
+  end if;
+  if sClientCode is not null then
+--        jBorrower.put('citizenship', T_PKGREG.fGetDigCode(nvl(T_PKGREG.fGetCodeReg(bsCli.CITIZ_ID),'UZ')));
+    --4.11  Код области   area  ±9  ±9  K 2 016
+--    jBorrower.put('area', fgetObl(nIdAddr));
+    --4.12  Код района  region  ±9  ±9  K 3 052
+--    jBorrower.put('region', fgetRn(nIdAddr));
+    select
+      c.DEP_ID,
+      c.ID,
+      c.CODE,
+      ch.LONGNAME,
+      ch.LLONGNAME,
+      ch.PNAME1,
+      ch.PNAME2,
+      ch.PNAME3,
+      ch.PLNAME1,
+      ch.PLNAME2,
+      ch.PLNAME3,
+      ch.PSEX,
+      c.BIRDATE,
+      c.JURFL,
+      c.PBOYULFL,
+      ch.RESIDFL,
+      ch.arcfl,
+      (select d.code from G_IDENTDOCDSC_STD d where d.ID=ch.passtyp_id) as passtyp_code,
+      -- НИББД
+      G_PkgNibbdUtl.fGetNIBBDCode(c.dep_id, c.id) NIBBD,
+      ch.taxcode,
+      -- Группа обслуживания клиента
+      (select code from T_ACCGRP where id=ch.aut_id) maintenanceGroup,
+      g_pkgcliidn.fcliidn(c.dep_id, c.id, g_pkgidn.fid('IDN_PN_UZ')) RETIREMENT_ACCOUNT,
+      -- Карточка физлица для ИП
+      f.dep_id fiz_dep_id,
+      f.id fiz_id,
+      f.code fiz_code,
+      T_PKGREG.fGetDigCode(nvl(T_PKGREG.fGetCodeReg(ch.citiz_id), 'UZ')),
+      case
+        when (G_PKGLOCK_CLI.GetClientLocksCount(c.DEP_ID, c.ID) > 0) then 1
+        else 0
+      end as BAN_ACC_OPEN,
+      aml_pkgonline.fIsCliAML(pDepID  => c.dep_id,
+                              pCliID  => c.id)
+    into
+      nCliDepId,
+      nCliId,
+      sClientCode,
+      sLongName,
+      sLLongName,
+      sPname1,
+      sPname2,
+      sPname3,
+      sPlName1,
+      sPlName2,
+      sPlName3,
+      chPSex,
+      dBirdate,
+      cJurfl,
+      cPboYulFl,
+      nResidFl,
+      nArcFl,
+      sPasstypCode,
+      sNibbd,
+      sTaxCode,
+      sMaintenanceGroup,
+      sRetirementAccount,
+      nFizDepId,
+      nFizId,
+      sFizCode,
+      sCitizenship,
+      nBanAccOpen,
+      nIsAml
+    from
+      g_cli f,
+      G_CLIHST ch, G_CLI c
+    where c.CODE = sClientCode
+      and ch.DEP_ID=c.DEP_ID and ch.ID=c.ID and P_OPERDAY() between ch.FROMDATE and ch.TODATE
+      and f.dep_id(+)=ch.CLIFIZ_DEP_ID and f.id(+)=ch.CLIFIZ_ID;
+  end if;
+
+  if nCliDepId is not null then
+    jClient.put('cliDepId', nCliDepId);
+    jClient.put('cliId', nCliId);
+    jClient.put('code', sClientCode);
+    jClient.put('fullName', sLongName);
+    jClient.put('fullNameLat', sLLongName);
+    jClient.put('lastname', sPname1);
+    jClient.put('firstname', sPname2);
+    jClient.put('secondname', sPname3);
+    jClient.put('lastnameLat', sPlName1);
+    jClient.put('firstnameLat', sPlName2);
+    jClient.put('secondnameLat', sPlName3);
+    jClient.put('sex', chPSex);
+    jClient.put('birthday', dBirdate);
+    jClient.put('isJur', cJurfl);
+    jClient.put('pinfl', sPinfl);
+    jClient.put('isIE', cPboYulFl);
+    jClient.put('isResident', nResidFl);
+    jClient.put('isClosed', nArcFl);
+    jClient.put('passtypCode', sPasstypCode);
+    jClient.put('nibbd', sNibbd);
+    jClient.put('inn', sTaxCode);
+    jClient.put('maintenanceGroup', sMaintenanceGroup);
+    jClient.put('retirementAccount', sRetirementAccount);
+    jClient.put('fizDepId', nFizDepId);
+    jClient.put('fizId', nFizId);
+    jClient.put('fizCode', sFizCode);
+    jClient.put('citizenship', sCitizenship);
+    jClient.put('banAccOpen', nBanAccOpen);
+    jClient.put('isAml', nIsAml);
+    jClient.put('result', true);
+    if cJurfl = 0 then
+      if cPboYulFl = 0 then
+        jClient.put('clientType', '08');
+      else
+        jClient.put('clientType', '11');
+      end if;
+    else
+      jClient.put('clientType', '09');
+    end if;
+
+    if bWithIdentDoc then
+      pGetClientIdentDocById(nCliDepId => nCliDepId,
+                             nCliId => nCliId,
+                             sDocType => sPasstypCode,
+                             jDoc => jIdDoc);
+      jClient.put('idDocument', jIdDoc);
+    else
+      jClient.put_Null('idDocument');
+    end if;
+
+    if bWithRegistrationAddress then
+      pGetClientAddressByType(nCliDepId => nCliDepId,
+                              nCliId => nCliId,
+                              bWithAddressIdentification => bWithAddressIdentification,
+                              sAddressType => '002',
+                              jAddress => jRegistrationAddress);
+      jClient.put('registrationAddress', jRegistrationAddress);
+    else
+      jClient.put_Null('registrationAddress');
+    end if;
+
+    if bWithLiveAddress then
+      pGetClientAddressByType(nCliDepId => nCliDepId,
+                              nCliId => nCliId,
+                              bWithAddressIdentification => false,
+                              sAddressType => '011',
+                              jAddress => jLiveAddress);
+      jClient.put('liveAddress', jLiveAddress);
+    else
+      jClient.put_Null('liveAddress');
+    end if;
+    jClient.put('result', true);
+  else
+    jClient.put('result', false);
+  end if;
+  pOutput := jClient.TO_CLOB();
+end pGetClientDetailsByPinfl;
+
+procedure pGetClientIdentDocById(nCliDepId in number,
+                                 nCliId in number,
+                                 sDocType in varchar2,
+                                 jDoc out JSON_OBJECT_T)
+is
+begin
+  C_PKGCONNECT.POPEN();
+  jDoc := JSON_OBJECT_T();
+  for c in (
+    with doc as (
+      select
+        dd.CODE as DOC_TYPE,
+        dd.NAME as DOC_TYPE_NAME,
+        d.PASSSER as DOC_SER,
+        d.PASSNUM as DOC_NUM,
+        d.PASSDAT as DOC_DATE,
+        d.PASSFIN as DOC_DATE_END,
+        d.PASSORG as DOC_ORG,
+        G_PkgCliIdentDoc.fGetDocAtr(d.DEP_ID, d.ID, d.NORD, 'CODE_REGION_REG') as DOC_REGION,
+        G_PkgCliIdentDoc.fGetDocAtr(d.DEP_ID, d.ID, d.NORD, 'CODE_DISTRICT_REG') as DOC_DISTRICT
+      from g_cli c
+      join G_CLIDOC d on d.dep_id = c.dep_id and d.id = c.id
+      join G_IDENTDOCDSC dd on dd.id = d.passtyp_id
+      where d.ARCFL = '0'
+      and d.basicfl = 1
+      and dd.code in ('00', '01')
+      and c.dep_id = nCliDepId
+      and c.id = nCliId
+      and rownum = 1)
+    select
+      doc.*,
+      reg.LONGNAME DOC_REGION_NAME,
+      dis.LONGNAME DOC_DISTRICT_NAME
+    from doc
+    left join U_UZ_OBL reg on reg.CODE = doc.DOC_REGION
+    left join U_UZ_RN dis on dis.CODE = doc_DISTRICT)
+  loop
+    jDoc.put('type', c.DOC_TYPE);
+    jDoc.put('nibbdDocumentType', G_PKGCLIIDENTDOC.fCode2AltCode(c.DOC_TYPE, 'NIBBD'));
+    jDoc.put('typeName', c.DOC_TYPE_NAME);
+    jDoc.put('serials', c.DOC_SER);
+    jDoc.put('number', c.DOC_NUM);
+    jDoc.put('date', c.DOC_DATE);
+    jDoc.put('dateEnd', c.DOC_DATE_END);
+    jDoc.put('issuedBy', c.DOC_ORG);
+    jDoc.put('region', c.DOC_REGION);
+    jDoc.put('regionName', c.DOC_REGION_NAME);
+    jDoc.put('district', c.DOC_DISTRICT);
+    jDoc.put('districtName', c.DOC_DISTRICT_NAME);
+  end loop;
+end pGetClientIdentDocById;
+
+function fGetOblNameByCode(pCode in varchar2, iRaise in integer default 0) return varchar2 is
+  sResult varchar2(250);
+  nValId  number(10);
+begin
+  nValId := u_pkguniref.fId(P_REF_CODE => sRefobl, P_ENT_CODE => null, P_CODE => pCode, P_RAISEFL => iRaise);
+  sResult := u_pkguniref.fLongname(P_REF_CODE => sRefobl, P_ENT_CODE => null, P_ID => nValId, P_RAISEFL => iRaise);
+  return sResult;
+end fGetOblNameByCode;
+
+function fGetRnNameByCode(pCode in varchar2, iRaise in integer default 0) return varchar2 is
+  sResult varchar2(250);
+  nValId  number(10);
+begin
+  nValId := u_pkguniref.fId(P_REF_CODE => sRefRn, P_ENT_CODE => null, P_CODE => pCode, P_RAISEFL => iRaise);
+  sResult := u_pkguniref.fLongname(P_REF_CODE => sRefRn, P_ENT_CODE => null, P_ID => nValId, P_RAISEFL => iRaise);
+  return sResult;
+end fGetRnNameByCode;
+
+procedure pGetClientAddressByType(nCliDepId in number,
+                                  nCliId in number,
+                                  bWithAddressIdentification in boolean,
+                                  sAddressType in varchar2,
+                                  jAddress out JSON_OBJECT_T)
+is
+  CURSOR cAddress IS (
+    select
+    g_pkgaddress_uz.fgetObl(a.ID) as OBL_CODE,
+    fgetOblNameByCode(g_pkgaddress_uz.fgetObl(a.ID)) as OBL_NAME,
+    g_pkgaddress_uz.fgetRn(a.ID) as RN_CODE,
+    fgetRnNameByCode(g_pkgaddress_uz.fgetRn(a.ID)) as RN_NAME,
+    nvl(g_pkgaddress.fGetFullAddr(a.ID, G_ADDR_CNTR), substr(g_pkgaddress.fGetPartName(a.ID, G_ADDR_FULL), 1, 250)) as ADDRESS
+  from G_ADDRESS a, G_CLIADDRESS ca
+  where ca.dep_id = nCliDepId and ca.id = nCliId
+    and ca.adrtype = sAddressType
+    and a.id = ca.adr_id and ca.arcfl = '0'
+  );
+  cResult cAddress%rowtype;
+  nProcId      T_PROCESS.ID%type;
+  nBopId       T_PROCESS.BOP_ID%type;
+  nSt          T_PROCESS.NSTAT%type;
+  pParIn       varchar2(32000) := '';
+  pParOut      varchar2(32000) := '';
+  nRes         number;
+begin
+  C_PKGCONNECT.POPEN();
+  jAddress := JSON_OBJECT_T();
+  open cAddress;
+  fetch cAddress into cResult;
+  if sAddressType = '002' and bWithAddressIdentification and
+    (nvl(cResult.OBL_CODE, '00') = '00' or nvl(cResult.RN_CODE, '000') = '000') then
+    begin
+      G_PKGCLINIBBD.pGetCliProc(nCliDepId, nCliId, 1, nProcId, nBopId, nSt);
+      nRes := t_pkgrunoprutl.fRunOperation(nProcId, 'EGOV_ADRPIN', pParIn, pParOut);
+      commit;
+      close cAddress;
+      open cAddress;
+      fetch cAddress into cResult;
+    exception
+      when others then
+        null;
+    end;
+  end if;
+  jAddress.put('region', cResult.OBL_CODE);
+  jAddress.put('regionName', cResult.OBL_NAME);
+  jAddress.put('district', cResult.RN_CODE);
+  jAddress.put('districtName', cResult.RN_NAME);
+  jAddress.put('address', cResult.ADDRESS);
+  close cAddress;
+end pGetClientAddressByType;
+
+-- GENERATE NEW NIBBD CODE
+procedure pGenNibbdCode(pInput  in Clob,
+                        pOutput out Clob) is
+  aParameter JSON_OBJECT_T;
+begin
+  c_pkgconnect.pOpen();
+
+  aParameter := JSON_OBJECT_T();
+  aParameter.put('code', g_pkgnibbdf.fCreNIBBDCode);
+
+  pOutput := aParameter.To_Clob;
+end;
+
+-- MAKE NIBBD REQUEST HEADER PARAMETER
+procedure pGetNibbdRequestHeader(pInput  in Clob,
+                                 pOutput out Clob) is
+  aParameter JSON_OBJECT_T;
+begin
+  c_pkgconnect.pOpen();
+
+  aParameter := g_pkgnibbdonline.fPrepareHeader;
+  pOutput    := aParameter.To_Clob;
+end;
+
+procedure fCheckAML(pInput  in Clob,
+                    pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  aParameter JSON_OBJECT_T;
+  dBirthday date;
+  sCliName G_CLIHST.LONGNAME%type;
+  iCliDepId G_CLI.DEP_ID%TYPE;
+  iCliId G_CLI.ID%TYPE;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sCliName := aInput.get_string('name');
+  iCliDepId := aInput.get_string('depId');
+  iCliId := aInput.get_string('id');
+  dBirthday := aInput.get_Date('birthday');
+  -- Проверка по AML
+  begin
+    aParameter := JSON_OBJECT_T();
+    if AML_PKGONLINE.fChkCliAML(iCliDepId, iCliId, '1', sCliName, dBirthday) > 0 then
+      aParameter.put('result', 'true');
+    else
+      aParameter.put('result', 'false');
+    end if;
+    aParameter.put('error', '0');
+  exception
+    when OTHERS then
+      aParameter.put('error', '1');
+  end;
+  pOutput := aParameter.To_Clob;
+end fCheckAML;
+
+procedure pGetClientSalary(pInput  in Clob,
+                           pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  lArrTmp JSON_ARRAY_T;
+  ObjTmp JSON_OBJECT_T;
+  sCliCode G_CLI.CODE%type;
+  dStartDate date;
+  dEndDate date;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sCliCode := aInput.get_string('clientCode');
+  dStartDate := to_date(aInput.get_string('startDate'), 'yyyy-MM-dd');
+  dEndDate := to_date(aInput.get_string('endDate'), 'yyyy-MM-dd');
+  lArrTmp := new JSON_ARRAY_T;
+  for cur in (
+    with accounts as (
+      select distinct da.ACC_DEP_ID as DEP_ID, da.ACC_ID as ID
+      from T_DEA d
+      join N_CRD c on c.DEP_ID = d.DEP_ID and c.ID = d.ID
+      join N_CRDACC ca on ca.DEP_ID = c.DEP_ID and ca.ID = c.ID
+      join S_DEAACC da on da.DEP_ID = ca.DEA_DEP_ID and da.ID = ca.DEA_ID
+      join g_cli cli on cli.dep_id = d.cli_dep_id and cli.id = d.cli_id
+      where cli.code = sCliCode
+      union all
+      select distinct bb.DEP_ID, bb.ID
+      from T_DEA d
+      join N_CRD c on c.DEP_ID = d.DEP_ID and c.ID = d.ID
+      join N_CRDACC ca on ca.DEP_ID = c.DEP_ID and ca.ID = c.ID
+      join S_DEAACC da on da.DEP_ID = ca.DEA_DEP_ID and da.ID = ca.DEA_ID
+      join G_ACCBLN b on b.DEP_ID = da.ACC_DEP_ID and b.ID = da.ACC_ID
+      join G_ACCBLN bb on bb.CODE = b.ALTERCODE
+      join g_cli cli on cli.dep_id = d.cli_dep_id and cli.id = d.cli_id
+      where cli.code = sCliCode
+    ),
+    dtl as (
+      select
+        t_cr.doper,
+        t_cr.sdok as amount,
+       (select min(c.cardcode) -- с версии 4.1 --keep(dense_rank first order by nvl(c.blockdt, p_maxdate))
+        from   T_DEA d
+        join   N_CRD c on c.DEP_ID = d.DEP_ID and c.ID = d.ID
+        join   N_CRDACC ca on ca.DEP_ID = c.DEP_ID and ca.ID = c.ID
+        join   S_DEAACC da on da.DEP_ID = ca.DEA_DEP_ID and da.ID = ca.DEA_ID
+        where  da.acc_dep_id = a.dep_id
+        and    da.acc_id = a.id
+        and    p_maxdate > t_cr.DOPER
+      ) as cardcode
+      from  accounts a
+      join  T_TRNDTL t_cr on t_cr.DEP_ID = a.DEP_ID and t_cr.ACC_ID = a.ID
+      join  T_TRNDTL t_db on t_db.ID = t_cr.ID
+      where t_cr.INCOMFL = 0
+      and   t_db.INCOMFL = 1
+      and   G_PKGACC.fAccInBps2(t_db.DEP_ID, t_db.ACC_ID, 'PP_SALPAY,5010') = 1
+      and   t_cr.doper between dStartDate and dEndDate
+    )
+    select to_char(trunc(dtl.DOPER, 'MM'), 'YYYY-MM-DD') as doper, dtl.cardcode, sum(dtl.amount) as amount
+    from   dtl
+    group by
+           trunc(dtl.DOPER, 'YYYY'), trunc(dtl.DOPER, 'MM'), dtl.cardcode
+    order by
+           trunc(dtl.DOPER, 'YYYY'), trunc(dtl.DOPER, 'MM'))
+  loop
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('date', cur.doper);
+    ObjTmp.put('amount', cur.amount);
+    ObjTmp.put('cardcode', cur.cardcode);
+    lArrTmp.append(ObjTmp);
+  end loop;
+  pOutput := lArrTmp.To_Clob;
+end pGetClientSalary;
+
+-- Процедура обновления клиента
+procedure pUpdateClient(pInput   in Clob,
+                        pOutput  out Clob)
+is
+
+  ObjIn JSON_OBJECT_T;
+  cRet CESB_BASE.BParam;
+  cB CESB_BASE.BParam;
+  sPinfl varchar2(30 byte);
+  dBirthDate date;
+  nDepId number;
+  nId number;
+  sCode varchar2(30 byte);
+begin
+  z_116_pkgconnect.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  sPinfl := ObjIn.get_string('pinfl');
+  dBirthDate := ObjIn.get_Date('birthDate');
+  if sPinfl is null then
+    pOutput := fErr(10600, 'Отсутствует ПИНФЛ');
+    return;
+  else
+    pGetClientIdByPinflAndBirthDate(pPinfl     => sPinfl,
+                                    pBirthDate => dBirthDate,
+                                    pDepId     => nDepId,
+                                    pId        => nId,
+                                    pCode      => sCode);
+    if nId is null then
+      pOutput := fErr(10602, 'Клиент с ПИНФЛ %0:s не найден', vargs(sPinfl));
+      return;
+    end if;
+    ObjIn.put('clientId', sCode);
+  end if;
+  -- вызов метода создания пользователя
+  cRet := G_PKG_IBCLI_UZ.fUpdate(B => cB, S => ObjIn.to_Clob());
+  pOutput := to_clob(cRet);
+  commit;
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'Ошибка обновления карточки клиента: %0:s',vargs(substr(sqlerrm,1,2000)));
+end pUpdateClient;
+
+-- Количество клиентов с одним ПИНФЛ
+procedure pGetClientCountByPinfl(pInput  in Clob,
+                                 pOutput out Clob)
+is
+
+  ObjIn JSON_OBJECT_T;
+  ObjOut JSON_OBJECT_T;
+  sPinfl varchar2(30 byte);
+  nCount number;
+begin
+  z_116_pkgconnect.pOpen();
+  ObjOut := new JSON_OBJECT_T;
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  sPinfl := ObjIn.get_string('pinfl');
+  select count(*)
+  into   nCount
+  from   G_CLI g
+  join   G_CLIIDN i on i.dep_id = g.dep_id and i.id = g.id
+  join   G_IDNDSC d on d.ID = i.IDN_ID
+  join   T_PROCMEM M on M.ORD_ID = G.ORD_ID and M.DEP_ID = G.DEP_ID
+  join   (select ID, BOP_ID, NSTAT from T_PROCESS where BOP_ID = Bs_Bop.fGetBopId ('CLIENTS')) P on P.ID = M.ID
+  join   T_BOP_STAT S on S.ID = P.BOP_ID and S.NORD = P.NSTAT
+  where  d.CODE = 'IDN_PRS_UZ' -- ПИНФЛ
+  and    i.IDN_NUM = sPinfl
+  and    G_PKGCLIROLE.fGetCliMinStatus(g.dep_id, g.id, null) in ('0', '1', '3')
+  and    g.typefl = 1
+  and    g.jurfl = 0
+  and    s.CODE = 'OPENED'
+  and    P_OPERDAY() between i.FROMDATE and i.TODATE;
+  ObjOut.put('result', nCount);
+  pOutput := ObjOut.To_Clob;
+end pGetClientCountByPinfl;
+
+procedure pGetMaintenanceGroupByPinfl(pInput in Clob,
+                                      pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  sPinfl Varchar2(50);
+  jClient JSON_OBJECT_T;
+  nCliDepId number;
+  nCliId number;
+  sClientCode g_cli.code%type;
+  sMaintenanceGroup T_ACCGRP.Code%type;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sPinfl := aInput.get_string('pinfl');
+  jClient := JSON_OBJECT_T();
+  pGetClientIdByPinfl(pPinfl => sPinfl,
+                      pDepId => nCliDepId,
+                      pId    => nCliId,
+                      pCode  => sClientCode);
+  if sClientCode is not null then
+    begin
+      select
+        a.code
+      into
+        sMaintenanceGroup
+      from
+        g_cli f,
+        G_CLIHST ch,
+        G_CLI c,
+        T_ACCGRP a
+      where c.CODE = sClientCode
+      and   ch.DEP_ID=c.DEP_ID and ch.ID=c.ID and P_OPERDAY() between ch.FROMDATE and ch.TODATE
+      and   a.id = ch.aut_id
+      and   f.dep_id(+)=ch.CLIFIZ_DEP_ID and f.id(+)=ch.CLIFIZ_ID;
+    exception
+      when others then
+        sMaintenanceGroup := null;
+    end;
+  end if;
+
+  if nCliDepId is not null then
+    jClient.put('maintenanceGroup', sMaintenanceGroup);
+    jClient.put('result', true);
+  else
+    jClient.put('result', false);
+  end if;
+  pOutput := jClient.TO_CLOB();
+end pGetMaintenanceGroupByPinfl;
+
+procedure pUpdAdr(pInput in Clob,
+                  pOutput out Clob) is
+  pParIn       varchar2(32000) := '';
+  pParOut      varchar2(32000) := '';
+  nDepId       G_CLI.DEP_ID%type;
+  nId          G_CLI.ID%type;
+  nOrdId       G_CLI.ORD_ID%type;
+  nProcId      T_PROCESS.ID%type;
+  nBopId       T_PROCESS.BOP_ID%type;
+  nSt          T_PROCESS.NSTAT%type;
+  cCliCode     G_CLI.CODE%type;
+  aInput       JSON_OBJECT_T;
+  aOutput      JSON_OBJECT_T;
+begin
+  aOutput := JSON_OBJECT_T();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  cCliCode := aInput.get_string('cliCode');
+
+  select c.dep_id, c.id, c.ord_id into nDepId, nId, nOrdId
+    from G_CLI c where c.code = cCliCode;
+
+  G_PKGCLINIBBD.pGetCliProc(nDepId, nId, 1, nProcId,nBopId,nSt);
+
+  aOutput.put('result', t_pkgrunoprutl.fRunOperation(nProcId, 'EGOV_ADRPIN', pParIn, pParOut));
+  aOutput.put_null('error');
+  pOutput := aOutput.To_Clob();
+exception
+  when others then
+    t_log.debug('Z_116_PKGSTUDCRD.pUpdAdr. Ошибка: %0:s', vargs(substr(sqlerrm, 1, 500)), 'PKG', 'Z_116_PKGSTUDCRD');
+    pOutput := fErr(sqlcode, 'Ошибка обновления карточки клиента: %0:s',vargs(substr(sqlerrm,1,2000)));
+end pUpdAdr;
+
+end Z_116_ELOAN_CLIENT;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_BOP"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ADDRESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIADDRESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIDOC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIIDN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_IDENTDOCDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_IDNDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="S_DEAACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ACCGRP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNDTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UNIREF"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_OBL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_RN"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_MAXDATE"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="AML_PKGONLINE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="CESB_BASE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGACC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGADDRESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGADDRESS_UZ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDENTDOC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLINIBBD"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIROLE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGLOCK_CLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGNIBBDF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGNIBBDONLINE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGNIBBDUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKG_IBCLI_UZ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGREG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGRUNOPRUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="U_PKGUNIREF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="G_ADDRESS_PART"/>
+    </PKGDPNDOM>
+  </PKG>
+</DDC>

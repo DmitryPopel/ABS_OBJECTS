@@ -1,0 +1,871 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGCREDCRD" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="10E320ECFC6AC923B5279C29E688828A">
+  <PKG 
+    NAME="Z_116_PKGCREDCRD">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGCREDCRD is
+/**
+* Методов обеспечения работы кредитных карт
+*
+* @author Бондаренко Анатолий
+* @version 1.0
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+  type tDtJrnVal is record (DOPER date, JRN integer, PRC integer);
+  type tDtJrnValLst is table of tDtJrnVal index by binary_integer;
+
+  /** Создание договора кредитной линии, возврат идентификаторов созданного договора овердрафта
+  * @param nCrdDeaDepId Подразделение договора СКС
+  * @param nCrdDeaId Идентификатор договора СКС
+  * @param dFromDate Дата начала действия
+  * @param dToDate Дата окончания действия
+  * @param sSumLimBal Сумма лимита задолженности
+  * @param sValLimCode Код валюты суммы лимита
+  * @param nCliDepId Подразделение заемщика
+  * @param nCliId Идентификатор заемщика
+  * @param nAccDepId Подразделение текущего счета
+  * @param nAccId Идентификатор текущего счета
+  * @param sAccCode Номер текущего счета
+  * @param sCardNo номер карты
+  * @param nParentProc Процесс родитель
+  * @param nParentOpr Операция процесса родителя
+  * @param sDeaCode Номер кредитного договора
+  * @param sLoanDclCode Код продукта (Кредитного)
+  * @param dDeaDate Дата договора
+  * @param sPrim Примечание к договору
+  * @param dAVAILDATE Дата окончания периода доступности
+  * @param nBAL_DEP_ID Учет в балансе
+  * @param nSRV_DEP_ID Подразделение обслуживания
+  * @param nSELL_DEP_ID Точка продажи
+  * @param nOvrdDeaDepId Подразделение договора овердрафта
+  * @param nOvrdDeaId Идентификатор договора овердрафта
+  * @param sErrTxt Текст ошибки
+  */
+  procedure pCreLine( nCrdDeaDepId  in  N_CRDDEA.DEP_ID%TYPE  -- подразделение договора СКС
+                    , nCrdDeaId     in  N_CRDDEA.ID%TYPE      -- идентификатор договора СКС
+                    , dFromDate   in  date          -- дата начала действия
+                    , dToDate     in  date          -- дата окончания действия
+                    , sSumLimBal  in  varchar2      -- сумма лимита задолженности
+                    , sValLimCode in  varchar2      -- код валюты суммы лимита
+                    , nCliDepId   in  T_DEA.CLI_DEP_ID%TYPE   -- подразделение заемщика
+                    , nCliId      in  T_DEA.CLI_ID%TYPE       -- идентификатор заемщика
+                    , nAccDepId   in  integer       -- подразделение текущего счета
+                    , nAccId      in  integer       -- идентификатор текущего счета
+                    , sAccCode    in  varchar2      -- номер текущего счета
+                    , sCardNo     in  varchar2      -- номер карты
+                    , nParentProc in  T_PROCESS.ID%TYPE       -- Процесс родитель
+                    , nParentOpr  in  integer       -- Операция процесса родител
+                    , sDeaCode    in  varchar2      -- Номер кредитного договора
+                    , sLoanDclCode in  varchar2     -- Код продукта (Кредитного)
+                    , dDeaDate  in  date default P_OPERDAY  -- Дата договора
+                    , sPrim     in  varchar2 default null   -- Примечание к договору
+                    , dAVAILDATE in date default null  -- Дата окончания периода доступности
+                    , nBAL_DEP_ID in T_DEA.BAL_DEP_ID%TYPE default null
+                    , nSRV_DEP_ID in T_DEA.SRV_DEP_ID%TYPE default null
+                    , nSELL_DEP_ID in T_DEA.SELL_DEP_ID%TYPE default null
+                    , nOvrdDeaDepId  in out T_DEA.DEP_ID%TYPE -- подразделение договора овердрафта
+                    , nOvrdDeaId     in out T_DEA.ID%TYPE -- идентификатор договор овердрафта
+                    , sErrTxt        out varchar2 -- текст ошибки
+                    );
+
+  /** Выдача транша (NEWDEA)
+  * @param idDepDea Подразделение договора
+  * @param idDea Идентификатор договора
+  * @param nAmount Сумма транша
+  * @param idVal Идентификатор валюты транша
+  */
+  procedure pLoanOut(idDepDea in T_DEA.DEP_ID%TYPE, idDea in T_DEA.ID%TYPE, nAmount in number, idVal in T_VAL_STD.ID%type, cTTFl in varchar2);
+
+  /** Отмена выдачи последнего транша
+  * @param idDepDea Подразделение договора
+  * @param idDea Идентификатор договора
+  */
+  procedure pLoanOutUndo(idDepDea in T_DEA.DEP_ID%TYPE, idDea in T_DEA.ID%TYPE);
+
+  /** Мониторинг возниконовения красного сальдо по счетам кред. карт и их перекрытие
+  */
+  procedure pMonRedSaldo;
+
+  /** Построение списка дат изменений признака грейс периода
+  * @param idDepDea Подразделение договора
+  * @param idDea Идентификатор договора
+  * @param DateList список дат изменений признака грейс периода
+  */
+  procedure pGetGraceDateList(idProc in T_PROCESS.ID%TYPE, DateList out T_BSPCN.tDateList);
+
+  /** Ф-ия заполнение структуры для расчета базы для расчета %% по кредитной карте с учетом изменения грейс периодов
+  * Функция аналогична T_PkgPrcClc.GetPrcList только не теряет последний пункт в базе расчета
+  * когда он совпал с датой окончания расчета и не схлопывает периоды, когда
+  * не менялось значение ставки - сделано для PrcDateLst с изменениями по двум массивам (ставка вознаграждение и изменения признака грейса)
+  * @param SumTbl Остаток для начисления в разбивке по датам
+  * @param PrcDateLst Список дат изменения ставки %% и грейса
+  * @param dEnd Дата окончания расчетов
+  * @param idClcDayFnc Функция расчета количества дней (идентификатор)
+  * @param rUP Текущая операция.
+  * @param idPrc идентификатор процентной ставки
+  * @param iAddPPFl признак добавления "закрытия" грейс периода в платежном периоде при смене признака прошлого грейса задним числом
+  * @return T_PkgPrcClc.tPrcList структуру для расчета %
+  */
+  function GetPrcListADD(
+    SumTbl in T_PkgFncLst.tSumList,   -- Остаток для начисления в разбивке по датам
+    PrcDateLst in T_BSPCN.tDateList,  -- Список дат изменения %-х ставок
+    dEnd in date,                     -- Дата окончания расчетов
+    idClcDayFnc in integer,           -- Функция расчета количества дней (идентификатор)
+    rUP in C_PkgSbjUtl.rUsedProcess,  -- Текущая операция.
+    idPrc in integer,                 -- идентификатор процентной ставки
+    iAddPPFl in integer default 0
+  ) return T_PkgPrcClc.tPrcList;
+
+  /** Расчет и установка признака грейс периода
+  * @param idDepDea Подразделение договора
+  * @param idDea Идентификатор договора
+  */
+  procedure pClcGraceFl(idDepDea in T_DEA.DEP_ID%TYPE, idDea in T_DEA.ID%TYPE);
+
+  /** Получение значнеия признака грейс периода на дату
+  * @param idDepDea Подразделение договора
+  * @param idDea Идентификатор договора
+  * @param dCheck Дата, на которую проверяется занчение
+  * @return значение параметра на заданную дату или null, если не найдено
+  */
+  function fGetGraceCurValue(idDepDea in T_DEA.DEP_ID%TYPE, idDea in T_DEA.ID%TYPE, dCheck in date default p_operday) return T_DEAPRMJRN.PARVALUE%type;
+
+  /** Получение значнеия признака грейс периода на дату
+  * @param idProc Идентификатор процесса
+  * @param dCheck Дата, на которую проверяется занчение
+  * @return значение параметра на заданную дату или null, если не найдено
+  */
+  function fGetGraceCurValue(idProc in T_PROCESS.ID%type, dCheck in date default p_operday) return T_DEAPRMJRN.PARVALUE%type;
+
+  /** Получение значнеия признака грейс периода на дату
+  * @param dea договор
+  * @param dCheck Дата, на которую проверяется занчение
+  * @return значение параметра на заданную дату или null, если не найдено
+  */
+  function fGetGraceCurValue(dea in GL_ANL.RANLKEY, dCheck in date default p_operday) return T_DEAPRMJRN.PARVALUE%type;
+
+  /** Получение значнеия пакетной переменной для ППО
+  * @return значение пакетной переменной
+  */
+  function fGetTT return varchar2;
+
+end Z_116_PKGCREDCRD;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGCREDCRD is
+
+  idGracePar  T_DEAPRMDSC_STD.ID%type := t_pkgdeaprm.fGetParId('Z_116_ACTIVEGRACEFL');
+  namount     number(18,2);-- для ступенчатых ставок от суммы
+  idBopLine   T_SCEN_STD.ID%type := 5025;  -- сценарий КЛ
+  nOperNewDea T_SCEN_STD.NORD%type := 17;  -- операция выдачи транша (NEWDEA)
+  TT          varchar2(2);                 -- тип транзакции
+
+  -- Создание договора кредитной линии, возврат идентификаторов созданного договора овердрафта
+  procedure pCreLine( nCrdDeaDepId  in  N_CRDDEA.DEP_ID%TYPE  -- подразделение договора СКС
+                    , nCrdDeaId     in  N_CRDDEA.ID%TYPE      -- идентификатор договора СКС
+                    , dFromDate   in  date          -- дата начала действия
+                    , dToDate     in  date          -- дата окончания действия
+                    , sSumLimBal  in  varchar2      -- сумма лимита задолженности
+                    , sValLimCode in  varchar2      -- код валюты суммы лимита
+                    , nCliDepId   in  T_DEA.CLI_DEP_ID%TYPE   -- подразделение заемщика
+                    , nCliId      in  T_DEA.CLI_ID%TYPE       -- идентификатор заемщика
+                    , nAccDepId   in  integer       -- подразделение текущего счета
+                    , nAccId      in  integer       -- идентификатор текущего счета
+                    , sAccCode    in  varchar2      -- номер текущего счета
+                    , sCardNo     in  varchar2      -- номер карты
+                    , nParentProc in  T_PROCESS.ID%TYPE       -- Процесс родитель
+                    , nParentOpr  in  integer       -- Операция процесса родител
+                    , sDeaCode    in  varchar2      -- Номер кредитного договора
+                    , sLoanDclCode in  varchar2     -- Код продукта (Кредитного)
+                    , dDeaDate  in  date default P_OPERDAY  -- Дата договора
+                    , sPrim     in  varchar2 default null   -- Примечание к договору
+                    , dAVAILDATE in date default null  -- Дата окончания периода доступности
+                    , nBAL_DEP_ID in T_DEA.BAL_DEP_ID%TYPE default null
+                    , nSRV_DEP_ID in T_DEA.SRV_DEP_ID%TYPE default null
+                    , nSELL_DEP_ID in T_DEA.SELL_DEP_ID%TYPE default null
+                    , nOvrdDeaDepId  in out T_DEA.DEP_ID%TYPE -- подразделение договора овердрафта
+                    , nOvrdDeaId     in out T_DEA.ID%TYPE -- идентификатор договор овердрафта
+                    , sErrTxt        out varchar2 -- текст ошибки
+                    ) is
+    dCrdExpireDT  date := dToDate;
+    nDeaDepId     T_DEA.DEP_ID%TYPE;    -- идентификатор подразделения связанного договора
+    nDeaId        T_DEA.ID%TYPE;    -- идентификатор связанного договора
+    sMsg          varchar2( 250 );
+    iPayNord pls_integer;
+    sPayAtrCode varchar2(30) := 'CLIACC';
+    bNOvr boolean;
+    nBalDepID C_DEP.ID%TYPE;
+    nSrvDepID C_DEP.ID%TYPE;
+    nSellDepID C_DEP.ID%TYPE;
+
+    nNewAccDepId  G_ACCBLN.DEP_ID%TYPE;    -- идентификатор подразделения счета
+
+    sAccCode2 varchar2(30);
+    nRKOId integer;
+    iNord integer;
+    idDclLoan T_DEA.DCL_ID%type;
+    iAutoRunFl integer := 0;
+  begin
+    -- если в Договоре СКС нет карт (не важно каких, открытых/закрытых)
+    -- то кредитный договор не создаем и ругаемс
+    if( N_BSCRDDEA.fGetCardCount( nCrdDeaDepId, nCrdDeaId, null ) = 0 ) then
+      sMsg := LocalFrmt('Невозможно открыть кредитный договор, т.к. Договор СКС не содержит карт. Z_116_PKGCREDCRD.pCreLine. (%0:s) (nCrdDeaDepId=%1:s, nCrdDeaId=%2:s)', vargs(sPrim, nCrdDeaDepId, nCrdDeaId), 'PKG', 'Z_116_PKGCREDCRD');
+      t_log.debug(sMsg );
+      t_log.debug(dbms_utility.format_call_stack );
+      raise_application_error( -20000, sMsg );
+    end if;
+    -- если дата окончания договора не задана, то
+    -- берем максимальный срок карты по счету
+    if( dCrdExpireDT is null ) then
+      dCrdExpireDT := N_PKGCRDOVERDRAFT.fGetCrdDeaExpireDT( nCrdDeaDepId, nCrdDeaId, nAccDepId, nAccId, dDeaDate );
+    end if;
+
+    if dCrdExpireDT < dFromDate + 1 then
+      -- в основном для теховеров, когда теховер создается для карты, которая уже закрылась.
+      -- чтобы договор теховера смог работать
+      dCrdExpireDT := dFromDate + 1;
+    end if;
+    --
+    select nvl(nBAL_DEP_ID, d.BAL_DEP_ID), nvl(nSRV_DEP_ID, d.SRV_DEP_ID), nvl(nSELL_DEP_ID, d.SELL_DEP_ID)
+      into nBalDepID, nSrvDepID, nSellDepID
+      from T_DEA d
+      where d.DEP_ID = nCrdDeaDepId and d.ID = nCrdDeaId;
+    nDeaDepId := nvl(nOvrdDeaDepId,nCrdDeaDepId);
+
+    t_log.debug('dToDate=%0:s, dCrdExpireDT=%1:s', vargs(to_char(dToDate, 'DD.MM.YYYY'), to_char(dCrdExpireDT, 'DD.MM.YYYY')), 'PKG', 'Z_116_PKGCREDCRD');
+
+    L_PKGCRDGATE.pCreLine(
+       idDepDea    => nDeaDepId    -- подразделение договора
+      ,idDea       => nDeaId       -- идентификатор созданного договора
+      ,sDclCode    => sLoanDclCode -- код продукта
+      ,dFromDate   => dFromDate    -- дата начала действи
+      ,dToDate     => dCrdExpireDT -- дата окончания действи
+      ,sSumLimBal  => sSumLimBal   -- сумма лимита задолженности
+      ,sValLimCode => sValLimCode  -- код валюта суммы лимита
+      ,idDepCli    => nCliDepId    -- подразделение заёмщика
+      ,idCli       => nCliId       -- идентификатор заёмщика
+      ,idDepAcc    => nAccDepId    -- подразделение текущего счета
+      ,sAccCode    => sAccCode     -- номер текущего счета
+      ,sCardType   => N_BSCRDDEA.fGetFirstCardType( nCrdDeaDepId, nCrdDeaId, null ) -- Код вида карты
+      ,nParentProc => nParentProc  -- Процесс родитель
+      ,nParentOpr  => nParentOpr   -- Операция процесса родител
+      ,sDeaCode    => sDeaCode     -- номер договора
+      ,dDeaDate    => dDeaDate     -- дата договора
+      ,sPrim       => sPrim        -- примечание к договору
+      ,idBalDep    => nBalDepID    -- Учитывается в балансе
+      ,idSrvDep    => nSrvDepID    -- Подразделение обслуживани
+      ,idSellDep   => nSellDepID   -- Центр прибыли/затрат
+      ,dLastDea    => dAVAILDATE   -- дата окончания периода доступности
+      --если передавать 1, то выполняется и "Ввод в действие"(RUN), а она доступна только при открытых счетах. При iAutoRunFl=0 ниже отдельно вызовем регистрацию и расчет полной стоимости
+      ,iAutoRun    => iAutoRunFl --1
+      );
+
+    nOvrdDeaDepId := nDeaDepId;
+    nOvrdDeaId := nDeaId;
+
+    -- Сохраняем себя в Договор овердрафта
+    update T_DEA
+      set
+        DEA_ID = nCrdDeaId
+      , DEA_DEP_ID = nCrdDeaDepId
+    where
+      ID = nDeaId and DEP_ID = nDeaDepId;
+
+    if iAutoRunFl=0 then
+      T_PkgRunOprUtl.pRunOprByMainOrd(nDeaDepId, nDeaId, 'REG');
+      if L_PkgAprSetClc.fNeedCalcAPR(T_PkgDea.fDclId(sLoanDclCode)) = '1' then
+        T_PkgRunOprUtl.pRunOprByMainOrd(nDeaDepId, nDeaId, 'CREDITRATE');
+      end if;
+    end if;
+
+    -- установим день месяца для графика платежей
+    t_pkgdeaprm.pSetPrm(nDeaId, nDeaDepId, 'LPAYDAYOD', to_number(to_char(dFromDate,'dd')));
+    -- первоначальная установка признака герйс периода
+    pClcGraceFl(nDeaDepId, nDeaId);
+
+  end pCreLine;
+
+  -- Выдача транша (NEWDEA)
+  procedure pLoanOut(idDepDea in T_DEA.DEP_ID%TYPE, idDea in T_DEA.ID%TYPE, nAmount in number, idVal in T_VAL_STD.ID%type, cTTFl in varchar2) is
+    sInParam varchar2(4000);
+    sAddPrmStr varchar2(2000) := 'SAVE_SUM=>0';
+    iCntTrn    pls_integer;
+  begin
+    TT := cTTFl;
+    t_log.debug('  +++!!! cTTFl='||cTTFl);
+
+    sInParam := 'VAL_ID=>'||idVal||
+               ',ValCode=>'||T_PkgVal.fGetCode(idVal)||
+               ',amount=>'||nAmount;
+    T_PkgRunOprUtl.pRunOprByMainOrd(idDepDea, idDea, 'NEWDEA', sInParam);
+
+    -- при первой выдаче транша надо построить график
+    select nvl(count(t.SDOK),0) into iCntTrn
+      from T_DEAPAY t, TV_ARLDEA tv
+      where t.DEP_ID = tv.DEP_ID
+        and t.DEA_ID = tv.ORD_ID
+        and t.CLC_ID = tv.CLC_ID
+        and tv.DEP_ID = idDepDea
+        and tv.ORD_ID = idDea
+        and tv.CODE||'' = 'CR_CON_AM';
+
+    if iCntTrn = 1 then
+      T_PkgArlClc.pShdCalcDate(idDepDea, idDea);
+      T_PkgArlClc.pShdCalc2(idDepDea, idDea, idBopLine, nOperNewDea, sAddPrmStr);
+    end if;
+  end pLoanOut;
+
+  -- Отмена выдачи последнего транша
+  procedure pLoanOutUndo(idDepDea in T_DEA.DEP_ID%TYPE, idDea in T_DEA.ID%TYPE) is
+  begin
+    T_PkgRunOprUtl.pRunOprByMainOrd(idDepDea, idDea, 'UNNEWDEA');
+  end pLoanOutUndo;
+
+  -- Мониторинг возниконовения красного сальдо по счетам кред. карт и их перекрытие
+  procedure pMonRedSaldo is
+  begin
+    null;
+    --tofo: процедура мониторинга по образцу OVR_PAY
+  end pMonRedSaldo;
+
+  -- Построение списка дат изменений признака грейс периода
+  procedure pGetGraceDateList(idProc in T_PROCESS.ID%TYPE, DateList out T_BSPCN.tDateList) is
+ /*
+  begin
+
+    select pj.doper bulk collect into DateList
+      from T_DEAPRMJRN pj
+           where pj.id = idProc and pj.prm_id = idGracePar
+             and pj.parvalue is not null  -- от операции коррекции параметров договора
+             group by pj.doper
+             order by pj.doper; */
+
+    preTbl tDtJrnValLst;
+    i integer := 1;
+  begin
+    t_log.debug('++++ 1. Процедура. Построение списка дат-значений признака грейс периода');
+
+
+    select pj.doper, pj.njrn, (1 - to_number(pj.parvalue)) as pval
+      bulk collect into preTbl
+      from T_DEAPRMJRN pj
+      where pj.id = idProc
+        and pj.prm_id = idGracePar
+        and pj.parvalue is not null
+        and (pj.doper, pj.njrn) in (select pj_inner.doper, max(pj_inner.njrn)
+                                    from T_DEAPRMJRN pj_inner
+                                    where pj_inner.id = idProc
+                                      and pj_inner.prm_id = idGracePar
+                                    group by pj_inner.doper
+                                    )
+      order by pj.doper, pj.njrn;
+
+
+    DateList(i) := preTbl(i).DOPER;
+    if preTbl.count > 1 then
+      for j in preTbl.first+1..preTbl.last loop
+        if preTbl(j).DOPER > preTbl(j-1).DOPER and preTbl(j).JRN > preTbl(j-1).JRN then
+          i := i + 1;
+          DateList(i) := preTbl(j).DOPER;
+        end if;
+      end loop;
+    end if;
+
+    t_log.debug('++++ 2. Процедура. Построение списка дат-значений признака грейс периода окончание');
+  end pGetGraceDateList;
+
+  -- Вспомогательные ф-ии и процедуры для GetPrcListAdd:
+  -- Построение списка дат-значений признака грейс периода
+  function fGraceValDateList(idProc in T_PROCESS.ID%TYPE) return T_PKGPRCCLC.tPncDtValLst is
+    tbl    T_PKGPRCCLC.tPncDtValLst;
+    preTbl tDtJrnValLst;
+    i integer := 1;
+  begin
+    t_log.debug('++++ 2. Функция Построение списка дат-значений признака грейс периода');
+    select pj.doper, pj.njrn, (1 - to_number(pj.parvalue)) as pval
+      bulk collect into preTbl
+      from T_DEAPRMJRN pj
+      where pj.id = idProc
+        and pj.prm_id = idGracePar
+        and pj.parvalue is not null
+        and (pj.doper, pj.njrn) in (select pj_inner.doper, max(pj_inner.njrn)
+                                    from T_DEAPRMJRN pj_inner
+                                    where pj_inner.id = idProc
+                                      and pj_inner.prm_id = idGracePar
+                                    group by pj_inner.doper
+                                    )
+      order by pj.doper, pj.njrn;
+    tbl(i).DOPER := preTbl(i).DOPER;
+    tbl(i).PRC := preTbl(i).PRC;
+    if preTbl.count > 1 then
+      for j in preTbl.first+1..preTbl.last loop
+        if preTbl(j).DOPER > preTbl(j-1).DOPER and preTbl(j).JRN > preTbl(j-1).JRN then
+          i := i + 1;
+          tbl(i).DOPER := preTbl(j).DOPER;
+          tbl(i).PRC := preTbl(j).PRC;
+        end if;
+      end loop;
+    end if;
+
+    if T_Log.IsEnabled then
+      if tbl.count> 0 then
+        for t in tbl.first..tbl.last loop
+          t_log.debug('  %0:s: %1:s  %2:s', vargs(t, tbl(t).DOPER,tbl(t).PRC),'PKG','Z_116_PKGCREDCRD');
+        end loop;
+      end if;
+    else
+      t_log.debug('  Список действия грейс периода пуст.',sType => 'PKG',sCode => 'Z_116_PKGCREDCRD');
+    end if;
+
+    return tbl;
+  end fGraceValDateList;
+
+  -- построение избыточной структуры дат, без "схлопывания" подпериодов при равенстве проценных в периодах ставок
+  function PcnValDateList(PrcDateLst in T_BSPCN.tDateList, idPrc in integer,
+    dTo in date, rUP in C_PkgSbjUtl.rUsedProcess,
+    bReadSbjFl in boolean,
+    iVer in t_pcnhst.nver%type default null)
+    return T_PKGPRCCLC.tPncDtValLst
+  as
+    iD pls_integer := PrcDateLst.first;
+    tbl T_PKGPRCCLC.tPncDtValLst;
+    k pls_integer := 1;
+    fPrc number;
+    fCapRate number;
+    dCapDate date;
+    fFloorRate number;
+    dFloorDate date;
+    dOldDoper date;
+    dOp date;
+
+    procedure pAdd(dOp in date) as
+      fValue number := T_PkgPcnClc.fPrcWithCapAndFloorRate(fPrc, dOp, fCapRate, fFloorRate, dCapDate, dFloorDate);
+    begin
+      if dOp is not null then
+        tbl(k).DOPER := dOp;
+        tbl(k).PRC := fValue;
+      k := k+1;
+      end if;
+    end;
+
+    procedure PercentValueEx(
+      iId      in t_pcn.id%type,
+      dDate    in date default p_operday,
+      rUP      in C_PkgSbjUtl.rUsedProcess,
+      fPercent out float,
+      fcaprate    out t_pcnhst.caprate%type,
+      dcapdate    out t_pcnhst.capdate%type,
+      ffloorrate  out t_pcnhst.floorrate%type,
+      dfloordate  out t_pcnhst.floordate%type)
+    is
+  begin
+      if iVer is null then
+        T_PkgPcnClc.GetPercentValueEx(iId, dDate, rUP, fPercent, fCapRate, dCapDate, fFloorRate, dFloorDate);
+      else
+        fPercent := T_PkgPcnClc.GetPercentValueEx(iId,iVer, dDate, rUP, fCapRate, dCapDate, fFloorRate, dFloorDate);
+        end if;
+    end;
+  begin
+    while iD is not null and PrcDateLst(iD) <= dTo loop
+      dOp := PrcDateLst(iD);
+      if bReadSbjFl then
+        dOldDoper := c_pkgSession.DOPER;
+        c_PkgSession.DOPER := dOp;
+        begin
+          execute immediate 'begin BP$'||rUP.BOP_ID||'.LoadConcept(:p1,:p2); end;' using rUP.PROC_ID, rUP.NJRN;
+          PercentValueEx(idPrc, dOp, rUP, fPrc, fCapRate, dCapDate, fFloorRate, dFloorDate);
+          c_pkgSession.DOPER := dOldDoper;
+        exception
+          when OTHERS then
+            c_pkgSession.DOPER := dOldDoper;
+        end;
+      else
+        PercentValueEx(idPrc, dOp, rUP, fPrc, fCapRate, dCapDate, fFloorRate, dFloorDate);
+      end if;
+      if fPrc is null then
+        Raise_Application_Error (-20000,LocalFrmt('Не задана значение %-й ставки на дату %0:s', vargs(dOp), 'PKG', 'Z_116_PKGCREDCRD'));
+      end if;
+      pAdd(dOp);
+      pAdd(least(nvl(dCapDate, dFloorDate), nvl(dFloorDate, dCapDate))); -- наименьшая из двух, если заданы
+      pAdd(greatest(nvl(dCapDate, dFloorDate), nvl(dFloorDate, dCapDate))); -- наибольшая из двух
+      iD := PrcDateLst.next(iD);
+    end loop;
+    if T_BSARLSUM.gPcnLst.Count>0 then
+      tbl := T_PKGPRCCLC.fMrgPcnDtLst(tbl,T_BSARLSUM.gPcnLst,T_BSARLSUM.gPcnZero);
+    end if;
+    return tbl;
+  end PcnValDateList;
+
+  -- рассчет структуры
+  function InternalPrcList (SumTbl in T_PkgFncLst.tSumList, PrcDateLst in T_BSPCN.tDateList,
+  dEnd in date,
+  idClcDayFnc in integer,  -- Функция расчета количества дней (идентификатор)
+  rUP in C_PkgSbjUtl.rUsedProcess, -- Текущая операция.
+  idPrc in integer,
+  bReadSbjFl in boolean default False,
+  bExMode in boolean default False,
+  cld_info in C_PKGDATE.CLD_REC default null,
+  iVer in t_pcnhst.nver%type default null,
+  iAddPPFl in integer default 0
+  ) return T_PkgPrcClc.tPrcList as
+    tbl T_PkgPrcClc.tPrcList;
+    PcnDtVal T_PKGPRCCLC.tPncDtValLst;
+    PcnGraceDtVal T_PKGPRCCLC.tPncDtValLst;
+    PcnGraceDtValAddPP T_PKGPRCCLC.tPncDtValLst;
+    dFrom date;
+    fPcn number;
+    fGraceFl number;
+    iA pls_integer := SumTbl.first;
+    iD pls_integer;
+    k pls_integer := 1;
+    j pls_integer := 1;
+    nClcIdPD T_ARLCLC.ID%type;
+    pdlAddPP T_BSPCN.tDateList;
+    pdl T_BSPCN.tDateList := PrcDateLst;
+
+    procedure AddToTbl(dTo in date) as
+    begin
+      namount:=tbl(k).AMOUNT;
+      tbl(k).DFROM := dFrom; tbl(k).DTO := dTo;
+      if cld_info.cYear is null then
+      C_PkgDayCnt.pCntDaysBetween(idClcDayFnc, dFrom, dTo, tbl(k).DAY_CNT, tbl(k).YEAR_CNT);
+      tbl(k).DAY_CNT := tbl(k).DAY_CNT + 1;
+      else
+        tbl(k).DAY_CNT := C_PkgDate.fGetCountDaysBetween(
+               dFrom , dTo, null,
+               cld_info.iFirsDayIn,cld_info.iLastDayIn,
+               cld_info.cYear, cld_info.cMonth,
+               cld_info.cAmericanfl+1,1);
+        tbl(k).YEAR_CNT:= C_PkgDate.fBndBase(dTo, cld_info.cYear);
+      end if;
+      tbl(k).PRC := fPcn * fGraceFl; -- fPcn - значение ставки %% * на fGraceFl == 1 или 0 в зависимоти от действия грейс периода
+      tbl(k).PRCSUM := 0;
+      k := k+1;
+      dFrom := dTo;
+      tbl(k).AMOUNT := tbl(k-1).AMOUNT;
+    end;
+
+  begin
+    tbl(k).AMOUNT := SumTbl(iA).AMOUNT;
+    dFrom := SumTbl(iA).DOPER;
+    --PcnDtVal := PcnValDateList(PrcDateLst, idPrc, dEnd, rUP, bReadSbjFl,iVer);
+    PcnGraceDtVal := fGraceValDateList(rUP.PROC_ID);
+    -----
+    t_log.debug(' ++== 0 iAddPPFl='||iAddPPFl||' PcnGraceDtVal.count='||PcnGraceDtVal.count);
+    if iAddPPFl = 1 then
+      t_log.debug(' ++== 1 iAddPPFl='||iAddPPFl||' PcnGraceDtVal.count='||PcnGraceDtVal.count);
+/*      if PcnGraceDtVal.count > 1 \*or (PcnGraceDtVal.count = 1 and PcnGraceDtVal(PcnGraceDtVal.first).PRC = 1)*\ then  -- значит есть смена грейса - его выключение - смена в данной структуре значения с 0 на 1 (это множитель)
+        t_log.debug(' ++== 2 iAddPPFl='||iAddPPFl||' PcnGraceDtVal.count='||PcnGraceDtVal.count||' PcnGraceDtVal(PcnGraceDtVal.first).PRC='||PcnGraceDtVal(PcnGraceDtVal.first).PRC||' PcnGraceDtVal(1).PRC='||PcnGraceDtVal(1).PRC);
+        nClcIdPD := t_pkgarl.fGetClcByArlAlias('PA', rUP.DEP_ID, rUP.ORD_ID);
+        for g in (PcnGraceDtVal.first+1)..PcnGraceDtVal.last loop
+          if PcnGraceDtVal(g).PRC = 1 and PcnGraceDtVal(g-1).PRC = 0 then
+            PcnGraceDtValAddPP(j).DOPER := t_pkgarlclc.fClcWaitDate(rUP.DEP_ID, rUP.ORD_ID, nClcIdPD, 'BEGIN', PcnGraceDtVal(g).DOPER);
+            PcnGraceDtValAddPP(j).PRC := 0;
+            pdlAddPP(j) := PcnGraceDtValAddPP(j).DOPER;
+          end if;
+        end loop;
+
+        if PcnGraceDtValAddPP.count > 0 then
+          PcnGraceDtVal := T_PKGPRCCLC.fMrgPcnDtLst(PcnGraceDtVal,PcnGraceDtValAddPP);
+          pdl := D_BSARLSUM.fAddDateLst(pdl,pdlAddPP,1);
+        end if;
+      end if;*/
+      -- выше как было ДО правок по смене грейса в первом же периоде, ниже - эксперименты по обработке первого периода
+      if PcnGraceDtVal.count > 1 then  -- значит есть смена грейса - его выключение - смена в данной структуре значения с 0 на 1 (это множитель)
+        t_log.debug(' ++== 2 iAddPPFl='||iAddPPFl||' PcnGraceDtVal.count='||PcnGraceDtVal.count||' PcnGraceDtVal(PcnGraceDtVal.first).PRC='||PcnGraceDtVal(PcnGraceDtVal.first).PRC||' PcnGraceDtVal(1).PRC='||PcnGraceDtVal(1).PRC);
+        nClcIdPD := t_pkgarl.fGetClcByArlAlias('PA', rUP.DEP_ID, rUP.ORD_ID);
+        for g in (PcnGraceDtVal.first+1)..PcnGraceDtVal.last loop
+          if PcnGraceDtVal(g).PRC = 1 and PcnGraceDtVal(g-1).PRC = 0 then
+            PcnGraceDtValAddPP(j).DOPER := t_pkgarlclc.fClcWaitDate(rUP.DEP_ID, rUP.ORD_ID, nClcIdPD, 'BEGIN', PcnGraceDtVal(g).DOPER);
+            PcnGraceDtValAddPP(j).PRC := 0;
+            pdlAddPP(j) := PcnGraceDtValAddPP(j).DOPER;
+          end if;
+        end loop;
+      elsif PcnGraceDtVal.count = 1 and PcnGraceDtVal(PcnGraceDtVal.first).PRC = 1 then  -- значит грейс менялся в первом же периоде и над осделать обработку такую же, как выше
+        t_log.debug(' ++== 3 iAddPPFl='||iAddPPFl||' PcnGraceDtVal.count='||PcnGraceDtVal.count||' PcnGraceDtVal(PcnGraceDtVal.first).PRC='||PcnGraceDtVal(PcnGraceDtVal.first).PRC||' PcnGraceDtVal(1).PRC='||PcnGraceDtVal(1).PRC);
+        nClcIdPD := t_pkgarl.fGetClcByArlAlias('PA', rUP.DEP_ID, rUP.ORD_ID);
+        PcnGraceDtValAddPP(PcnGraceDtVal.first).DOPER := PcnGraceDtVal(PcnGraceDtVal.first).DOPER; --t_pkgarlclc.fClcWaitDate(rUP.DEP_ID, rUP.ORD_ID, nClcIdPD, 'BEGIN', PcnGraceDtVal(PcnGraceDtVal.first).DOPER);
+        PcnGraceDtValAddPP(PcnGraceDtVal.first).PRC := 0;
+        pdlAddPP(PcnGraceDtVal.first) := PcnGraceDtValAddPP(PcnGraceDtVal.first).DOPER;
+      end if;
+
+      if PcnGraceDtValAddPP.count > 0 then
+        PcnGraceDtVal := T_PKGPRCCLC.fMrgPcnDtLst(PcnGraceDtVal,PcnGraceDtValAddPP);
+        pdl := D_BSARLSUM.fAddDateLst(pdl,pdlAddPP,1);
+      end if;
+    end if;
+
+    PcnDtVal := PcnValDateList(pdl, idPrc, dEnd, rUP, bReadSbjFl,iVer); -- перенёс сверху сюда, т.к. сначала "расширяется" pdl
+    -----
+    iD := PcnDtVal.first;
+    while iD is not null loop -- прокрутим даты ставок до начала расчета
+      fPcn := PcnDtVal(iD).PRC;
+      fGraceFl := PcnGraceDtVal(iD).PRC;
+      iD := PcnDtVal.next(iD);
+      exit when iD is null;
+      exit when PcnDtVal(iD).DOPER > SumTbl(iA).DOPER;
+    end loop;
+    iA := SumTbl.next(iA);
+    loop
+      exit when iA is null and iD is null;
+      if iA is null or (iD is not null and SumTbl(iA).DOPER > PcnDtVal(iD).DOPER) then
+        exit when dbase.iif(bExMode, PcnDtVal(iD).DOPER > dEnd, PcnDtVal(iD).DOPER >= dEnd);
+        AddToTbl(PcnDtVal(iD).DOPER);
+        fPcn := PcnDtVal(iD).PRC;
+        fGraceFl := PcnGraceDtVal(iD).PRC;
+        iD := PcnDtVal.next(iD);
+      elsif iD is null or SumTbl(iA).DOPER <= PcnDtVal(iD).DOPER then
+        exit when dbase.iif(bExMode, SumTbl(iA).DOPER > dEnd, SumTbl(iA).DOPER >= dEnd);
+        AddToTbl(SumTbl(iA).DOPER);
+        tbl(k).AMOUNT := SumTbl(iA).AMOUNT;
+        if iD is not null and SumTbl(iA).DOPER = PcnDtVal(iD).DOPER then
+          fPcn := PcnDtVal(iD).PRC;
+          fGraceFl := PcnGraceDtVal(iD).PRC;
+          iD := PcnDtVal.next(iD);
+        end if;
+        iA := SumTbl.next(iA);
+      end if;
+    end loop;
+    AddToTbl(dEnd);
+    tbl.delete(k);
+    return tbl;
+  end InternalPrcList;
+
+  -- Ф-ия заполнение структуры для расчета базы для расчета %% по кредитной карте с учетом изменения грейс периодов
+  -- Функция аналогична GetPrcList только не теряет последний пункт в базе расчета
+  -- когда он совпал с датой окончания расчета и учитывает изменения ставки и признака грейса
+  function GetPrcListAdd(
+    SumTbl in T_PkgFncLst.tSumList,   -- Остаток для начисления в разбивке по датам
+    PrcDateLst in T_BSPCN.tDateList,  -- Список дат изменения %-й ставки
+    dEnd in date,                     -- Дата окончания расчетов
+    idClcDayFnc in integer,           -- Функция расчета количества дней (идентификатор)
+    rUP in C_PkgSbjUtl.rUsedProcess,  -- Текущая операция.
+    idPrc in integer,                 -- идентификатор процентной ставки
+    iAddPPFl in integer default 0
+  ) return T_PkgPrcClc.tPrcList as
+  begin
+
+    return InternalPrcList(SumTbl, PrcDateLst, dEnd, idClcDayFnc, rUP, idPrc, bExMode=>True, iAddPPFl=>iAddPPFl);
+
+  end GetPrcListAdd;
+
+  -- Расчет и установка признака грейс периода
+  procedure pClcGraceFl(idDepDea in T_DEA.DEP_ID%TYPE, idDea in T_DEA.ID%TYPE) is
+  begin
+    T_PkgRunOprUtl.pRunOprByMainOrd(idDepDea, idDea, 'Z_116_UPDGRACEFL');
+  end pClcGraceFl;
+
+  -- Получение значения признака грейс периода на дату
+  function fGetGraceCurValue(idProc in T_PROCESS.ID%type, dCheck in date default p_operday) return T_DEAPRMJRN.PARVALUE%type is
+    cRes     T_DEAPRMJRN.PARVALUE%type;
+  begin
+
+    select p.parvalue into cRes
+           from (select pj.parvalue from T_DEAPRMJRN pj
+                         where pj.id = idProc
+                           and pj.prm_id = idGracePar
+                           and pj.doper < dCheck
+                           order by pj.doper desc, pj.njrn desc
+                 ) p where rownum = 1;
+    return cRes;
+  exception
+    when NO_DATA_FOUND then
+      return null;
+  end fGetGraceCurValue;
+
+  -- Получение значения признака грейс периода на дату
+  function fGetGraceCurValue(idDepDea in T_DEA.DEP_ID%TYPE, idDea in T_DEA.ID%TYPE, dCheck in date default p_operday) return T_DEAPRMJRN.PARVALUE%type is
+    nProcId  T_PROCESS.ID%type;
+  begin
+    nProcId := t_pkgprocess.fGetIdByMainOrd(idDepDea,idDea);
+    return fGetGraceCurValue(nProcId, dCheck);
+  end fGetGraceCurValue;
+
+  -- Получение значения признака грейс периода на дату
+  function fGetGraceCurValue(dea in GL_ANL.RANLKEY, dCheck in date default p_operday) return T_DEAPRMJRN.PARVALUE%type is
+    nProcId  T_PROCESS.ID%type;
+  begin
+    nProcId := t_pkgprocess.fGetIdByMainOrd(dea.PK1, dea.PK2);
+    return fGetGraceCurValue(nProcId, dCheck);
+  end fGetGraceCurValue;
+
+  -- Получение значнеия пакетной переменной для ППО
+  function fGetTT return varchar2 is
+  begin
+    t_log.debug('  +++!!! 2 TT='||TT);
+    return TT;
+  end fGetTT;
+
+end Z_116_PKGCREDCRD;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="D_BSARLSUM"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="N_BSCRDDEA"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="T_BSARLSUM"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="T_BSPCN"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDTYPE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="TV_ARLDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ARLCLC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPAY"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPRMDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPRMJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PCN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PCNHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_SCEN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_VAL"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDATE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDAYCNT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGSBJUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="DBASE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="GL_ANL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGAPRSETCLC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGCRDGATE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="N_PKGCRDOVERDRAFT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARLCLC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEA"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGFNCLST"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGPCNCLC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGPRCCLC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGPROCESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGRUNOPRUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

@@ -1,0 +1,540 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGDEVAPI" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="05B2099A12B80695A7FC531891734B6E">
+  <PKG 
+    NAME="Z_116_PKGDEVAPI">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGDEVAPI is
+/**
+* Методы API по устройствам для партнеров
+*
+* @author Бондаренко Анатолий/ Попель ДА
+* @version 1.2
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+/** Список устройств партнера
+* <br/><i>Появилась в 1.0</i>
+* @param pInput  JSON с входными параметрами - наименование партнера
+* @param pOutput JSON с выходными парамтерами - список счетов по всем устройствам из задачи N_SPRDEV, относящихся к этому партнеру/сообщением об ошибке (опционально)
+*/
+procedure pGetDevLst(pInput  in clob,
+                     pOutput out Clob);
+
+
+procedure pGetTrans(pInput  in clob,
+                     pOutput out Clob);
+
+procedure pGetAccRest(pInput  in clob,
+                     pOutput out Clob);
+
+
+
+end Z_116_PKGDEVAPI;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGDEVAPI is
+-- Методы API по устройствам для партнеров
+
+procedure pGetDevLst(pInput  in clob,
+                     pOutput out Clob)
+is
+  ObjIn              JSON_OBJECT_T;
+  ObjRes             JSON_OBJECT_T;
+  sPayOrg            M_ONLINESYS.CODE%type;
+  lArr	             JSON_ARRAY_T;
+  lArrAcc            JSON_ARRAY_T;
+  ObjTmp             JSON_OBJECT_T;
+  ObjAcc             JSON_OBJECT_T;
+  nStartPosition     pls_integer := 1;
+  nOffset            pls_integer := 100;
+  nTotal             pls_integer;
+begin
+  Z_116_PKGCONNECT.pOpen();
+
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  sPayOrg := ObjIn.get_String('payOrg');
+  if ObjIn.has('startPosition') and ObjIn.has('offset') then
+    nStartPosition := ObjIn.get_Number('startPosition');
+    nOffset := ObjIn.get_Number('offset');
+  end if;
+
+  lArr := new JSON_ARRAY_T;
+  for d in (select x.* from (select rownum as NN, sd.proccode, sd.dep_id as dev_dep_id, sd.id as dev_id
+                                    , N_PKGCRDMSG.fGetProcStateErr(p.ID, st.LONGNAME) as STAT_NAME
+                                    , coalesce(T_PKGDEAPRM.fParByCode(sd.ID, sd.DEP_ID, 'MERCH_ENTITY_ID')
+                                             , T_PKGDEAPRM.fParByCode(dl.ID, dl.DEP_ID, 'MERCH_ENTITY_ID')
+                                             /*(select T_PKGDEAPRM.fParByCode(dl.ID, dl.DEP_ID, 'MERCH_ENTITY_ID') from N_DEVLNK dl
+                                                  where dl.DEV_DEP_ID = sd.DEP_ID and dl.DEV_ID = sd.ID and rownum = 1)*/) as MERCH_ENTITY_ID
+                                    , c.code as CLI_CODE, ch.longname as CLI_NAME, max(rownum) over() as totalCnt
+                           from N_SPRDEV sd, T_PROCMEM m, T_PROCESS p, T_BOP_STAT st, N_DEVLNK dl, T_DEA td, G_CLI c, G_CLIHST ch
+                             where (sd.DEP_ID, sd.ID) in (select p.DEP_ID, p.ID from T_DEAPRM p
+                                                      where p.DEA_ID = T_PKGDEAPRM.fGetParId('N_DEV_PAYORG')
+                                                        and p.PARVALUE = sPayOrg)
+                               and p.ID = m.ID and st.ID = p.BOP_ID and st.NORD = p.NSTAT
+                               and sd.DEP_ID = m.DEP_ID and sd.ID = m.ORD_ID and m.MAINFL = '1'
+                               and dl.DEV_DEP_ID = sd.DEP_ID and dl.DEV_ID = sd.ID
+                               and dl.dep_id = td.dep_id and dl.id = td.id
+                               and td.cli_dep_id = c.dep_id and td.cli_id = c.id
+                               and c.dep_id = ch.dep_id and c.id = ch.id and p_operday between ch.fromdate and ch.todate
+                               order by sd.PROCCODE asc
+                           ) x where x.NN >= nStartPosition and x.NN < (nStartPosition + nOffset)
+                           order by x.nn
+    ) loop
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('terminalId', d.proccode);
+    ObjTmp.put('merchantId', d.merch_entity_id);
+    ObjTmp.put('status', d.stat_name);
+    ObjTmp.put('clientCode', d.cli_code );
+    ObjTmp.put('clientName', d.cli_name);
+    ObjTmp.put('operDay', p_operday);
+
+    lArrAcc := new JSON_ARRAY_T;
+    for acc in (select a.ACCTYP, a.VAL_ID, v.CODE VAL_CODE, a.DEP_ID, dep.CODE DEP_CODE, a.ID, b.CODE ACC_CODE, b.dreg, b.lsttrndt
+                     , substr( G_PkgAccBln.fGetAccLongName( b.ID, b.DEP_ID ), 1, 250 ) as ACC_LONGNAME
+                    from N_DEVACC a, G_ACCBLN b, T_VAL v, C_DEP_STD dep
+                    where a.DEV_ID = d.dev_id
+                      and a.DEV_DEP_ID = d.dev_dep_id
+                      and a.ID = b.ID
+                      and a.DEP_ID = b.DEP_ID
+                      and a.DEP_ID = dep.ID
+                      and a.VAL_ID = v.ID (+)
+                      and a.acctyp <> 'COMISS'
+                      and instr(b.code,'#') = 0
+                      ) loop
+      ObjAcc := new JSON_OBJECT_T;
+      ObjAcc.put('account', acc.acc_code);
+      ObjAcc.put('depId', acc.dep_id);
+      ObjAcc.put('id', acc.id);
+      ObjAcc.put('branch', acc.dep_code);
+      ObjAcc.put('ct', 0/*t_pkgaccmov.fGetAccMov(acc.dep_id, acc.id, acc.dreg, p_operday, acc.val_id, flIncom => 1)*/);
+      ObjAcc.put('dt', 0/*t_pkgaccmov.fGetAccMov(acc.dep_id, acc.id, acc.dreg, p_operday, acc.val_id, flIncom => 0)*/);
+      ObjAcc.put('lastDate', acc.lsttrndt);
+      ObjAcc.put('name', acc.acc_longname);
+      ObjAcc.put('openDate', acc.dreg);
+      ObjAcc.put('sIn', t_pkgaccbal.fAbs(acc.dep_id, acc.id, p_operday, 1));
+      ObjAcc.put('sOut', t_pkgaccbal.fAbs(acc.dep_id, acc.id, p_operday, 0));
+      ObjAcc.put('state', g_pkgaccbln.fAccState(acc.dep_id, acc.acc_code));
+      ObjAcc.put('val', acc.val_code);
+
+      lArrAcc.append(ObjAcc);
+    end loop;
+
+    ObjTmp.put('accounts', lArrAcc);
+    lArr.append(ObjTmp);
+    if nTotal is null then
+      nTotal := d.totalcnt;
+    end if;
+  end loop;
+
+  ObjRes := new JSON_OBJECT_T;
+  ObjRes.put('totalCount', nTotal);
+  ObjRes.put('devices', lArr);
+  ObjRes.put_Null('error');
+  pOutput := ObjRes.To_Clob;
+
+exception
+  when others then
+    pOutput := Z_116_ELOAN_UTILS.fErr(sqlcode, 'Ошибка получения информации по устройствам платежной организации %0:s: %1:s', vargs(sPayOrg, substr(sqlerrm,1,2000)));
+
+end pGetDevLst;
+
+procedure pGetTrans(pInput  in clob,
+                     pOutput out Clob)
+is
+  vAccID    number;
+  vDep_Id   number;
+  vAccCode  varchar2(50);
+  vPartner  varchar2(250);
+  vFromDate date;
+  vToDate   date;
+  ObjTmp    JSON_OBJECT_T;
+  lArr      JSON_ARRAY_T;
+  ObjRes    JSON_OBJECT_T;
+  ObjIn     JSON_OBJECT_T;
+  nStartPosition     pls_integer := 1;
+  nOffset            pls_integer := 200;
+  nTotal             pls_integer;
+
+begin
+
+  Z_116_PKGCONNECT.pOpen();
+
+  ObjIn         := JSON_OBJECT_T.parse(pInput);
+  vaccCode      := ObjIn.get_String('acccode');
+  vPartner      := ObjIn.get_String('partner');
+  vFromDate     := ObjIn.get_Date('fromDate');
+  vToDate       := ObjIn.get_Date('toDate');
+
+   if ObjIn.has('startPosition') and ObjIn.has('offset') then
+    nStartPosition := ObjIn.get_Number('startPosition');
+    nOffset := ObjIn.get_Number('offset');
+  end if;
+
+  begin
+   select id, dep_id into vAccID, vDep_Id from g_accbln where code = vAccCode;
+  exception
+    when others then
+   pOutput := Z_116_ELOAN_UTILS.fErr(sqlcode, 'Счет не найден %0:s: %1:s', vargs(vAccCode, substr(sqlerrm,1,2000)));
+  end;
+
+  lArr := new JSON_ARRAY_T;
+
+  for rec in
+  (
+   With S as (
+  select /*+ index(trn IE_T_TRNDTL_ACC)*/
+         a.CODE as MEMORD_CODE,
+         j.execdt as DocDate,
+         decode(trn.incomfl,1,'ДТ',0,'КТ') as TurnProp,
+         j.ord_id,
+         j.dep_id,
+         trn.acc_id,
+         trn.dep_id as dep_id_T,
+         trn.id as trn_id,
+         Z_116_fnc_get_id_FDD758(j.id,2) jdep_id,
+         Z_116_fnc_get_id_FDD758(j.id,1) jid,
+         trn.sdok,
+         t_pkgval.fGetIsoCode(trn.val_id) currCode,
+         g_pkgaccbln.fGetAccCode(trn.dep_id,trn.acc_id,0) as acode,
+         T_PkgOprChr.fName(nvl(a.OPE_ID,j.CHA_ID)) as TypeOperation
+    from t_trndtl trn, T_TRNATR a, T_OPERJRN j
+   where trn.acc_id = vAccID
+         and trn.dep_id = vDep_Id
+         and trn.doper between vFromDate and  vToDate
+         and a.ID(+)=trn.ID
+         and a.NORD(+)=trn.NORD
+         and j.TRA_ID(+)=trn.ID
+         and a.CODE is not null
+         and exists
+         (select 1 from T_SCEN where id = j.BOP_ID and nord = j.NOPER))
+
+  ,S2 as
+ (
+  select  S.trn_id   ,
+         S.MEMORD_CODE,
+         S.DocDate,
+         S.TypeOperation,
+         S.TurnProp,
+         S.ord_id,
+         S.dep_id,
+         t.trn_num as TransactionNum,
+         t.trn_date as TransactionTime,
+         t.card_num as Transactioncard,
+         t.amount as TransactionSum,
+         t.val_code as Transactionval,
+         t.term_id Transactionterm,
+         t.refer as Transactionref,
+         t.acqref_nr as Transactionrefnr,
+         g_pkgaccbln.fGetAccCode(S.dep_id_T,S.acc_id,1) as acccode
+
+    from S,N_DEVOPR o, N_CRDINEKV t
+  where o.TRN_ID (+)= t.ID
+        and t.ID = nvl((select TRN_ID from N_DEVOPR where DEP_ID =  S.dep_id and ID = S.ord_id),'')
+        and exists
+         (select 1 from T_DEAPRM
+           where DEA_ID = T_PKGDEAPRM.fGetParId('N_DEV_PAYORG')
+             and parvalue = vPartner
+             and (id,dep_id) in
+             (select id,dep_id from N_SPRDEV where proccode = t.term_id))
+
+      union all
+
+      select  S.trn_id,
+         S.MEMORD_CODE,
+         S.DocDate,
+         S.TypeOperation,
+         S.TurnProp,
+         S.ord_id,
+         S.dep_id,
+         t.trn_num as TransactionNum,
+         t.trn_date as TransactionTime,
+         t.mask_cardcode as Transactioncard,
+         t.trn_sum as TransactionSum,
+         t.trn_val as Transactionval,
+         t.term_id Transactionterm,
+         t.refer as Transactionref,
+         t.acqref_nr as Transactionrefnr,
+         g_pkgaccbln.fGetAccCode(S.dep_id_T,S.acc_id,1) as acccode
+    from S, N_TRNOPR o, N_CRDINTRN_CHECK tc, N_CRDINTRN t, N_CRDINDTL d
+   where tc.ID (+)= t.ID and d.ID=t.ID
+     and o.TRN_ID (+)= t.ID
+    and t.ID = nvl((select TRN_ID from N_TRNOPR where DEP_ID=jdep_id and ID=jid),'')
+    and exists
+         (select 1 from T_DEAPRM
+           where DEA_ID = T_PKGDEAPRM.fGetParId('N_DEV_PAYORG')
+             and parvalue = vPartner
+             and (id,dep_id) in
+             (select id,dep_id from N_SPRDEV where proccode = t.term_id))
+
+  )
+  select x.* from
+    (
+  select rownum as NN,xx.*,max(rownum) over() as totalCnt from  (
+   select S2.* from S2
+   /* union all
+   select trn_id,S.MEMORD_CODE,S.docdate,S.TypeOperation,S.TurnProp,null,null,null,null,null,sdok,
+          S.currCode,null,null,null,S.acode
+   from S where
+   not exists
+   (select 1 from S2 where trn_id = S.trn_id )*/
+   )xx )  x
+  where x.NN >= nStartPosition and x.NN < (nStartPosition + nOffset)
+                           order by x.nn
+
+             )
+
+  loop
+ dbms_output.put_line('loop:'||vToDate);
+  ObjTmp := new JSON_OBJECT_T;
+  ObjTmp.put('memordCode', rec.MEMORD_CODE);
+  ObjTmp.put('docdate', rec.DocDate);
+  ObjTmp.put('typeOperation', rec.TypeOperation);
+  ObjTmp.put('turnProp', rec.TurnProp);
+  ObjTmp.put('transactionNum', rec.TransactionNum);
+  ObjTmp.put('transactionTime', rec.TransactionTime);
+  ObjTmp.put('transactioncard', rec.Transactioncard);
+  ObjTmp.put('transactionSum', rec.TransactionSum);
+  ObjTmp.put('transactionval', rec.Transactionval);
+  ObjTmp.put('transactionterm', rec.Transactionterm);
+  ObjTmp.put('transactionref', rec.Transactionref);
+  ObjTmp.put('transactionrefnr', rec.Transactionrefnr);
+  ObjTmp.put('acccode', rec.acccode);
+
+  lArr.append(ObjTmp);
+
+    if nTotal is null then
+      nTotal := rec.totalcnt;
+    end if;
+
+  end loop;
+
+   ObjRes := new JSON_OBJECT_T;
+   ObjRes.put('totalCount', nvl(nTotal,0));
+   ObjRes.put('accountInfo', lArr);
+
+   pOutput := ObjRes.To_Clob;
+
+exception
+  when others then
+    pOutput := Z_116_ELOAN_UTILS.fErr(sqlcode, 'Ошибка получения информации по устройствам платежной организации %0:s: %1:s', vargs(vPartner, substr(sqlerrm,1,2000)));
+
+
+end pGetTrans;
+
+
+
+
+procedure pGetAccRest(pInput  in clob,
+                     pOutput out Clob)
+is
+/*FDD 812 */
+ vAccRest number;
+ vaccCode   varchar2(50);
+ vCurrency varchar2(10);
+ vLabelPartner varchar2(50);
+ vDate date;
+ vCode    varchar2(50);
+ ObjTmp   JSON_OBJECT_T;
+ ObjRes   JSON_OBJECT_T;
+ ObjIn    JSON_OBJECT_T;
+begin
+ Z_116_PKGCONNECT.pOpen();
+
+ ObjIn         := JSON_OBJECT_T.parse(pInput);
+ vaccCode      := ObjIn.get_String('acccode');
+ vLabelPartner := ObjIn.get_String('partner');
+
+
+   select distinct b.code,
+          T_PkgAccBal.fAccBal(b.dep_id, b.id, p_OperDay, 0, nvl(a.val_id, 55)),
+          T_PkgVal.fGetIsoCode(a.val_id),
+          p_OperDay
+          into
+          vCode,
+          vAccRest,
+          vCurrency,
+          vDate
+     from g_accbln b, N_DEVACC a, N_SPRDEV sd
+    where b.code = vaccCode
+          and a.ID = b.ID
+          and a.DEP_ID = b.DEP_ID
+          and sd.id = a.dev_id
+          and sd.dep_id = a.dev_dep_id
+          and exists
+          (select 1 from T_DEAPRM
+           where DEA_ID = T_PKGDEAPRM.fGetParId('N_DEV_PAYORG')
+            -- and parvalue = pPartner
+             and parvalue = vLabelPartner
+             and (id,dep_id) in
+             (select id,dep_id from N_SPRDEV where id = sd.id));
+
+
+  if vCode is not null then
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('accountRest',vAccRest);
+    ObjTmp.put('accountCurrency',vCurrency);
+    ObjTmp.put('dateoper',vDate);
+    pOutput := ObjTmp.To_Clob;
+    pOutput := '{"accrestdevice":' || pOutput || '}';
+  end if;
+
+
+  exception
+  when others then
+     -- dbms_output.put_line('my');
+  pOutput := Z_116_ELOAN_UTILS.fErr(sqlcode, 'Ошибка получения информации по счету %0:s: %1:s', vargs(vaccCode, substr(sqlerrm,1,2000)));
+end;
+
+
+end Z_116_PKGDEVAPI;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_ONLINESYS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDINDTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDINEKV"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDINTRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDINTRN_CHECK"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_DEVACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_DEVLNK"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_DEVOPR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_SPRDEV"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_TRNOPR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPRM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_SCEN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNATR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNDTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_VAL"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="Z_116_FNC_GET_ID_FDD758"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGACCBLN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="N_PKGCRDMSG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCBAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGOPRCHR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_ELOAN_UTILS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKGCONNECT"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

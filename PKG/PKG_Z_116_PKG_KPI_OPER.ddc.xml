@@ -1,0 +1,335 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_KPI_OPER" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="434A0BC0B8C85CBBC0C490413C4CEC25">
+  <PKG 
+    NAME="Z_116_PKG_KPI_OPER">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_KPI_OPER is
+
+  -- Author  : BISTROV
+  -- Created : 04.09.2023 10:42:52
+  -- Purpose :
+
+  -- Public function and procedure declarations
+
+  procedure pEXEC(pDop in date default p_operday, pDep_id in number default 2980);
+
+  procedure pProcessOneChunk(pChunkNum number, pSID number, dOp date);
+
+  function fGetRCKUDep(pDepId in C_DEP_STD.ID%type)
+    return C_DEP_STD.ID%type deterministic;
+
+end Z_116_PKG_KPI_OPER;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_KPI_OPER is
+
+  nPRLCNT number := 10; --количество параллельных
+  nPRLCNTMLT number := 10; --множитель для чанков
+
+  cMainDepId       constant C_DEP_STD.ID%type := C_PkgDep.fGetIdDep(C_PKGPRM.fGetValPrm('GL_MAINDEP')); -- Головное подразделение
+
+  function pProcessOneRow(pRec in out Z_116_TB_KPI_OPER%rowtype, pDop date)
+    return boolean is
+    cQuanDaysDec     constant number := 31;
+    QuanDaysLstMnth  number;
+    QuanDaysCurMnth  number;
+    cDenominator     constant number := 1000000;
+  begin
+    pRec.Amcurmn := 0;
+    pRec.Amlstmn := 0;
+    pRec.Amendyr := 0;
+
+    select extract( day from last_day(trunc(add_months(pDop, -1), 'MM')) ) as end_prev_mn
+    into QuanDaysLstMnth
+    from dual;
+
+    select extract( day from last_day(trunc(pDop, 'MM')) )
+    into QuanDaysCurMnth
+    from dual;
+
+    for cur in (
+      with date_ranges as(
+      select
+          to_date(extract(year from pDop) - 1 || '.12.01','yyyy.mm.dd') as str_dec_lst_year,
+          to_date(extract(year from pDop) - 1 || '.12.31','yyyy.mm.dd') as end_dec_lst_year,
+          trunc(pDop, 'MM') as str_cur_mn,
+          last_day(trunc(pDop, 'MM')) as end_cur_mn,
+          trunc(add_months(pDop, -1), 'MM') as str_prev_mn,
+          last_day(trunc(add_months(pDop, -1), 'MM')) as end_prev_mn
+        from dual
+      )
+      select
+          str_dec_lst_year + level - 1 as dates_dec_lst_year,
+          case when str_prev_mn + level - 1 between str_prev_mn and end_prev_mn then
+               str_prev_mn + level - 1
+            else
+              null
+          end as dates_previous_month,
+          case when str_cur_mn + level - 1 between str_cur_mn and end_cur_mn then
+               str_cur_mn + level - 1
+            else
+              null
+          end as dates_current_month
+        from date_ranges
+        connect by level <= end_dec_lst_year - str_dec_lst_year + 1
+    ) loop
+
+      if cur.dates_current_month is not null then
+       pRec.Amcurmn := pRec.Amcurmn +
+                             T_PkgAccBal.fAbs(pRec.dep_id, pRec.ID, dOp => cur.dates_current_month, iInpBal => 0);
+      end if;
+
+      if cur.dates_previous_month is not null then
+       pRec.Amlstmn := pRec.Amlstmn +
+                             T_PkgAccBal.fAbs(pRec.dep_id, pRec.ID, dOp => cur.dates_previous_month, iInpBal => 0);
+      end if;
+
+      pRec.Amendyr := pRec.Amendyr +
+                             T_PkgAccBal.fAbs(pRec.dep_id, pRec.ID, dOp => cur.dates_dec_lst_year, iInpBal => 0);
+
+    end loop;
+
+    pRec.Amcurmn := pRec.Amcurmn / QuanDaysCurMnth / cDenominator;
+    pRec.Amlstmn := pRec.Amlstmn / QuanDaysLstMnth / cDenominator;
+    pRec.Amendyr := pRec.Amendyr / cQuanDaysDec / cDenominator;
+
+    return true;
+  end;
+
+  procedure pProcessOneChunk(pChunkNum number, pSID number, dOp date) is
+    cursor c is
+      select * from Z_116_TB_KPI_OPER where SID = pSID and chunknum = pChunkNum for update;
+    nRec Z_116_TB_KPI_OPER%rowtype;
+  begin
+    open c;
+    loop
+      fetch c into nRec;
+      exit when c%notfound;
+      if pProcessOneRow(nRec, dOp) then
+        update Z_116_TB_KPI_OPER set row = nRec where current of c;
+      else
+        delete Z_116_TB_KPI_OPER where current of c;
+      end if;
+    end loop;
+    close c;
+  end;
+
+/*
+  pDop - дата отчетности (должна формироваться на конец месяца)
+  pDep_id - ID РЦКУ
+*/
+  procedure pEXEC(
+    pDop in date default p_operday,
+    pDep_id in number default 2980
+    )
+  is
+    cTask varchar2(100) := 'Z_116_PKG_KPI_OPER';
+    l_chunk_sql varchar2(4000);
+    l_sql_stmt varchar2(32000);
+    nTaskState number;
+    nTry number:= 2;
+    nMainSID number:= sys_context('USERENV','SID');
+  begin
+
+    delete from Z_116_TB_KPI_OPER where SID = nMainSID;
+    --удалить не существующие
+    delete from Z_116_TB_KPI_OPER where SID not in (SELECT t.SID FROM v$session t);
+
+    insert into Z_116_TB_KPI_OPER l (DEP_ID, ID/*, VAL_ID*/, ON_POD, RCKU, NLEVEL, SID)
+
+    select * from(
+      select /*+ parallel(8)*/
+         a.DEP_ID,
+         a.id,
+        /* ah.val_id,*/
+         case
+           when d.CODE like '88%' then
+              Z_116_PKG_KPI_OPER.fGetRCKUDep(d.id)
+           when d.CODE like '00401' then
+              2056
+           else
+              d.ID
+         end ON_POD,
+         case when d.id = 2980 then
+           2056
+           else
+           Z_116_PKG_KPI_OPER.fGetRCKUDep(d.id)
+         end rcku,
+         case
+           when d.CODE like '88%' then
+              1
+           when d.CODE like '00401' then
+              1
+           else
+              d.NLEVEL
+         end NLEVEL,
+         nMainSID
+        from LEDACC_STD led/*, G_ACCBLNHST ah*/, g_accbln a, C_DEP D
+       where substr(led.CODE, 1, 5) = any (select ready.COLUMN_VALUE ACC_GRP
+                                             from ( vargs('20206','20406','20606',
+                                                                     '22617','22618') ) ready )
+         and a.CHA_ID = led.ID
+         /*and pDop between ah.FROMDATE and ah.TODATE
+         and ah.dep_id = a.dep_id and ah.id = a.id*/
+         and d.CODE(+) = GL_Anl.fAccAnlValue(a.DEP_ID, a.ID, 'DEPARTMENT')
+         and length(a.code) = 20) t
+    where pDep_id = 2980
+      or RCKU = pDep_id;
+    commit;
+
+    update Z_116_TB_KPI_OPER set chunknum = mod(rownum, nPRLCNT*nPRLCNTMLT) where SID = nMainSID;
+    commit;
+
+    begin
+      dbms_parallel_execute.stop_task(cTask);
+      dbms_parallel_execute.drop_task(cTask);
+    exception
+      when OTHERS then
+        null;
+    end;
+
+    DBMS_PARALLEL_EXECUTE.CREATE_TASK (cTask);
+
+    l_chunk_sql := 'select distinct chunknum as iStart, SID as iEnd from Z_116_TB_KPI_OPER where SID =' || to_char(nMainSID);
+
+    dbms_parallel_execute.create_chunks_by_SQL(
+      task_name => cTask,
+      sql_stmt => l_chunk_sql,
+      by_rowid => false
+    );
+
+    l_sql_stmt := q'[
+      declare
+        nChunkNum number := :start_id;
+        nSID number := :end_id;
+        dOp date := to_date(':Dop', 'dd.mm.yyyy');
+      begin
+        c_pkgconnect.popen(iNotRegist=>1);
+        Z_116_PKG_KPI_OPER.pProcessOneChunk(nChunkNum, nSID, dOp);
+        commit;
+      end;
+    ]';
+
+    l_sql_stmt:= replace(l_sql_stmt, ':Dop', to_char(pDop, 'dd.mm.yyyy'));
+
+    dbms_parallel_execute.run_task(
+      task_name => cTask,
+      sql_stmt => l_sql_stmt,
+      language_flag => DBMS_SQL.NATIVE,
+      parallel_level => nPRLCNT
+    );
+    --состояние по завершению
+    nTaskState := dbms_parallel_execute.task_status(cTask);
+    while (nTry>0 and nTaskState in (dbms_parallel_execute.crashed, dbms_parallel_execute.finished_with_error))
+    loop
+      nTry := nTry-1;
+      dbms_parallel_execute.resume_task(cTask);
+      nTaskState := dbms_parallel_execute.task_status(cTask);
+    end loop;
+
+    if nTaskState not in (dbms_parallel_execute.finished, dbms_parallel_execute.chunked )
+    then
+      t_log.debug('Ошибка при формировании отчета Z_116_KPI_OPER: '||to_char(nTaskState));
+      raise_application_error(-20000,Localize('Ошибка при формировании отчета Z_116_KPI_OPER: '||to_char(nTaskState), 'PKG', 'Z_116_PKG_KPI_OPER'));
+    else
+      dbms_parallel_execute.drop_task(cTask);
+    end if;
+
+    commit;
+  end;
+
+  function fGetRCKUDep(pDepId in C_DEP_STD.ID%type)
+    return C_DEP_STD.ID%type deterministic as
+    nDepId C_DEP_STD.ID%type;
+  begin
+    select x.ID
+      into nDepId
+      from (select t.ID
+              from C_DEP_STD t
+             where t.NLEVEL = 1
+               and t.ID_HI = cMainDepId
+            connect by prior t.ID_HI = t.ID
+             start with t.ID = pDepId
+             order by level) x
+     where rownum = 1;
+    return nDepId;
+  exception
+    when NO_DATA_FOUND then
+      return pDepId;
+  end fGetRCKUDep;
+
+  procedure pOpen
+  as
+    pragma autonomous_transaction;
+  begin
+    if C_PkgSession.idUser is null then
+      c_pkgconnect.popen;
+    end if;
+    commit;
+  end;
+
+begin
+  popen; -- необходимо для параллелизма хинтом (parallel)
+
+end Z_116_PKG_KPI_OPER;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_TB_KPI_OPER"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_LOCID"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDEP"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="GL_ANL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCBAL"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

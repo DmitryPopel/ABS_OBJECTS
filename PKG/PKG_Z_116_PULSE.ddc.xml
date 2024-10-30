@@ -1,0 +1,751 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PULSE" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="B947E0C4BA0B0EBABD0675495E488606">
+  <PKG 
+    NAME="Z_116_PULSE">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PULSE is
+  /* Пакет для работы HR_Pulse
+  *
+  * @author Быстров Владимир
+  * @version 1.0
+  * @headcom
+  *
+  * Copyright (c) 2023 By Aloqabank. All Rights Reserved.
+  */
+
+  /** Процедура для получения структуры подразделения
+  * @param pInput входной json (пока не используется)
+  * @param pOutput выходной json
+  */
+  procedure pGetDepsStructure(pInput in clob, pOutput out clob);
+
+  /** Процедура для получения информации о позициях банка
+  * @param pInput входной json (пока не используется)
+  * @param pOutput выходной json
+  */
+  procedure pGetInfoPositions(pInput in clob, pOutput out clob);
+
+  /** Процедура для получения информации о сотрудниках банка
+  * @param pInput входной json (пока не используется)
+  * @param pOutput выходной json
+  */
+  procedure pGetInfoEmployees(pInput in clob, pOutput out clob);
+
+end Z_116_PULSE;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PULSE is
+
+  procedure pGetDepsStructure(pInput in clob, pOutput out clob) is
+
+    lArrTmp JSON_ARRAY_T;
+    ObjTmp  JSON_OBJECT_T;
+
+  begin
+
+    lArrTmp := new JSON_ARRAY_T;
+
+    for cur in (select d.ID,
+                       d.LONGNAME,
+                       d.code,
+                       c.DREG,
+                       d.NLEVEL,
+                       d.ID_HI,
+                       d.ARCFL,
+                       a.FULLADDR,
+                       a.POST_INDEX,
+                       substr(g_pkgaddress.fGetPartName(a.ID, G_ADDR_CNTR),
+                              1,
+                              250) as CNTR_NM,
+                       substr(g_pkgaddress.fGetCode(nvl(g_pkgaddress.fGetPartId(a.ID,
+                                                                                G_ADDR_REGN),
+                                                        g_pkgaddress.fGetPartId(a.ID,
+                                                                                G_ADDR_REGT))),
+                              1,
+                              11) as REG_CODE,
+                       U_PKGUNIREF_UZ.fgetOblNameByCode(g_pkgaddress_uz.fgetObl(a.ID)) as UzOblName,
+                       substr(nvl(g_pkgaddress.fGetTDC_Name(g_pkgaddress.fGetTDC_Id(a.ID,
+                                                                                    G_ADDR_REGN)),
+                                  g_pkgaddress.fGetTDC_Name(g_pkgaddress.fGetTDC_Id(a.ID,
+                                                                                    G_ADDR_REGT))),
+                              1,
+                              30) as TDC_REG_NM,
+                       U_PKGUNIREF_UZ.fgetRnNameByCode(g_pkgaddress_uz.fgetRn(a.ID)) as UzRnName,
+                       substr(g_pkgaddress.fGetCode(g_pkgaddress.fGetPartId(a.ID,
+                                                                            G_ADDR_DSTR)),
+                              1,
+                              11) as DSTR_CODE,
+                       substr(g_pkgaddress.fGetPartName(a.ID, G_ADDR_STRT),
+                              1,
+                              250) as STRT_NM,
+                       substr(g_pkgaddress.fGetAddrHouse(g_pkgaddress.fGetPartId(a.ID,
+                                                                                 G_ADDR_HOUS)),
+                              1,
+                              10) as HHOUSE
+                  from C_DEP_STD d
+                  join G_CLI c
+                    on c.DEPCRD_ID = d.ID
+                  left join G_CLIADDRESS t
+                    on t.dep_id = c.dep_id
+                   and t.id = c.id
+                   and t.ADRTYPE =
+                       nvl(C_PKGPRM.fGetValPrm('CDEPADRTYPE'), GCLIADR_FACT)
+                   and t.ARCFL = '0'
+                  left join G_ADDRESS a
+                    on a.ID = t.ADR_ID
+                 where d.arcfl = '0'
+                 start with d.id = 2980
+                connect by prior d.id = d.id_hi) loop
+      ObjTmp := new JSON_OBJECT_T;
+
+      ObjTmp.put('orgUnitId', cur.id);
+      ObjTmp.put('objName', cur.LONGNAME);
+      ObjTmp.put('objCode', cur.code);
+      ObjTmp.put('dateBeg', cur.DREG);
+      /*ObjTmp.put('dateEnd',\*max_date*\);*/
+      ObjTmp.put('nLevel', cur.NLEVEL);
+      ObjTmp.put('idHigh', cur.ID_HI);
+      ObjTmp.put('abolished',
+                 CASE WHEN cur.arcfl = 1 THEN true ELSE false END);
+      ObjTmp.put('orgAddressFull', cur.FULLADDR);
+      ObjTmp.put('postalCode', cur.POST_INDEX);
+      ObjTmp.put('orgAddressCountry', cur.CNTR_NM);
+      ObjTmp.put('orgAddressStateCode', cur.REG_CODE);
+      ObjTmp.put('orgAddressState', cur.UzOblName);
+      ObjTmp.put('orgAddressStateType', cur.TDC_REG_NM);
+      ObjTmp.put('orgAddressArea', cur.UzRnName);
+      ObjTmp.put('orgAddressCode', cur.DSTR_CODE);
+      ObjTmp.put('orgAddressStreet', cur.STRT_NM);
+      ObjTmp.put('orgAddressHNB', cur.HHOUSE);
+
+      lArrTmp.append(ObjTmp);
+    end loop;
+
+    pOutput := lArrTmp.To_Clob;
+
+  end pGetDepsStructure;
+
+  procedure pGetInfoPositions(pInput in clob, pOutput out clob) is
+
+    lArrTmp JSON_ARRAY_T;
+    ObjTmp  JSON_OBJECT_T;
+
+  begin
+
+    lArrTmp := new JSON_ARRAY_T;
+
+    for cur in (select p.dep_id as orgUnitId,
+                       ps.Code as positionId,
+                       p.PSTYP_NAME as positionName,
+                       ps.FROMDATE as startDate,
+                       ps.TODATE as endDate,
+                       p.GRADE_NAME as grade,
+                       p.TRFS_CODE as gradeLevel,
+                       p.arcfl as abolished,
+                       round(hist.koef, 3) * 100 as tariffRateAllocatedPercentage,
+                       p.salary_max as gradeSalaryMax,
+                       p.salary as gradeSalaryMin,
+                       v.TODATE as endDateSalaryGrade,
+                       v.FROMDATE as startDateSalaryGrade,
+                       p.cat_code as catCode,
+                       p.priority as priority,
+                       round(hist.koef, 3) * 100 as personOccupancyPercentage,
+                       ps.TAB_NUMBER as employeeId,
+                       p.limit as limit_by_stav,
+                       (select nvl(sum(koef), 0) cnt
+                          from h_history h
+                         where p_operday between fromdate and todate - 1
+                           and tmpfl = 0
+                           and not exists
+                         (select 1
+                                  from h_absent a
+                                 where a.per_id = h.per_id
+                                   and p_operday between a.fromdate and
+                                       a.todate
+                                   and H_PkgLeave.fIsWTVacant(a.WORKTYPE_ID) = 1)
+                           and h.pos_id = p.id) as count_emp_by_stav
+                  from HV_POST p
+                  left join hv_posline ps
+                    on ps.ID = p.id
+                  left join hv_post_vac v
+                    on v.ID = p.id
+                  left join hv_history hist
+                    on hist.per_id = ps.PER_ID
+                   and hist.tmpfl = 0
+                   and p_operday between hist.fromdate and hist.todate
+                 where p_operday between v.FROMDATE and
+                       nvl(v.TODATE, p_maxdate)
+                   and ps.ARCFL = '0'
+                   and ps.Code not like 'OLD%'
+                   and p.arcfl = '0') loop
+      ObjTmp := new JSON_OBJECT_T;
+
+      ObjTmp.put('orgUnitId', cur.orgUnitId);
+      ObjTmp.put('positionId', cur.positionId);
+      ObjTmp.put('positionName', cur.positionName);
+      ObjTmp.put('startDate', cur.startDate);
+      ObjTmp.put('endDate', cur.endDate);
+      ObjTmp.put('grade', cur.grade);
+      ObjTmp.put('gradeLevel', cur.gradeLevel);
+      ObjTmp.put('abolished',
+                 CASE WHEN cur.abolished = 1 THEN true ELSE false END);
+      ObjTmp.put('tariffRateAllocatedPercentage',
+                 cur.tariffRateAllocatedPercentage);
+      ObjTmp.put('gradeSalaryMax', cur.gradeSalaryMax);
+      ObjTmp.put('gradeSalaryMin', cur.gradeSalaryMin);
+      ObjTmp.put('endDateSalaryGrade', cur.endDateSalaryGrade);
+      ObjTmp.put('startDateSalaryGrade', cur.startDateSalaryGrade);
+      ObjTmp.put('catCode', cur.catCode);
+      ObjTmp.put('priority', cur.priority);
+      ObjTmp.put('personOccupancyPercentage',
+                 cur.personOccupancyPercentage);
+      ObjTmp.put('employeeId', cur.employeeId);
+      ObjTmp.put('limit_by_stav', cur.limit_by_stav);
+      ObjTmp.put('count_emp_by_stav', cur.count_emp_by_stav);
+
+      lArrTmp.append(ObjTmp);
+    end loop;
+
+    pOutput := lArrTmp.To_Clob;
+
+  end pGetInfoPositions;
+
+  function fGetContCli(pCliDep_id g_cli.dep_id%type,
+                       pCliId     g_cli.id%type,
+                       pTypeCont  varchar) return varchar2 is
+    cliCont varchar2(1000);
+  begin
+    select case C_PkgPrm.fInList(CT.CODE, 'G_CLIPHONELST')
+             when 1 then
+              substr(G_ACATTRS.fSecretAttr(c.DEP_ID,
+                                           c.ID,
+                                           G_PKGCLICONT.fFormatPhone(cnt.CONT,
+                                                                     G_PKGCLICONT.fGetPhoneMask(cnt.PHONE_OP_ID)),
+                                           c.ENCODEFL,
+                                           c.ENCODECODE,
+                                           'G_CLICONT.' || CT.CODE),
+                     1,
+                     250)
+             else
+              substr(G_ACATTRS.fSecretAttr(c.DEP_ID,
+                                           c.ID,
+                                           cnt.CONT,
+                                           c.ENCODEFL,
+                                           c.ENCODECODE,
+                                           'G_CLICONT.' || CT.CODE),
+                     1,
+                     250)
+           end as phone
+      into cliCont
+      from g_cli c
+      join G_CLICONT cnt
+        on cnt.DEP_ID = c.dep_id
+       and cnt.ID = c.id
+      join CR_CONTTYPE CT
+        on cnt.ID_CONTTYPE = CT.ID
+     where c.DEP_ID = pCliDep_id
+       and c.ID = pCliId
+       and CT.CODE = pTypeCont
+       and BASFL = '1'
+       and rownum = 1;
+
+    return cliCont;
+
+  exception
+    when others then
+      return null;
+  end fGetContCli;
+
+  procedure pGetInfoEmployees(pInput in clob, pOutput out clob) is
+    gOutputObj JSON_OBJECT_T;
+    gOutputArr JSON_ARRAY_T;
+
+    lArrTmp JSON_ARRAY_T;
+    ObjTmp  JSON_OBJECT_T;
+
+  begin
+
+    gOutputArr := new JSON_ARRAY_T;
+
+    for emp in (select p.dep_id,
+                       p.pos_code,
+                       p.cli_dep_id,
+                       p.cli_id,
+                       p.FIRST_NAME,
+                       p.MIDDL_NAME,
+                       p.LAST_NAME,
+                       p.Full_name,
+                       p.GENDER_CODE,
+                       p.BIRTH_DATE,
+                       p.STAT_NAME,
+                       p.PER_ID,
+                       p.TAB_NUMBER,
+                       p.insert_shtat,
+                       p.delete_shtat,
+                       p.PROB_TODATE,
+                       p.TEMP_REPLACEMENT,
+
+                       case
+                         when p.STAT_NAME = 'Испытательный срок' then
+                          1
+                         else
+                          0
+                       end as isPROB,
+                       p.CURR_DEP_FULLNAME,
+                       p.CURR_FROMDATE,
+                       p.CURR_TODATE,
+                       p.CURR_POS_NAME,
+                       p.CURR_DEP_NAME,
+                       (select C_PkgDepCli.fGetFullNameDep(LOC_DEP_ID) NAME
+                          from H_LOCATIONHST h
+                         where PER_ID = p.per_id
+                           and p_operday between h.fromdate and h.todate
+                           and rownum = 1) wrk_place
+                  from z_116_pulse_hv_person p
+                 where p.STAT_NAME != 'Уволен'
+                   and p.arcfl = '0'
+                   and p.pos_code not like 'OLD%'
+                /* and p.tab_number in ('3966', '438')*/
+
+                ) loop
+      gOutputObj := new JSON_OBJECT_T;
+
+      gOutputObj.put('orgUnitId', emp.dep_id);
+      gOutputObj.put('positionId', emp.pos_code);
+      gOutputObj.put('tempReplacement', emp.TEMP_REPLACEMENT);
+
+      gOutputObj.put('tempReplacementStatus',
+                     CASE WHEN emp.TEMP_REPLACEMENT is not null THEN true ELSE
+                     false END);
+
+      gOutputObj.put('jAddressAddressbook', emp.wrk_place);
+
+      ObjTmp := new JSON_OBJECT_T;
+
+      ObjTmp.put('value', fGetContCli(emp.cli_dep_id, emp.cli_id, 'EML'));
+
+      gOutputObj.put('jContactsCompanyEmail', ObjTmp);
+
+      ObjTmp := new JSON_OBJECT_T;
+
+      ObjTmp.put('value', fGetContCli(emp.cli_dep_id, emp.cli_id, 'MOB'));
+
+      gOutputObj.put('jContactsInterOfficeTel', ObjTmp);
+
+      ObjTmp := new JSON_OBJECT_T;
+
+      ObjTmp.put('number',
+                 coalesce(G_PKGCLIIDN.fCliIDN(emp.cli_dep_id,
+                                              emp.cli_id,
+                                              G_PKGIDN.fId('IDN_PRS_UZ')),
+                          G_PKGCLIIDN.fCliIDN(emp.cli_dep_id,
+                                              emp.cli_id,
+                                              G_PKGIDN.fId('IDN_PRS_ZZ'))));
+
+      gOutputObj.put('pDocumentSnils', ObjTmp);
+
+      ObjTmp := new JSON_OBJECT_T;
+
+      ObjTmp.put('firstName', emp.FIRST_NAME);
+      ObjTmp.put('midName', emp.MIDDL_NAME);
+      ObjTmp.put('lastName', emp.LAST_NAME);
+      ObjTmp.put('fullName', emp.Full_name);
+      ObjTmp.put('gender', emp.GENDER_CODE);
+      ObjTmp.put('birthDay', emp.BIRTH_DATE);
+
+      gOutputObj.put('pBasic', ObjTmp);
+
+      ObjTmp := new JSON_OBJECT_T;
+
+      ObjTmp.put('status', emp.STAT_NAME);
+      ObjTmp.put('personId', emp.PER_ID);
+      ObjTmp.put('employeeId', emp.TAB_NUMBER);
+      ObjTmp.put('hireDate',
+                 substr(To_Char(emp.insert_shtat, c_Short4YDateFormat),
+                        1,
+                        10));
+      ObjTmp.put('firedDate',
+                 substr(To_Char(emp.delete_shtat, c_Short4YDateFormat),
+                        1,
+                        10));
+      ObjTmp.put('probationDateEnd',
+                 substr(To_Char(emp.PROB_TODATE, c_Short4YDateFormat),
+                        1,
+                        10));
+      ObjTmp.put('probationStatus',
+                 CASE WHEN emp.isPROB = 1 THEN true ELSE false END);
+
+      gOutputObj.put('jBasic', ObjTmp);
+
+      lArrTmp := new JSON_ARRAY_T;
+      ObjTmp  := new JSON_OBJECT_T;
+
+      for moving in (select /*+ index(p PK_A_RESPRS)*/
+                      p.DEP_FULLNAME,
+                      p.FROMDATE,
+                      p.TODATE,
+                      p.POS_NAME,
+                      p.DEP_NAME
+                       from hv_history p
+                      where p.per_id = emp.per_id
+                        and p.tmpfl = 0
+                      order by FROMDATE desc) loop
+        ObjTmp.put('companyName', moving.DEP_FULLNAME);
+        ObjTmp.put('startDate',
+                   substr(To_Char(moving.FROMDATE, c_Short4YDateFormat),
+                          1,
+                          10));
+        ObjTmp.put('endDate',
+                   substr(To_Char(moving.TODATE, c_Short4YDateFormat),
+                          1,
+                          10));
+        ObjTmp.put('positionName', moving.POS_NAME);
+        ObjTmp.put('unitName', moving.DEP_NAME);
+
+        lArrTmp.append(ObjTmp);
+      end loop;
+
+      gOutputObj.put('jHistory', lArrTmp);
+
+      lArrTmp := new JSON_ARRAY_T;
+
+      for edu in (select /*+ index(ed AK_A_RESPRS_CLI) */
+                   ed.ORG_NAME,
+                   ed.SPEC_NAME,
+                   ed.DEGREE_TYPE,
+                   ed.QUAL_NAME,
+                   ed.TODATE
+                    from hv_edu ed
+                   where ed.CLI_DEP_ID = emp.cli_dep_id
+                     and ed.CLI_ID = emp.cli_id) loop
+        ObjTmp := new JSON_OBJECT_T;
+        ObjTmp.put('instituteName', edu.ORG_NAME);
+        ObjTmp.put('speciality', edu.SPEC_NAME);
+        ObjTmp.put('certificationName', edu.DEGREE_TYPE);
+        ObjTmp.put('courseName', edu.QUAL_NAME);
+        ObjTmp.put('endDate',
+                   substr(To_Char(edu.TODATE, c_Short4YDateFormat), 1, 10));
+
+        lArrTmp.append(ObjTmp);
+      end loop;
+
+      gOutputObj.put('pEducation', lArrTmp);
+
+      lArrTmp := new JSON_ARRAY_T;
+
+      for exp in (select /*+ index(ex AK_A_RESPRS_CLI) */
+                   ex.ORGNAME, ex.FROMDATE, ex.TODATE, ex.PRIM, ex.POSITION
+                    from hv_exp ex
+                   where ex.CLI_DEP_ID = emp.cli_dep_id
+                     and ex.CLI_ID = emp.cli_id) loop
+        ObjTmp := new JSON_OBJECT_T;
+        ObjTmp.put('companyName', exp.ORGNAME);
+        ObjTmp.put('startDate', exp.FROMDATE);
+        ObjTmp.put('endDate', exp.TODATE);
+        ObjTmp.put('unitName', exp.PRIM);
+        ObjTmp.put('positionName', exp.POSITION);
+
+        lArrTmp.append(ObjTmp);
+      end loop;
+
+      gOutputObj.put('pHistory', lArrTmp);
+
+      lArrTmp := new JSON_ARRAY_T;
+
+      for sick in (select w.LONGNAME, a.FROMDATE, a.TODATE
+                     from H_ABSENT a
+                     join HV_WORKTYPE w
+                       on a.WORKTYPE_ID = w.ID
+                    where a.PER_ID = emp.per_id
+                         /* требовалось выводить все виды отсутствия командировки,
+                         Отпуска/Отгулы и Больничные и брать только те которые действительны на сегодняшний день HR-25 */
+                      and p_operday between a.FROMDATE and a.TODATE
+                   /*and a.ABSENT_TYPE = 'ILL'*/
+                    order by a.FROMDATE) loop
+        ObjTmp := new JSON_OBJECT_T;
+
+        ObjTmp.put('code', sick.LONGNAME);
+        ObjTmp.put('startDate',
+                   substr(To_Char(sick.FROMDATE, c_Short4YDateFormat),
+                          1,
+                          10));
+        ObjTmp.put('endDate',
+                   substr(To_Char(sick.TODATE, c_Short4YDateFormat), 1, 10));
+
+        lArrTmp.append(ObjTmp);
+      end loop;
+
+      gOutputObj.put('jBadgeAbsenceOther', lArrTmp);
+
+      lArrTmp := new JSON_ARRAY_T;
+
+      for aw in (select /*+ index(r AK_A_RESPRS_CLI) */
+                  nvl(a.NATIONALFL, nvl(pa.NATIONALFL, '0')) as NATIONALFL,
+                  a.LONGNAME,
+                  pa.FROMDATE,
+                  pa.PRIM
+                   from A_RESPRS r
+                   join H_PRS_AWARDS pa
+                     on pa.PER_ID = r.ID
+                   left join H_AWARDS a
+                     on a.ID = pa.AWARD_ID
+                  where r.CLI_DEP_ID = emp.cli_dep_id
+                    and r.CLI_ID = emp.cli_id
+                  order by pa.NORD) loop
+        ObjTmp := new JSON_OBJECT_T;
+
+        ObjTmp.put('awardsGroup', aw.NATIONALFL);
+        ObjTmp.put('awardTypeName', aw.LONGNAME);
+        ObjTmp.put('notes', aw.LONGNAME);
+        ObjTmp.put('date',
+                   substr(To_Char(aw.FROMDATE, c_Short4YDateFormat), 1, 10));
+        ObjTmp.put('documentNumber', aw.PRIM);
+
+        lArrTmp.append(ObjTmp);
+      end loop;
+
+      gOutputObj.put('jAwards', lArrTmp);
+
+      lArrTmp := new JSON_ARRAY_T;
+
+      for pnt in (select case p.OPER
+                           when 0 then
+                            substr(BS_DOM.DLongname('H_PNLTY_TYPE',
+                                                    p.TYPE_PNLTY),
+                                   1,
+                                   50)
+                           when 1 then
+                            H_DEFS.GetPnltyDoc(p.PER_ID, p.PNL_NORD)
+                         end DSPNNAME,
+                         d.DDOC,
+                         substr(BS_DOM.DLongname('H_PNLTY_OPR', p.OPER),
+                                1,
+                                50) OPERNAME,
+                         p.FROMDATE,
+                         p.TODATE
+                    from H_PENALTY p, H_DOCUMENT d
+                   where p.PER_ID = emp.per_id
+                     and p.DOC_ID = d.ID
+                   order by p.NORD, p.FROMDATE desc) loop
+        ObjTmp := new JSON_OBJECT_T;
+
+        ObjTmp.put('penaltGroup', pnt.DSPNNAME);
+        ObjTmp.put('date', pnt.DDOC);
+        ObjTmp.put('status', pnt.OPERNAME);
+        ObjTmp.put('startDate',
+                   substr(To_Char(pnt.FROMDATE, c_Short4YDateFormat), 1, 10));
+        ObjTmp.put('endDate',
+                   substr(To_Char(pnt.TODATE, c_Short4YDateFormat), 1, 10));
+
+        lArrTmp.append(ObjTmp);
+      end loop;
+
+      gOutputObj.put('jPenalty', lArrTmp);
+
+      lArrTmp := new JSON_ARRAY_T;
+
+      for rp in (select DEP_FULLNAME, FROMDATE, TODATE, POS_NAME, DEP_NAME
+                   from hv_rep_post
+                  where per_id = emp.per_id
+                  order by fromdate) loop
+        ObjTmp := new JSON_OBJECT_T;
+
+        ObjTmp.put('companyName', rp.DEP_FULLNAME);
+        ObjTmp.put('startDate',
+                   substr(To_Char(rp.FROMDATE, c_Short4YDateFormat), 1, 10));
+        ObjTmp.put('endDate',
+                   substr(To_Char(rp.TODATE, c_Short4YDateFormat), 1, 10));
+        ObjTmp.put('positionName', rp.POS_NAME);
+        ObjTmp.put('unitName', rp.TODATE);
+
+        lArrTmp.append(ObjTmp);
+      end loop;
+
+      gOutputObj.put('jHistoryAdditional', lArrTmp);
+
+      gOutputArr.append(gOutputObj);
+    end loop;
+
+    pOutput := gOutputArr.To_Clob;
+  end pGetInfoEmployees;
+begin
+  Z_116_PKGCONNECT.pOpen();
+
+end Z_116_PULSE;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_DOM"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="A_RESPRS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="CR_CONTTYPE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ADDRESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIADDRESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLICONT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="HV_EDU"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="HV_EXP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="HV_HISTORY"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="HV_POSLINE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="HV_POST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="HV_POST_VAC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="HV_REP_POST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="HV_WORKTYPE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="H_ABSENT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="H_AWARDS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="H_DOCUMENT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="H_HISTORY"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="H_LOCATIONHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="H_PENALTY"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="H_PRS_AWARDS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_PULSE_HV_PERSON"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="C_SHORT4YDATEFORMAT"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_MAXDATE"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDEPCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_ACATTRS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGADDRESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGADDRESS_UZ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLICONT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="H_DEFS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="H_PKGLEAVE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="U_PKGUNIREF_UZ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="G_ADDRESS_PART"/>
+    </PKGDPNDOM>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="G_CLIADR_TYPE"/>
+    </PKGDPNDOM>
+  </PKG>
+</DDC>

@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="FNC" 
+  KEY="Z_116_FNC_GET_TRANS_PDA" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="70801395846EFBCCD1FD35BF1162B41D">
+  <FNC 
+    NAME="Z_116_FNC_GET_TRANS_PDA">
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace function COLVIR.Z_116_FNC_GET_TRANS_PDA (pDate date) return PKG_forTypes_PDA.transca pipelined is
+
+  l_count         number;
+  vID      number;
+  vState   varchar2(100);
+  dLastDay date;
+  loan_array PKG_forTypes_PDA.transca := PKG_forTypes_PDA.transca();
+begin
+
+ -- Z_116_PKGCONNECT.pOpen();
+
+ if pDate < p_operday
+   then
+   dbms_output.put_line(pDate+1);
+  for rec in (
+
+With Tra as (
+select d.file_id as s1,
+       d.dateprc as s2,
+       d.dateprc as s3,-- hz
+       N_PKGCRDIN.fGetFileName(d.ID) as s4,
+       decode(d.state,2,'Успешно обработано',5,'Не требует обработки') as s10,
+       substr(bs_dom.dlongname( 'N_CRD_INTYPE', d.FORMAT ),1,250) as s14,
+       d.FORMAT as s15,
+       nvl( d.ERRFL, 0 ) as s17,
+       t.id as s23,
+       t.CLI_CODE as s24,
+       t.ACC_VAL as s26,
+       t.TRNACC_SUM as s27,
+       t.TRN_TYPE as s29,
+       t.EVENT_AREA as s30,
+       t.TRN_DATE as s31,
+       t.TRN_SUM as s32,
+       t.TRN_SUM as s33,
+       t.TRN_VAL as s34,
+       N_PKGPCIDSS.fGetMaskCardCode(t.CARD_NO) as s35,
+       CARDIDN as s37,
+       t.MCC_CODE as s38,
+       t.SB_SUM as s39,
+       t.SB_VAL as s40,
+       t.TERM_ID as s42,
+       t.MERCH_NAME as s45,
+       t.MERCH_CITY as s46,
+       t.MERCH_COUNTRY as s47,
+       t.REFER as s69,
+       t.ACQREF_NR as s70,
+       t.CARD_ACC as s84,
+       t.REVERSFL as s85,
+       t.DEBFL as s86,
+       t.TRN_NUM as s87,
+       N_PKGCRDIN.fGetFileProcessingCode(d.FILE_ID) as  s88
+ from N_TRNOPR o, N_CRDINTRN t, N_CRDINDTL d
+ where
+         t.trn_date >= pDate
+         and t.trn_date < pDate+1
+         --and t.REFER = 'ROWN00849142871T005007P'
+         --and t.id = '2709851762'
+         and d.ID=t.ID
+         and o.TRN_ID (+)= t.ID
+         and d.STATE  in (2,5))
+  select * from Tra)
+
+  loop
+   PIPE ROW(rec);
+  end loop;
+
+else
+  -- предыд рабоч день
+  --dLastDay := C_PKGDATE.fPrevDate(p_operday);
+     raise_application_error(-20000,'Операционный день '|| pDate || ' не закрыт!');
+
+end if;
+end Z_116_FNC_GET_TRANS_PDA;
+]]>
+    </LOB_FIELD>
+    <FNCDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_DOM"/>
+    </FNCDPNBSN>
+    <FNCDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDINDTL"/>
+    </FNCDPNENT>
+    <FNCDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDINTRN"/>
+    </FNCDPNENT>
+    <FNCDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_TRNOPR"/>
+    </FNCDPNENT>
+    <FNCDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </FNCDPNFNC>
+    <FNCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="N_PKGCRDIN"/>
+    </FNCDPNPKG>
+    <FNCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="N_PKGPCIDSS"/>
+    </FNCDPNPKG>
+    <FNCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="PKG_FORTYPES_PDA"/>
+    </FNCDPNPKG>
+  </FNC>
+</DDC>

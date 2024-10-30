@@ -1,0 +1,429 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_GM" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="E52F322244CB1635CDF0E8B94A5392A7">
+  <PKG 
+    NAME="Z_116_GM">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_GM is
+
+  /**
+  * Пакет для обновления VIN номеров транспортных средств
+  *
+  * @author Быстров Владимир
+  * @version 1.0
+  * @headcom
+  *
+  * Copyright (c) 2023 By Aloqabank. All Rights Reserved.
+  */
+
+  -- Выборка по транспортным средствам, с корректным номером купли продажи
+  procedure pInsertVehicleData;
+
+  -- Функция проверяет, что в таблице есть записи
+  function fCheckRecExist(pDep_id in l_vehicle.dep_id%type,
+                          pId     in l_vehicle.id%type,
+                          pTabName in varchar2) return number;
+
+  /** Основая процедура для обновления VIN номера авто
+  * @param pDepId Подразделение клиента
+  * @param pId Идентификатор клиента
+  * @param pVIN Новый VIN номер авто
+  * @param pStatus Статус договора купли продажи авто
+  * @param pErrorCode Код ошибки (0 - все хорошо)
+  * @param pErrorText Текст ошибки
+  */
+  procedure pUpdateVinNumVehicle(pDep_id    l_vehicle.dep_id%type,
+                                 pId        l_vehicle.id%type,
+                                 pVIN       l_vehicle.body_num%type,
+                                 pStatus    varchar2,
+                                 pErrorCode in out varchar2,
+                                 pErrorText in out varchar2);
+
+
+  procedure pLogContract(sContractCode varchar2, sJson clob);
+end Z_116_GM;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_GM is
+
+  -- Выборка по транспортным средствам, с корректным номером купли продажи
+  procedure pInsertVehicleData is
+  begin
+    execute immediate 'TRUNCATE TABLE Z_116_GM_LOAN_COLL_DATA';
+
+    insert into Z_116_GM_LOAN_COLL_DATA
+      (rmrtdep, rmrt, salcontnum, loan_dep_id, loan_id)
+      with dcl_avt_cred as
+       (select d.id
+          from T_DEACLS_STD   d,
+               L_DEAUNIREFRUL p,
+               U_UNIREF_STD   f,
+               U_UZ_VIDCRED   vd
+         where d.id = p.dcl_id
+           and p.REF_ID = u_PkgUniRef.fRefCode2Id('UZ_VIDCRED')
+           and p.REF_ID = f.ID
+           and vd.id = p.DEF_VALUE
+           and d.id_hi = '21174'
+           and vd.code = 34 -- автокредит
+        ),
+      avt_cred as
+       (select mrt.id rMrt, mrt.dep_id rMrtDep, v.body_num, d.*
+          from t_dea        d,
+               dcl_avt_cred a,
+               L_MRTDEA     dea,
+               L_MORTGAGE   mrt,
+               l_vehicle    v
+         where dea.DEA_DEP_ID = d.dep_id
+           and dea.DEA_ID = d.id
+           and dea.MRT_DEP_ID = mrt.dep_id
+           and dea.Mrt_Id = mrt.id
+           and mrt.ens_id = '484' -- транспортные средства
+           and d.dcl_id = a.id
+           and v.dep_id = mrt.dep_id
+           and v.id = mrt.id
+           and length(v.body_num) < 5
+           and not exists (select 1
+                  from Z_116_GM_LOAN_COLL_FIN f
+                 where f.rmrtdep = mrt.dep_id
+                   and f.rmrt = mrt.id))
+      select RMRTDEP,
+             RMRT,
+             REGEXP_SUBSTR(NNUMLABEL, '\d-\d{3}-\d{4}-\d{5}[A-Z]{2}') SalContNum,
+             loan_dep_id,
+             loan_id
+        from (select RMRTDEP,
+                     RMRT,
+                     l_pkgMortgage.fGetObjAddAtrValue(RMRTDEP,
+                                                      RMRT,
+                                                      'NNUMLABEL') NNUMLABEL,
+                     /*t_pkgdeaprm.fParByCode(a.id, a.dep_id, 'L_UZ_UNIQNUM') as UNIQNUM*/
+                     a.dep_id loan_dep_id,
+                     a.id     loan_id
+                from avt_cred a, T_PROCMEM m, T_PROCESS p, T_BOP_STAT_STD s
+               where a.DEP_ID = m.DEP_ID
+                 and a.ID = m.ORD_ID
+                 and m.MAINFL = '1'
+                 and p.ID = m.ID
+                 and s.ID = p.BOP_ID
+                 and s.NORD = p.NSTAT
+                 and s.code = 'ACTUAL')
+       where REGEXP_LIKE(NNUMLABEL, '\d-\d{3}-\d{4}-\d{5}[A-Z]{2}');
+
+    commit;
+  end pInsertVehicleData;
+
+  -- Обновление таблицы Z_116_GM_LOAN_COLL_FIN, для договоров, по которым авто получили окончательные VIN номера
+  procedure pWriteFinVin(pDep_id    l_vehicle.dep_id%type,
+                         pId        l_vehicle.id%type,
+                         pOldVIN    l_vehicle.body_num%type,
+                         pNewVIN    l_vehicle.body_num%type) is
+  begin
+
+    if fCheckRecExist(pDep_id, pId, 'Z_116_GM_LOAN_COLL_FIN') = 0 then
+
+      delete from Z_116_GM_LOAN_COLL_CUR_STATUS
+       where rmrtdep = pDep_id
+         and rmrt = pId;
+
+      insert into Z_116_GM_LOAN_COLL_FIN
+        (doper, rmrtdep, rmrt, oldvinnum, newvinnum)
+      values
+        (sysdate, pDep_id, pId, pOldVIN, pNewVIN);
+
+    else
+      delete from Z_116_GM_LOAN_COLL_CUR_STATUS
+       where rmrtdep = pDep_id
+         and rmrt = pId;
+
+      update Z_116_GM_LOAN_COLL_FIN
+         set doper     = sysdate,
+             oldvinnum = pOldVIN,
+             newvinnum = pNewVIN
+       where rmrtdep = pDep_id
+         and rmrt = pId;
+
+    end if;
+
+    commit;
+  end pWriteFinVin;
+
+  -- Обновление таблиц для договоров, которые не получили окончальные VIN номера или свалились с ошибкой
+  procedure pWriteBetweenStatus(pDep_id    l_vehicle.dep_id%type,
+                                pId        l_vehicle.id%type,
+                                pStatus    varchar2,
+                                pErrorCode varchar2,
+                                pErrorText varchar2) is
+  begin
+
+    if Z_116_GM.fCheckRecExist(pDep_id, pId, 'z_116_gm_loan_coll_cur_status') = 0 then
+
+      insert into Z_116_GM_LOAN_COLL_CUR_STATUS
+        (doper, rmrtdep, rmrt, status, errorcode, errortext)
+      values
+        (sysdate, pDep_id, pId, pStatus, pErrorCode, pErrorText);
+
+    else
+      update Z_116_GM_LOAN_COLL_CUR_STATUS
+         set doper     = sysdate,
+             status    = pStatus,
+             errorcode = pErrorCode,
+             errortext = pErrorText
+       where rmrtdep = pdep_id
+         and rmrt = pid;
+
+    end if;
+
+    if Z_116_GM.fCheckRecExist(pDep_id, pId, 'Z_116_GM_LOAN_COLL_FIN') != 0 then
+
+      delete from Z_116_GM_LOAN_COLL_FIN f
+       where f.rmrtdep = pDep_id
+         and f.rmrt = pId;
+
+    end if;
+
+    commit;
+  end pWriteBetweenStatus;
+
+  -- Обновление таблицы Z_116_GM_LOAN_COLL_DATA для записи pErrorCode и pErrorText
+  procedure pWriteResultUpd(pDep_id    l_vehicle.dep_id%type,
+                            pId        l_vehicle.id%type,
+                            pErrorCode varchar2,
+                            pErrorText varchar2) is
+  begin
+    update Z_116_GM_LOAN_COLL_DATA d
+       set d.ERRORCODE = pErrorCode, d.ERRORTEXT = pErrorText
+     where d.rmrtdep = pDep_id
+       and d.rmrt = pId;
+
+    commit;
+  end;
+
+  -- Функция, что в таблице есть записи
+  function fCheckRecExist(pDep_id in l_vehicle.dep_id%type,
+                         pId     in l_vehicle.id%type,
+                         pTabName in varchar2) return number is
+    v_count number;
+  begin
+    execute immediate 'SELECT COUNT(*)
+                         FROM ' || pTabName ||
+                      ' WHERE rmrtdep = :pDep_id' || ' AND rmrt = :pId'
+    into v_count
+    using pDep_id, pId;
+
+    return v_count;
+
+  end fCheckRecExist;
+
+  /** Основая процедура для обновления VIN номера авто
+  * @param pDepId Подразделение клиента
+  * @param pId Идентификатор клиента
+  * @param pVIN Новый VIN номер авто
+  * @param pStatus Статус договора купли продажи авто
+  * @param pErrorCode Код ошибки (0 - все хорошо)
+  * @param pErrorText Текст ошибки
+  */
+  procedure pUpdateVinNumVehicle(pDep_id    l_vehicle.dep_id%type,
+                                 pId        l_vehicle.id%type,
+                                 pVIN       l_vehicle.body_num%type,
+                                 pStatus    varchar2,
+                                 pErrorCode in out varchar2,
+                                 pErrorText in out varchar2) is
+    vOldVinNum l_vehicle.body_num%type;
+  begin
+
+    if c_Pkgsession.idUser is null then
+      c_pkgconnect.pOpen();
+    end if;
+
+    if pErrorCode = '0' and upper(pStatus) = 'A' and pVIN is not null then
+
+      select v.body_num
+        into vOldVinNum
+        from l_vehicle v
+       where v.dep_id = pDep_id
+         and v.id = pId;
+
+      if vOldVinNum = pVIN then
+        pErrorCode := '-1';
+        pErrorText := 'VIN номер уже является актуальным.';
+      else
+        if (T_PkgRunOprUtl.fOprAvailable(pDep_id, pId, 'UPD_VIN_NUM') > 1) then
+          T_PkgRunOprUtl.pRunOprByMainOrd(pDep_id, pId, 'UPD_VIN_NUM', 'NEWVINNUM =>' || pVIN);
+
+          commit;
+
+          Z_116_GM.pWriteFinVin(pDep_id, pId, vOldVinNum, pVIN);
+
+
+        else
+          pErrorCode := '-6';
+          pErrorText := 'Операция UPD_VIN_NUM не доступна!';
+        end if;
+      end if;
+    else
+
+      if upper(pStatus) != 'A' and pStatus is not null then
+        pErrorCode := '-3';
+        pErrorText := 'Авто не получено клиентом - окончательный VIN номер не присвоен.';
+      elsif (pVIN is null or pStatus is null) and pErrorCode = '0' then
+        pErrorCode := '-4';
+        pErrorText := 'Нет данных по статусу или по VIN номеру.';
+      elsif pErrorCode is null then
+        pErrorCode := '-5';
+        pErrorText := 'Непредвиденная ошибка.';
+      end if;
+
+      Z_116_GM.pWriteBetweenStatus(pDep_id, pId, pStatus, pErrorCode, pErrorText);
+    end if;
+
+    Z_116_GM.pWriteResultUpd(pDep_id, pId, pErrorCode, pErrorText);
+
+    exception
+      when no_data_found then
+        pErrorCode := '-2';
+        pErrorText := 'Не найден залог с: Dep_id: ' || pDep_id || ', Id: ' || pId;
+
+        Z_116_GM.pWriteResultUpd(pDep_id, pId, pErrorCode, pErrorText);
+      when others then
+        pErrorCode := '-7';
+        pErrorText := substr(SQLERRM, 1, 500);
+
+        Z_116_GM.pWriteResultUpd(pDep_id, pId, pErrorCode, pErrorText);
+  end pUpdateVinNumVehicle;
+
+  ----------------------------------------------------------------------------------------------------
+  procedure pLogContract(sContractCode varchar2, sJson clob) is
+    sOldJson clob;
+
+    procedure log(sKey varchar2) is
+      sOld z_116_uzauto_log.old_value%type := json_value(sOldJson,
+                                                         '$.' || sKey
+                                                         returning varchar2);
+      sNew z_116_uzauto_log.new_value%type := json_value(sJson,
+                                                         '$.' || sKey
+                                                         returning varchar2);
+    begin
+      if nvl(sOld, '~') != nvl(sNew, '~') then
+        insert into z_116_uzauto_log
+          (contract_code, created_date, field, old_value, new_value)
+        values
+          (sContractCode, sysdate, sKey, sOld, sNew);
+      end if;
+    end;
+  begin
+    select json
+      into sOldJson
+      from z_116_uzauto_data
+     where contract_code = sContractCode;
+
+    update z_116_uzauto_data set json = sJson where contract_code = sContractCode;
+
+    log('expect_date');
+    log('model_name');
+    log('modification_name');
+    log('paid_amount');
+    log('price');
+    log('produced_date');
+    log('remain_amount');
+    log('state');
+    log('vin_code');
+
+    insert into z_116_uzauto_log
+      (contract_code, created_date, field, old_value, new_value)
+    values
+      (sContractCode, sysdate, 'TEST', 'A', 'B');
+  end;
+
+end Z_116_GM;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEAUNIREFRUL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MORTGAGE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MRTDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_VEHICLE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEACLS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UNIREF"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_VIDCRED"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_GM_LOAN_COLL_CUR_STATUS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_GM_LOAN_COLL_DATA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_GM_LOAN_COLL_FIN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_UZAUTO_DATA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_UZAUTO_LOG"/>
+    </PKGDPNENT>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGMORTGAGE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGRUNOPRUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="U_PKGUNIREF"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

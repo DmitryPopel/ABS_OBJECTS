@@ -1,0 +1,438 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGSAL4LOAN" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="AEC1CEB2E0B020626F10F02A4A373BDA">
+  <PKG 
+    NAME="Z_116_PKGSAL4LOAN">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGSAL4LOAN is
+/**
+* Методы для кредитов по работе с ЗП картами, ЗП договорами, реестрами и т.д.
+*
+* @author Бондаренко Анатолий
+* @author Ахмеджанов Сардор
+* @author Попель Дмитрий
+* @version 2.3
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+/** Функция для безопастного преобразования строки в дату
+* <br/><i>С версии 2.0</i>
+* @param pDate Дата для преобразования
+* @param pFormat Формат даты
+*/
+function pSafeToDate(pDate   in varchar2,
+                     pFormat in varchar2 default 'DD.MM.YYYY')
+  return date deterministic;
+
+/** Проверка доступности кредитования ФЛ в рамках ЗП договоров "белого" списка ЮЛ
+* @param pInput  JSON с ПИНФЛ ФЛ и датами "С" и "По"
+* @param pOutput JSON со результатами проверки и/или сообщением об ошибке (опционально)
+*/
+procedure pChkFiz4WhiteLoan(pInput  in  clob,
+                            pOutput out clob);
+
+end Z_116_PKGSAL4LOAN;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGSAL4LOAN is
+
+-- Функция для безопастного преобразования строки в дату
+function pSafeToDate(pDate   in varchar2,
+                     pFormat in varchar2 default 'DD.MM.YYYY')
+  return date deterministic
+is
+  v_date date;
+begin
+  select to_date(pDate, pFormat) into v_date from dual;
+  return v_date;
+exception
+  when others then
+    return null;
+end;
+
+-- Проверка доступности кредитования ФЛ в рамках ЗП договоров "белого" списка ЮЛ
+procedure pChkFiz4WhiteLoan(pInput  in  clob,
+                            pOutput out clob)
+is
+  ObjIn         JSON_OBJECT_T;
+  ObjRes        JSON_OBJECT_T;
+  lArr	        JSON_ARRAY_T;
+  ObjTmp        JSON_OBJECT_T;
+  cPinFl        G_CLIIDN.IDN_NUM%type;
+  nCliDepId     G_CLI.DEP_ID%type;
+  nCliId        G_CLI.ID%type;
+  dFrom         date;
+  dTo           date;
+  i             pls_integer := 1; -- счетчик месяцев получения ЗП начиная с прошлого и назад
+  stopFl        pls_integer := 0;
+
+  cliFl         pls_integer := 1;
+  salCliFl      pls_integer := 0;
+  whiteSalCliFl pls_integer := 0;
+  vSalObj       number;
+  vCount        number;
+
+  procedure addRow (O in out JSON_OBJECT_T, M in varchar2, S in number, V in varchar2) is
+  begin
+    O.put('dt', M);
+    O.put('sum', S);
+    O.put('val', V);
+  end;
+
+begin
+  Z_116_PKGCONNECT.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  cPinFl := ObjIn.get_String('pinfl');
+  dFrom := to_date(ObjIn.get_String('fromDate'), 'yyyy-mm-dd');
+  dTo := to_date(ObjIn.get_String('toDate'), 'yyyy-mm-dd');
+  g_pkgcliidn.pGetCliByIdn(cPinFl, 'IDN_PRS_UZ', nCliDepId, nCliId, pCliType => FIZ);
+  if nCliDepId is null and nCliId is null then
+    cliFl := 0;  -- не является клиентом банка
+  end if;
+
+  ObjRes := new JSON_OBJECT_T;
+  lArr := new JSON_ARRAY_T;
+  if cliFl = 1 then
+    -- Проверим, что у ФЛ есть хоть один не завершенный объект ЗП договора
+    for saldea in  (select
+                           t.dep_id, t.id, t.closefl
+                    from T_DEA t, PP_SALDEA sd, PP_SALOBJ so
+                    where sd.dep_id = t.dep_id and sd.id = t.id
+                    and so.sal_dep_id = sd.dep_id and so.sal_id = sd.id
+                    and so.cli_dep_id = nCliDepId and so.cli_id = nCliId
+                    and t_pkgprocess.fGetStatFinishFlByMainOrd (so.dea_dep_id, so.dea_id) = '0'
+                    group by t.dep_id, t.id, t.closefl
+                    ) loop
+
+      if salCliFl = 0 then
+        salCliFl := 1;
+      end if;
+
+      t_log.debug('  saldea: %0:s, %1:s closefl = %2:s', vargs(saldea.dep_id, saldea.id, saldea.closefl), 'PKG', 'Z_116_PKGSAL4LOAN');
+
+      if nvl(t_pkgdeaprm.fParByCode(saldea.id, saldea.dep_id, 'Z_116_JOZIBAFL'),'0') = '1' and saldea.closefl = '0' then
+        whiteSalCliFl := 1;
+        exit;
+      end if;
+    end loop;
+
+    if whiteSalCliFl = 1 then
+      for sal in (with salary as (
+                    select
+                      trunc(nvl(pSafeToDate(sfd.dtl_value, 'DD.MM.YYYY'), sf.procdt), 'mm') as TDT,
+                      sr.pay_amount as SAMNT,
+                      sr.pay_val as SVAL
+                    from PP_SALDEA sd, PP_SALOBJ so , PP_SALFILE sf, PP_SALROW sr ,  PP_SALFILEDTL sfd
+                    where so.sal_dep_id = sd.dep_id and so.sal_id = sd.id
+                    and so.cli_dep_id = nCliDepId and so.cli_id = nCliId
+                    and sf.saldea_dep_id = sd.dep_id and sf.saldea_id = sd.id --and sf.impdt > and sf.procdt >  --
+                    and sf.ftype = 'SALPAY'
+                    and sfd.dep_id(+) = sf.dep_id and sfd.id(+) = sf.id and sfd.dtl_code(+) = 'PAY_DATE'
+                    and sr.file_dep_id = sf.dep_id and sr.file_id = sf.id
+                    and sr.cli_dep_id = so.cli_dep_id and sr.cli_id = so.cli_id
+                    and sr.salobj_id = so.id
+                    and nvl(pSafeToDate(sfd.dtl_value, 'DD.MM.YYYY'), sf.procdt) between dFrom and dTo
+                    and nvl(t_pkgdeaprm.fParByCode(sd.id, sd.dep_id, 'Z_116_JOZIBAFL'),'0') = '1'
+                  )
+                  select
+                    s.TDT,
+                    count(1) as CNT,
+                    sum(s.SAMNT) as SAMNT,
+                    s.SVAL
+                  from
+                    salary s
+                  group by
+                    s.TDT,
+                    s.SVAL
+                  order by
+                    s.TDT desc)
+      loop
+        ObjTmp := new JSON_OBJECT_T;
+        -- проверяем непрерывность поступлений с предыдущего месяца
+        if MONTHS_BETWEEN(trunc(p_operday,'mm'), sal.tdt) = i and stopFl = 0 then
+          addRow(ObjTmp, to_char(sal.tdt,'mm.yyyy'), sal.samnt, sal.sval);
+          i:= i + 1;
+        elsif MONTHS_BETWEEN(trunc(p_operday,'mm'), sal.tdt) < 1 and stopFl = 0 then -- если уже были поступления в текущем месяце
+          t_log.debug('Есть поступления в текущем месяце.',sType => 'PKG',sCode =>  'Z_116_PKGSAL4LOAN');
+        else
+          stopFl := 1;
+        end if;
+        addRow(ObjTmp, to_char(sal.tdt,'mm.yyyy'), sal.samnt, sal.sval);
+        if ObjTmp.has('dt') then
+          lArr.append(ObjTmp);
+        end if;
+      end loop;
+    else
+     -- Ищем текущую работу в прошлом месяце
+    begin
+     With T as (
+     select /*+ ordered*/
+          sr.salobj_id,
+          sr.cli_id,
+          trunc(nvl(Z_116_PKGSAL4LOAN.pSafeToDate(sfd.dtl_value, 'DD.MM.YYYY'), sf.procdt), 'mm') as TDT,
+          sf.*
+     from PP_SALROW sr, PP_SALFILE sf, PP_SALFILEDTL sfd
+    where sf.ftype = 'SALPAY'
+      and sfd.dep_id(+) = sf.dep_id
+      and sfd.id(+) = sf.id
+      and sfd.dtl_code(+) = 'PAY_DATE'
+      and sr.cli_dep_id = nCliDepId
+      and sr.cli_id = nCliId
+      and sr.file_id = sf.id
+      and sr.file_dep_id = sf.dep_id)
+     select distinct salobj_id
+       into vSalObj
+       from T
+      where TDT < trunc(p_operday,'mm')
+        and TDT >= trunc(trunc(p_operday,'mm')-1,'mm')
+        and TDT between dFrom and dTo;
+    exception
+      when too_many_rows then
+        vSalObj := -1;
+      t_log.debug('  exception: too_many_rows ',sType => 'PKG',sCode =>  'Z_116_PKGSAL4LOAN');
+      when others then
+        vSalObj := null;
+        t_log.debug('  exception: others ',sType => 'PKG',sCode =>  'Z_116_PKGSAL4LOAN');
+    end;
+
+    if vSalObj is not null then
+    -- проверяем, что у зп проект был один и тот же последние 2 мес
+    With T as (
+    select /*+ ordered*/
+          sr.salobj_id,
+          sr.cli_id,
+          trunc(nvl(Z_116_PKGSAL4LOAN.pSafeToDate(sfd.dtl_value, 'DD.MM.YYYY'), sf.procdt), 'mm') as TDT,
+          to_char(trunc(nvl(Z_116_PKGSAL4LOAN.pSafeToDate(sfd.dtl_value, 'DD.MM.YYYY'), sf.procdt)), 'MM', 'nls_date_language=american') as TDTmonth,
+          sf.*
+     from PP_SALROW sr,PP_SALFILE sf,  PP_SALFILEDTL sfd
+    where sf.ftype = 'SALPAY'
+      and sfd.dep_id(+) = sf.dep_id
+      and sfd.id(+) = sf.id
+      and sfd.dtl_code(+) = 'PAY_DATE'
+      and sr.cli_dep_id = nCliDepId
+      and sr.cli_id = nCliId
+      and sr.file_id = sf.id
+      and sr.file_dep_id = sf.dep_id)
+        ,T2 as (
+    select salobj_id,
+           TDTmonth
+      from T
+     where TDT < trunc(p_operday,'mm')
+       and TDT >=trunc(add_months(p_operday,-3),'MONTH')
+       and TDT between dFrom and dTo
+       --and salobj_id = vSalObj
+       -------------------------------------------
+       and salobj_id in (
+           select /*+ ordered*/
+                sr.salobj_id
+           from PP_SALROW sr, PP_SALFILE sf, PP_SALFILEDTL sfd
+          where sf.ftype = 'SALPAY'
+            and sfd.dep_id(+) = sf.dep_id
+            and sfd.id(+) = sf.id
+            and sfd.dtl_code(+) = 'PAY_DATE'
+            and sr.cli_dep_id = nCliDepId
+            and sr.cli_id = nCliId
+            and sr.file_id = sf.id
+            and sr.file_dep_id = sf.dep_id
+            and trunc(nvl(Z_116_PKGSAL4LOAN.pSafeToDate(sfd.dtl_value, 'DD.MM.YYYY'), sf.procdt), 'mm') < trunc(p_operday,'mm')
+            and trunc(nvl(Z_116_PKGSAL4LOAN.pSafeToDate(sfd.dtl_value, 'DD.MM.YYYY'), sf.procdt), 'mm') >= trunc(trunc(p_operday,'mm')-1,'mm')
+            and trunc(nvl(Z_116_PKGSAL4LOAN.pSafeToDate(sfd.dtl_value, 'DD.MM.YYYY'), sf.procdt), 'mm') between dFrom and dTo)
+       ------------------------------
+
+     group by salobj_id, TDTmonth)
+    select count(1) into vCount from T2;
+
+    end if;
+
+    if vCount >= 2 then
+      vCount := 0;
+     With T as (
+      select /*+ ordered*/
+          sr.pay_amount,
+          sr.salobj_id,
+          sr.cli_id,
+          trunc(nvl(Z_116_PKGSAL4LOAN.pSafeToDate(sfd.dtl_value, 'DD.MM.YYYY'), sf.procdt), 'mm') as TDT,
+          sf.*
+     from PP_SALROW sr,PP_SALFILE sf, PP_SALFILEDTL sfd
+    where sf.ftype = 'SALPAY'
+      and sfd.dep_id(+) = sf.dep_id
+      and sfd.id(+) = sf.id
+      and sfd.dtl_code(+) = 'PAY_DATE'
+      and sr.cli_dep_id = nCliDepId
+      and sr.cli_id = nCliId
+      and sr.file_id = sf.id
+      and sr.file_dep_id = sf.dep_id)
+    ,T2 as (
+    select sum(pay_amount) as amount ,tdt
+      from T
+     where --salobj_id = vSalObj
+       ----------------------------------------------
+       salobj_id in (
+           select /*+ ordered*/
+                sr.salobj_id
+           from PP_SALROW sr, PP_SALFILE sf, PP_SALFILEDTL sfd
+          where sf.ftype = 'SALPAY'
+            and sfd.dep_id(+) = sf.dep_id
+            and sfd.id(+) = sf.id
+            and sfd.dtl_code(+) = 'PAY_DATE'
+            and sr.cli_dep_id = nCliDepId
+            and sr.cli_id = nCliId
+            and sr.file_id = sf.id
+            and sr.file_dep_id = sf.dep_id
+            and trunc(nvl(Z_116_PKGSAL4LOAN.pSafeToDate(sfd.dtl_value, 'DD.MM.YYYY'), sf.procdt), 'mm') < trunc(p_operday,'mm')
+            and trunc(nvl(Z_116_PKGSAL4LOAN.pSafeToDate(sfd.dtl_value, 'DD.MM.YYYY'), sf.procdt), 'mm') >= trunc(trunc(p_operday,'mm')-1,'mm')
+            and trunc(nvl(Z_116_PKGSAL4LOAN.pSafeToDate(sfd.dtl_value, 'DD.MM.YYYY'), sf.procdt), 'mm') between dFrom and dTo)
+       ----------------------------------------------
+       and TDT < trunc(p_operday,'mm')
+       and TDT >=trunc(add_months(p_operday,-3),'MONTH')
+      group by tdt
+        )
+     select count(*)
+       into vCount
+       from T2
+      where amount > 0
+         or amount is not null;
+
+    end if;
+
+      if vCount >= 2 then
+       for sal in (with salary as (
+                    select
+                      trunc(nvl(pSafeToDate(sfd.dtl_value, 'DD.MM.YYYY'), sf.procdt), 'mm') as TDT,
+                      sr.pay_amount as SAMNT,
+                      sr.pay_val as SVAL
+                    from T_DEA t, PP_SALDEA sd, PP_SALOBJ so , PP_SALFILE sf, PP_SALROW sr ,  PP_SALFILEDTL sfd-- , G_CLIADDATR ca
+                    where sd.dep_id = t.dep_id and sd.id = t.id
+                    and so.sal_dep_id = sd.dep_id and so.sal_id = sd.id
+                    and so.cli_dep_id = nCliDepId and so.cli_id = nCliId
+                    and sf.saldea_dep_id = sd.dep_id and sf.saldea_id = sd.id --and sf.impdt > and sf.procdt >  --
+                    and sf.ftype = 'SALPAY'
+                    and sfd.dep_id(+) = sf.dep_id and sfd.id(+) = sf.id and sfd.dtl_code(+) = 'PAY_DATE'
+                    and sr.file_dep_id = sf.dep_id and sr.file_id = sf.id
+                    and sr.cli_dep_id = so.cli_dep_id and sr.cli_id = so.cli_id
+                    and sr.salobj_id = so.id
+                    and nvl(pSafeToDate(sfd.dtl_value, 'DD.MM.YYYY'), sf.procdt) between dFrom and dTo
+                    --and Z_116_checkSalaryAPI(so.cli_id,so.cli_dep_id, dFrom, dTo) = 1
+                    -- валидация по белому списку ЮЛ
+                    --and t.cli_dep_id = ca.dep_id and t.cli_id = ca.id and ca.attr = 'Z_116_JOZIBA_FL' and ca.value = '1'
+                    --and p_operday between ca.fromdate and ca.todate
+                  )
+                  select
+                    s.TDT,
+                    count(1) as CNT,
+                    sum(s.SAMNT) as SAMNT,
+                    s.SVAL
+                  from
+                    salary s
+                  group by
+                    s.TDT,
+                    s.SVAL
+                  order by
+                    s.TDT desc)
+       loop
+        i:= i + 1;
+        ObjTmp := new JSON_OBJECT_T;
+        -- убираем проверку непрерывности поступлений с предыдущего месяца, проверка в функции Z_116_checkSalaryAPI
+        addRow(ObjTmp, to_char(sal.tdt,'mm.yyyy'), sal.samnt, sal.sval);
+        if ObjTmp.has('dt') then
+          lArr.append(ObjTmp);
+        end if;
+       end loop;
+      end if;
+    end if;
+  end if; -- cliFl = 1
+
+  ObjRes.put('whiteListCli', whiteSalCliFl = 1);
+  ObjRes.put('isCli', cliFl = 1);
+  ObjRes.put('isSalaryCli', salCliFl = 1);
+  ObjRes.put('paidMonths', i - 1);
+  if lArr.Is_Null then
+    ObjRes.put_null('salary');
+  else
+    ObjRes.put('salary', lArr);
+  end if;
+  pOutput := ObjRes.To_Clob;
+exception
+  when others then
+    pOutput := Z_116_ELOAN_UTILS.fErr(sqlcode, 'Ошибка при скоринге по "белому" списку: %0:s', vargs(substr(sqlerrm,1,2000)));
+end pChkFiz4WhiteLoan;
+
+end Z_116_PKGSAL4LOAN;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIIDN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="PP_SALDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="PP_SALFILE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="PP_SALFILEDTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="PP_SALOBJ"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="PP_SALROW"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGPROCESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_ELOAN_UTILS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="CLI_TYPE"/>
+    </PKGDPNDOM>
+  </PKG>
+</DDC>

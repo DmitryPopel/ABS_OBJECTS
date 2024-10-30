@@ -1,0 +1,612 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGLOANAPI" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="84849CFEBAD3D78ED76A9D74ED44BEEF">
+  <PKG 
+    NAME="Z_116_PKGLOANAPI">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGLOANAPI is
+/**
+* Пакет методов для API по кредитам
+*
+* @author Анатолий Бондаренко
+* @version 1.2
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+/** Процедура получения информации по кредитному договору
+* <br/><i>С версии 1.0</i>
+* @param pInput JSON с входными параметрами - идентификаторами договора
+* @param pOutput JSON с выходными параметрами - информация по договору и/или сообщение об ошибке
+*/
+procedure pLoanInfo(pInput   in Clob,
+                    pOutput  out Clob);
+
+end Z_116_PKGLOANAPI;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGLOANAPI is
+
+/** Процедура получения информации по кредитному договору
+* <br/><i>С версии 1.0</i>
+* @param pInput JSON с входными параметрами - идентификаторами договора
+* @param pOutput JSON с выходными параметрами - информация по договору и/или сообщение об ошибке
+*/
+procedure pLoanInfo(pInput   in Clob,
+                    pOutput  out Clob)
+is
+  idDeaDep         T_DEA.DEP_ID%type;
+  idDea            T_DEA.ID%type;
+  ObjIn            JSON_OBJECT_T;
+  ObjRes           JSON_OBJECT_T;
+  ObjTmp           JSON_OBJECT_T;
+  ObjTmp2          JSON_OBJECT_T;
+  nSrvDepId        T_DEA.Srv_Dep_Id%type;
+  dFrom            T_DEA.FROMDATE%type;
+  dTo              T_DEA.TODATE%type;
+  nCliDepId        T_DEA.CLI_DEP_ID%type;
+  nCliId           T_DEA.CLI_ID%type;
+  nSdok            T_DEA.SDOK%type;
+  nDclId           T_DEA.DCL_ID%type;
+  nValId           T_ORD.Val_Id%type;
+  cCode            T_ORD.Code%type;
+  cPass            varchar2(50);
+  lArr	           clob;
+  idAdrReg         G_CLIADDRESS.ADR_ID%type;
+  idAdrLive        G_CLIADDRESS.ADR_ID%type;
+  nBal             number(18,2);
+  ArrTmp           JSON_ARRAY_T;
+  vStatus          varchar2(50);
+  nPCN             number;
+begin
+  z_116_pkgconnect.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  idDeaDep := ObjIn.get_Number('deaDepId');
+  idDea := ObjIn.get_Number('deaId');
+
+  select d.srv_dep_id,  -- d.dep_id,
+         d.fromdate,
+         d.todate,
+         d.sdok,
+         d.dcl_id,
+         d.cli_dep_id,
+         d.cli_id,
+         t.code,
+         t.val_id,
+         bs.name
+    into nSrvDepId, dFrom, dTo, nSdok, nDclId, nCliDepId, nCliId, cCode, nValId, vStatus
+    from t_ord t, t_dea d, t_process p, t_procmem m, t_bop_stat bs
+    where d.dep_id = t.dep_id
+      and d.id = t.id
+      and p.id = m.id
+      and m.dep_id = t.dep_id and m.ord_id = t.id and m.mainfl = '1'
+      and bs.id = p.bop_id
+      and bs.nord = p.nstat
+      and t.dep_id = idDeaDep
+      and t.id = idDea;
+
+  begin
+  select PCN
+    into nPCN
+    from LV_QR_ARL
+   where longname = 'Проценты по кредиту'
+     and dep_id = idDeaDep
+     and id = idDea;
+  exception
+    when others then
+      nPCN := null;
+  end;
+
+  -- формирование результирующего набора данных
+  ObjRes := new JSON_OBJECT_T;
+  ObjRes.put('center_id', nSrvDepId);
+  ObjRes.put('mfo', c_pkgdep.fGetCodeDep(nSrvDepId));
+  ObjRes.put('product_id', nDclId);
+  ObjRes.put('amount', nSdok);
+  ObjRes.put('delayed', greatest(nvl(l_pkgloancore.fCntDaysDelay(idDeaDep,idDea,'CR_PD'),0),
+                                 nvl(l_pkgloancore.fCntDaysDelay(idDeaDep,idDea,'CR_INTER'),0)));
+
+  ObjRes.put('currency', T_PkgVal.fGetCode(nValId));
+  -- contract
+  ObjTmp := new JSON_OBJECT_T;
+  ObjTmp.put('num', T_PkgDeaPrm.fDeaParByCode(idDea, idDeaDep, 'L_UZ_UNIQNUM'));  -- cCode
+  ObjTmp.put('start_date', to_char(dFrom,'yyyy-mm-dd'));
+  ObjTmp.put('end_date', to_char(dTo,'yyyy-mm-dd'));
+  ObjTmp.put('contract_status', vStatus);
+  ObjTmp.put('contract_percent', nPCN);
+  ObjRes.put('contract', ObjTmp);
+
+
+  -- client
+  ObjTmp := new JSON_OBJECT_T;
+  ObjTmp.put('dep_id', nCliDepId);
+  ObjTmp.put('id', nCliId);
+  ObjTmp.put('type', bs_dom.dname('CLI_TYPE',g_pkgcli.fgetTypeFl(nCliDepId, nCliId,1)) );
+  ObjTmp.put('pinfl', G_PKGCLIIDN.fCliIdn(nCliDepId, nCliId, G_PKGIDN.fId('IDN_PRS_UZ')));
+  ObjTmp.put('tin', coalesce( G_PKGCLIIDN.fCliIdn(nCliDepId, nCliId, G_PKGIDN.fId('IDN_FIZ_UZ')), G_PKGCLIIDN.fCliIdn(nCliDepId, nCliId, G_PKGIDN.fId('IDN_JUR_UZ'))));
+  ObjTmp.put('name', G_PkgCli.fGetCliLongName(nCliDepId, nCliId));
+  select h.passser || h.passnum into cPass
+         from g_clihst h
+         where h.dep_id = nCliDepId
+           and h.id = nCliId
+           and p_operday between h.fromdate and h.todate;
+  ObjTmp.put('doc_num', cPass);
+  ObjTmp.put('dob', G_pkgCli.fGetCliBirdate(nCliDepId, nCliId));
+  --lArr := new JSON_ARRAY_T;
+  select json_arrayagg(cont) into lArr
+         from g_clicont h
+         where h.atyp in ('0', '8')
+           and nvl(h.arcfl, '0') <> '1'
+           and h.dep_id = nCliDepId
+           and h.id = nCliId;
+  ObjTmp.put('phones', case when lArr is not null then JSON_ARRAY_T(lArr) else JSON_ARRAY_T() end);
+  idAdrReg := G_PKGADDRESS.fCliAddrId(nCliDepId, nCliId, gcliadr_reg);
+  idAdrLive := G_PKGADDRESS.fCliAddrId(nCliDepId, nCliId, gcliadr_live);
+  ObjTmp2 := new JSON_OBJECT_T;
+  ObjTmp2.put('region_id', coalesce(G_PKGADDRESS_UZ.fgetObl(idAdrReg), g_pkgaddress.fGetPartId(idAdrReg, G_ADDR_REGN), g_pkgaddress.fGetPartId(idAdrReg, G_ADDR_REGT)));
+  ObjTmp2.put('district_id', coalesce(G_PKGADDRESS_UZ.fgetRn(idAdrReg),g_pkgaddress.fGetPartId(idAdrReg, G_ADDR_DSTR)));
+  ObjTmp2.put('address', g_pkgaddress.fGetFullAddr(idAdrReg));
+  ObjTmp.put('address_registration', ObjTmp2);
+  ObjTmp2 := new JSON_OBJECT_T;
+  ObjTmp2.put('region_id', coalesce(g_pkgaddress.fGetPartId(idAdrLive, G_ADDR_REGN), g_pkgaddress.fGetPartId(idAdrLive, G_ADDR_REGT)));
+  ObjTmp2.put('district_id', g_pkgaddress.fGetPartId(idAdrLive, G_ADDR_DSTR));
+  ObjTmp2.put('address', g_pkgaddress.fGetFullAddr(idAdrLive));
+  ObjTmp.put('address_live', ObjTmp2);
+  ObjRes.put('client', ObjTmp);
+  --lArr := new JSON_ARRAY_T;
+  select json_arrayagg(json_object('cocli_id' value cocli_id,
+                                          'type' value client_type,
+                                          'pinfl' value client_pinfl,
+                                          'tin' value client_tin,
+                                          'name' value client_name,
+                                          'doc_num' value client_doc_num,
+                                          'dob' value client_dob,
+                                          'phones' value client_phone,
+                                          -- client_address_registration
+                                          'address_registration_region_id'
+                                          value
+                                          nvl(g_pkgaddress.fGetPartId(d.cli_adr_reg_id,
+                                                                      G_ADDR_REGN),
+                                              g_pkgaddress.fGetPartId(d.cli_adr_reg_id,
+                                                                      G_ADDR_REGT)),
+                                          'address_registration_district_id'
+                                          value
+                                          g_pkgaddress.fGetPartId(d.cli_adr_reg_id,
+                                                                  G_ADDR_DSTR),
+                                          'address_registration_address'
+                                          value
+                                          g_pkgaddress.fGetFullAddr(d.cli_adr_reg_id),
+                                          -- client_address_live
+                                          'address_live_region_id' value
+                                          nvl(g_pkgaddress.fGetPartId(d.cli_adr_live_id,
+                                                                      G_ADDR_REGN),
+                                              g_pkgaddress.fGetPartId(d.cli_adr_live_id,
+                                                                      G_ADDR_REGT)),
+                                          'address_live_district_id' value
+
+                                          g_pkgaddress.fGetPartId(d.cli_adr_live_id,
+                                                                  G_ADDR_DSTR),
+                                          'address_live_address' value
+                                          g_pkgaddress.fGetFullAddr(d.cli_adr_live_id)))
+           into lArr
+           from ( select h.CLIFIZ_ID cocli_id,
+                 bs_dom.dname('CLI_TYPE', c.typefl) client_type,
+                        G_PKGCLIIDN.fCliIdn(c.dep_id,
+                                            c.id,
+                                            G_PKGIDN.fId('IDN_PRS_UZ')) client_pinfl,
+                        h.taxcode client_tin,
+                        h.name client_name,
+                        h.passser || h.passnum client_doc_num,
+                        c.birdate client_dob,
+                        (select json_arrayagg(cont)
+                           from g_clicont h
+                          where h.atyp in ('0', '8')
+                            and nvl(h.arcfl, '0') <> '1'
+                            and h.dep_id = c.dep_id
+                            and h.id = c.id) client_phone,
+                        G_PKGADDRESS.fCliAddrId(c.dep_id, c.id, gcliadr_reg) cli_adr_reg_id,
+                        G_PKGADDRESS.fCliAddrId(c.dep_id, c.id, gcliadr_live) cli_adr_live_id
+                   from M_DEAPRS o, G_CLI c, G_CLIHST h
+                  where c.DEP_ID = h.DEP_ID
+                    and c.ID = h.ID
+                    and p_operday between h.FROMDATE and h.TODATE
+                    and o.prsdep_id = c.dep_id
+                    and o.prs_id = c.id
+                    and o.DEP_ID = idDeaDep
+                    and o.ID = idDea
+                       -- and (o.ROLEMASK like G_PkgMask.fFndMask('DBT') or o.ROLEMASK like G_PkgMask.fFndMask('OTH'))
+                    and (G_PKGCLIROLE.fIsSetRole(o.ROLES, 'DBT') = 1 or
+                        G_PKGCLIROLE.fIsSetRole(o.ROLES, 'CODBT') = 1)
+                    and o.ARESTFL <> '1') d;
+  ObjRes.put('co_client', case when lArr is not null then JSON_ARRAY_T(lArr) else JSON_ARRAY_T() end);
+  ArrTmp := new JSON_ARRAY_T;
+  for p in (
+  select e.LONGNAME,
+         s.NAME,
+         md.DEA_CODE,
+         md.DEA_DATE,
+         md.AMOUNT,
+         G_PkgCliName.fCliLongName(md.CLI_DEP_ID,md.CLI_ID) as Obj
+          from T_PROCESS  p,
+               T_PROCMEM  r,
+               L_MRTDEA   md,
+               L_MORTGAGE m,
+               T_BOP_STAT s,
+               L_ENSDSC   e
+          where e.id = m.ENS_ID
+            and m.DEP_ID = md.MRT_DEP_ID
+            and m.ID = md.MRT_ID
+            and p.ID = r.ID
+            and r.ORD_ID = m.ID
+            and r.DEP_ID = m.DEP_ID
+            and s.ID = p.BOP_ID
+            and s.NORD = p.NSTAT
+            and md.DEA_DEP_ID = idDeaDep
+            and md.DEA_ID = idDea) loop
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('type', p.longname);
+    ObjTmp.put('state', p.name);
+    ObjTmp.put('contract_num', p.dea_code);
+    ObjTmp.put('contract_date', to_char(p.dea_date,'yyyy-mm-dd'));
+    ObjTmp.put('amount', p.amount);
+    ObjTmp.put('object', p.obj);
+    ArrTmp.append (ObjTmp);
+  end loop;
+  ObjRes.put('procuring', ArrTmp);
+
+
+  select sum(G_PkgLock.fAccBalByPrior(acc.DEP_ID,
+                                      acc.ID,
+                                      acc.val_id,
+                                      p_operday)) into nBal
+    from T_ACC        acc,
+         G_ACCBLN     b,
+         T_ARLDSC_STD ds,
+         T_ARLCLC     ac,
+         T_ARLDEA     ad,
+         T_DEAPAYATR  a
+   where a.CODE_ACC is not null
+     and ad.DEP_ID = a.DEP_ID
+     and ad.ORD_ID = a.Id
+     and ad.PAY_NORD = a.NORD
+     and ac.ID = ad.CLC_ID
+     and ds.ID = ac.ARL_ID
+     and ds.ALIAS||'' = 'PA'
+     and b.CODE = a.CODE_ACC
+     and acc.DEP_ID = b.DEP_ID
+     and acc.ID = b.ID
+     and a.DEP_ID = idDeaDep
+     and a.ID = idDea;
+  -- graph
+  ArrTmp := new JSON_ARRAY_T;
+  for gr in (select p.doper as payment_date, p.interest, p.debt, f.amount
+          from ((select t.*,
+                        LEAD(t.doper, 1, t.doper + 1) OVER(ORDER BY t.doper) AS doper_next
+                   from (select *
+                           from (select t.AMOUNT, t.doper, s.ALIAS
+                                   from TT_POINT pt,
+                                        T_DEASHDPNT t,
+                                        T_ARLCLC c,
+                                        T_ARLDSC_STD s
+                                  where pt.ID = t.TT_ID
+                                    and pt.NORD = t.TT_NORD
+                                    and t.DEP_ID = idDeaDep
+                                    and t.ORD_ID = idDea
+                                    and t.AMOUNT > 0
+                                    and t.CLC_ID = c.ID
+                                    and c.ARL_ID = s.ID
+                                    and s.ALIAS in ('INTEREST', 'PA'))
+
+                         pivot(sum(amount)
+                            for alias in('INTEREST' as interest, 'PA' as debt))) t)) p
+          left join((select sum(p.sdok) AMOUNT, p.dclose as paid_date
+                      from T_DEAPAY p,
+                           T_ARLCLC c,
+                           T_ARLDSC_STD s
+                       where p.DEP_ID = idDeaDep
+                       and p.DEA_ID = idDea
+                       and p.CLC_ID = c.ID
+                       and c.ARL_ID = s.ID
+                       and s.ALIAS in ('DEBT_INT', 'DEBT_INT_CASH')
+                     group by p.dclose
+                    )) f
+            on f.paid_date between p.doper and p.doper_next - 1
+         order by p.doper) loop
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('payment_date', gr.payment_date);
+    ObjTmp.put('interest', gr.interest);
+    ObjTmp.put('debt', gr.debt);
+    ObjTmp.put('amount', gr.amount);
+    ArrTmp.append(ObjTmp);
+  end loop;
+  ObjRes.put('graph', ArrTmp);
+
+
+  -- accounts
+  ObjTmp := new JSON_OBJECT_T;
+  ObjTmp.put('deposit', nBal);
+  ObjTmp.put('debt', T_PkgArlRun.fDeaAccBal(idDeaDep, idDea, 'CR_BAL'));
+  ObjTmp.put('overdue_debt', T_PkgArlRun.fDeaAccBal(idDeaDep, idDea, 'CR_EXP_PD'));
+  ObjTmp.put('interest', T_PkgArlRun.fDeaAccBal(idDeaDep, idDea, 'CR_EXP_IN')+T_PkgArlRun.fDeaAccBal(idDeaDep, idDea, 'CR_OVR_PRCOD_BLN'));
+  ObjTmp.put('overdue_interest', T_PkgArlRun.fDeaAccBal(idDeaDep, idDea, 'CR_INT_DBT'));
+  ObjTmp.put('fine', T_PkgArlRun.fDeaAccBal(idDeaDep, idDea, 'CR_EXPI_PEN')+T_PkgArlRun.fDeaAccBal(idDeaDep, idDea, 'CR_EXPPD_PEN'));
+  ObjTmp.put('overall_debt', T_PkgArlRun.fDeaAccBal(idDeaDep, idDea, 'CR_EXP_PD')+T_PkgArlRun.fDeaAccBal(idDeaDep, idDea, 'CR_EXPI_PEN')
+                             +T_PkgArlRun.fDeaAccBal(idDeaDep, idDea, 'CR_EXPPD_PEN')+T_PkgArlRun.fDeaAccBal(idDeaDep, idDea, 'CR_EXP_IN')
+                             +T_PkgArlRun.fDeaAccBal(idDeaDep, idDea, 'CR_INT_DBT'));
+  ObjRes.put('accounts', ObjTmp);
+
+  -- details for GL
+  ArrTmp := new JSON_ARRAY_T;
+  for gl in (select c1.code, nvl(z.bal,0) as bal, z.val_id
+                from (select
+                          --x.DEP_ID as ACC_DEP_ID,
+                          --x.ID as ACC_ID,
+                          c.CODE as CHA_CODE,
+                          --a.CODE as ACC_CODE,
+                          sum(T_PkgAccBal.fAccBal(x.DEP_ID, x.ID, P_OPERDAY, 0, v.ID)) as BAL,
+                          --substr(T_PkgVal.fGetCodeFromPseudo(decode(x.MULTIFL,0,v.CODE,decode(x.BALCNT,0,null,v.CODE))),1,3) as VAL_CODE,
+                          --v.MULTIPLIER,
+                          v.ID as VAL_ID
+                        from
+                          T_VAL v,
+                          LEDACC_STD c,
+                          G_ACCBLN a,
+                          (select
+                            a.DEP_ID,
+                            a.ID,
+                            a.VAL_ID,
+                            decode(a.VALUTFL,0,0,decode(a.VAL_ID,null,1,0)) as MULTIFL, a.VALUTFL, a.ACTIVFL,
+                            (select count(*) from T_BAL where DEP_ID=a.DEP_ID and ID = a.ID and ROWNUM=1) as BALCNT
+                            from LEDACC_DET d, T_ACC a
+                            where
+                              d.DEP_ID = a.DEP_ID
+                              and d.ACC_ID = a.ID
+                              and d.SGN_ID = T_ASGN.fCode2Id(nvl(null,'DEA'))
+                              and d.PK1 = to_char(idDeaDep)
+                              and d.PK2 = to_char(idDea)) x
+                        where
+                          a.DEP_ID = x.DEP_ID
+                          and a.ID = x.ID
+                          and c.ID = a.CHA_ID and c.CODE(+)||'' like '1%'
+                          and ((x.MULTIFL = 0 and v.ID = nvl(x.VAL_ID,P_NATVAL)) or (x.MULTIFL = 1 and x.BALCNT = 0 and v.ID = P_NATVAL)
+                               or (x.MULTIFL = 1 and x.BALCNT = 1 and v.ID = any(select distinct VAL_ID from T_BAL where DEP_ID=x.DEP_ID and ID = x.ID)))
+                          group by c.CODE, v.ID
+                          ) z, LEDACC_STD c1
+                          where c1.CODE in ('16309-PRC','12401','12501','12503',
+                                            '12521','12601','12621','12701','12704','12801','12802','12803','12901','12904','13001','13101','13104',
+                                            '13201','13301','14301','14401','14402','14403','14405','14501','14701','14801','14809','14705','14505',
+                                            '14901','14902','14903','14905','14913','14921','15001','15005','15021','15101','15104','15105','15201',
+                                            '15205','15300','15301','15304','15305','15321','15401','15405','15501','15504','15505','15521'
+                                            )
+                            and c1.code = z.cha_code(+)) loop
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put(gl.code, gl.bal);
+    ArrTmp.append(ObjTmp);
+  end loop;
+  ObjRes.put('details_debt', ArrTmp);
+
+
+  pOutput := ObjRes.To_Clob;
+
+exception
+  when no_data_found then
+    pOutput := z_116_eloan_utils.fErr(sqlcode, 'Ошибка. Не найден договор.');
+  when others then
+    pOutput := z_116_eloan_utils.fErr(sqlcode, 'Ошибка получения информации о договоре: %0:s',vargs(substr(sqlerrm,1,2000)));
+end pLoanInfo;
+
+
+end Z_116_PKGLOANAPI;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_DOM"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ADDRESS_UZ"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIADDRESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLICONT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC_DET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LV_QR_ARL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_ENSDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MORTGAGE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MRTDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_DEAPRS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="TT_POINT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ARLCLC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ARLDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ARLDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BAL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPAY"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPAYATR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEASHDPNT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_VAL"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_NATVAL"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDEP"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGADDRESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGADDRESS_UZ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLINAME"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIROLE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGLOCK"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGLOANCORE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_ASGN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCBAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARLRUN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_ELOAN_UTILS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="G_ADDRESS_PART"/>
+    </PKGDPNDOM>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="G_CLIADR_TYPE"/>
+    </PKGDPNDOM>
+  </PKG>
+</DDC>

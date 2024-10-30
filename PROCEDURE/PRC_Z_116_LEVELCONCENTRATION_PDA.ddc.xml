@@ -1,0 +1,362 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PRC" 
+  KEY="Z_116_LEVELCONCENTRATION_PDA" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="D78F14DE2CAC1EA330CD74E8F7B45AD7">
+  <PRC 
+    NAME="Z_116_LEVELCONCENTRATION_PDA">
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace procedure COLVIR.Z_116_LEVELCONCENTRATION_PDA (dDate in date, P_FromDate in date, P_ToDate in date,
+                                                          pDepCode in varchar2, pDepId in number,p_TypeClient in varchar2,
+                                                          p_NibbdCode in varchar2, p_reference in varchar2,   p_count in number, p_SchedProp in varchar2 )
+
+as
+--nMainSID number:= sys_context('USERENV','SID');
+nCount number;
+begin
+if p_count is null then
+  nCount := 10;
+else
+  nCount := p_count;
+end if;
+/*debug_pda('***********************************pDepCode ' ||  pDepCode   );
+debug_pda('***********************************dDate ' ||  dDate   );
+debug_pda('***********************************pDepId ' ||  pDepId   );
+debug_pda('***********************************p_TypeClient ' ||  p_TypeClient   );
+debug_pda('***********************************p_NibbdCode ' ||  p_NibbdCode   );
+debug_pda('***********************************p_SchedProp ' ||  p_SchedProp   );
+debug_pda('***********************************p_count ' ||  p_count);*/
+
+--i /*Cтолбец J + остатки счетов CR_EX_INT + CR_OVR_PRCOD_BLN + CR_OVR_PRCNBL + CR_OVR_PRCOD_NBL (два последних счета - это на случай, если кредитный договор списан)*/
+--j (ОСТАТОК ОД)
+-- Столбец K = остаток счета CR_EXP_PD
+-- Столбец M =  остаток счета CR_INT_DBT + CR_OVR_PRCOD_BLN + CR_OVR_PRCOD_NBL + CR_PRCOD_NBL + CR_PEN_I + CR_PEN_PD
+-- Столбец N = остаток счета CR_CON - остаток счета CR_AMT
+-- Столбцы O, P, Q и т.д. = график договора по сумме “Планируемое основного долга”
+
+    --удалить свои
+   -- delete from Z_116_LevLoanConcentration where SID = nMainSID;
+    --удалить не существующие
+  --  delete from Z_116_LevLoanConcentration where SID not in (SELECT t.SID FROM v$session t);
+delete from Z_116_LevLoanConcentration;
+delete from Z_116_LevLoanScheduleMonth;
+ commit;
+
+
+----------------------------------- Переделанное ------------------------------
+ insert into Z_116_LevLoanConcentration
+  (loanID,loanID_Dep,universallabel,loanlabel,currency,H_loanamount,loanfromdate,loantodate,I_Rests,J_Rest_Percent,K_Percent,L_CR_INT_BAL,M_Penalty,N_CR_CON_CR_AMT,cli_id,cli_dep_id,drnk,nsum)
+
+
+with dea as (
+  -- Кредиты
+select /*+materialize no_merge*/  ld.id, ld.dep_id,td.cli_id, td.cli_dep_id,
+  td.id as loanID,  td.dep_id as loanID_Dep, td.srv_dep_id,
+  o.val_id,
+  decode(o.val_id,'55',t_pkgdeaacc.fDeaAccBal(td.dep_id,td.id,'CR_AMT',val_id,dDate),round(T_PkgVal.fCrossRateX(t_pkgdeaacc.fDeaAccBal(td.dep_id,td.id,'CR_AMT',val_id,dDate), o.val_id, 55, T_PkgVal.fGetRatDscIdByCode('RAT_CB_UZ'),dDate),2)) as Amount,
+  td.fromdate,
+  td.todate,
+  td.refer
+
+ from l_dea ld, t_dea td, t_ord o
+  where
+ld.dep_id = td.dep_id and ld.id = td.id
+and o.dep_id = td.dep_id and o.id = td.id
+--and ld.dep_id = 3032
+and td.fromdate >= P_FromDate-- to_date('01/01/2022','dd/mm/yyyy')
+and td.fromdate < P_ToDate + 1--to_date('01/01/2023','dd/mm/yyyy') + 1
+
+union all
+
+  -- Кредитные линии
+ select
+ ld.id, ld.dep_id,td.cli_id, td.cli_dep_id,
+  td.id as loanID,  td.dep_id as loanID_Dep, td.srv_dep_id,
+  o.val_id,
+  decode(o.val_id,'55',t_pkgdeaacc.fDeaAccBal(td.dep_id,td.id,'CR_AMT',val_id,dDate),round(T_PkgVal.fCrossRateX(t_pkgdeaacc.fDeaAccBal(td.dep_id,td.id,'CR_AMT',val_id,dDate), o.val_id, 55, T_PkgVal.fGetRatDscIdByCode('RAT_CB_UZ'),dDate),2)) as Amount,
+  td.fromdate,
+  td.todate,
+  td.refer
+          from t_dea td,t_ord o,l_ldea ld
+           where o.dep_id = td.dep_id and o.id = td.id
+            and ld.dep_id = td.dep_id and ld.id = td.id
+            --and ld.dep_id = 3032
+            and td.fromdate >= P_FromDate --to_date('01/01/2022','dd/mm/yyyy')
+            and td.fromdate < P_ToDate + 1--to_date('01/01/2023','dd/mm/yyyy') + 1
+
+)  --414
+
+,Sel_Client as
+(select /*+ parallel(6)*/
+sum(amount)  over (partition by g.id) nsum,
+ -- dense_rank() over (order by nsum desc) drnk,
+  dea.loanID,
+  dea.loanID_Dep,
+  dea.val_id,
+  amount,
+  fromdate,
+  todate,
+  dea.cli_dep_id,
+  dea.cli_id
+ from dea, g_cli g, t_process p, t_procmem m, t_bop_stat bs
+  where p.id = m.id
+   and m.dep_id = dea.dep_id and m.ord_id = dea.id and m.mainfl = '1'
+   and cli_id = g.id and cli_dep_id =  g.dep_id
+   and bs.id = p.bop_id
+   and bs.nord = p.nstat
+   and bs.code = 'ACTUAL'
+
+  -- по референсу
+ -- and (p_reference is null or  dea.refer  = p_reference)
+   -- Фильтр по типу клиентов(1-Физ.лица;2-Юр.лица)
+ -- and (p_TypeClient is null or (p_TypeClient = 1 and g.typefl = 1) or (p_TypeClient = 2 and g.typefl <> 1))
+  -- Фильтр по Коду НИББД клиента
+    /*  and (p_NibbdCode is null or
+                exists(select 1
+                      from G_CLIIDN i, G_IDNDSC_STD s
+                        where s.CODE LIKE 'IDN_NIBBD%'
+                          and i.IDN_ID = s.ID and i.IDN_NUM = p_NibbdCode and i.DEP_ID = dea.cli_dep_id and i.ID = dea.cli_id ))*/
+     -- Фильтр по подразделению
+  and (pDepCode is null or pDepCode = '00401' or dea.srv_dep_id in (select dep.id
+                                                 from c_dep_std dep
+                                                start with dep.id = pDepId
+                                             connect by prior dep.id = dep.id_hi))
+     )
+, Credit as
+(select
+loanID,
+loanID_Dep,
+val_id,
+amount,
+nsum,
+fromdate,
+todate,
+cli_dep_id,
+cli_id,
+dense_rank() over (order by nsum desc) drnk from  Sel_Client c)
+,Results as
+(select
+  loanID,
+  loanID_Dep,
+  drnk,
+  nsum,
+  t_pkgdeaprm.fParByCode(loanID, loanID_Dep, 'L_UZ_UNIQNUM') as univnum,
+  G_PKGCLI.fGetCliLongName(cli_dep_id, cli_id) as clientlabel,
+  cli_id,
+  cli_dep_id,
+  val_id,--T_PkgVal.fGetCode(val_id),
+  amount,
+  fromdate,
+  todate,
+
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_BAL',val_id,dDate) +    -- включая J
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_EXP_PD',val_id,dDate) + -- включая J
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_EX_INT',val_id,dDate) +
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_OVR_PRCOD_BLN',val_id,dDate) +
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_OVR_PRCNBL',val_id,dDate) +
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_OVR_PRCOD_NBL',val_id,dDate) as i_rests, -- I
+
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_BAL',val_id,dDate) +
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_EXP_PD',val_id,dDate) as J_Rest_Percent, -- J
+
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_EXP_PD',val_id,dDate) as K_Percent, -- K
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_BAL',val_id,dDate) + t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_EXP_PD',val_id,dDate) as J_CR_BAL_CR_EXP_PD,  -- J
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_EX_INT',val_id,dDate) as CR_EX_INT,
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_OVR_PRCOD_BLN',val_id,dDate) as CR_OVR_PRCOD_BLN,
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_OVR_PRCNBL',val_id,dDate) as CR_OVR_PRCNBL,
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_OVR_PRCOD_NBL',val_id,dDate) as CR_OVR_PRCOD_NBL,
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_INT_BAL',val_id,dDate) as  L_CR_INT_BAL,
+  --
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_INT_DBT',val_id,dDate) +
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_OVR_PRCOD_BLN',val_id,dDate) +
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_OVR_PRCOD_NBL',val_id,dDate) +
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_PRCOD_NBL',val_id,dDate) +
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_PEN_I',val_id,dDate) +
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_PEN_PD',val_id,dDate) as M_Penalty, --M
+  --
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_CON',val_id,dDate) -
+  t_pkgdeaacc.fDeaAccBal(loanID_Dep,loanID,'CR_AMT',val_id,dDate) as N_CR_CON_CR_AMT
+
+
+ from Credit where drnk <= nCount)
+
+select
+  loanID,
+  loanID_Dep,
+  univnum,
+  clientlabel,
+  val_id,
+  amount,
+  fromdate,
+  todate,
+  decode(val_id,55,i_rests,round(T_PkgVal.fCrossRateX(i_rests, val_id, 55, T_PkgVal.fGetRatDscIdByCode('RAT_CB_UZ'),dDate),2)),--I
+  decode(val_id,55,J_Rest_Percent,round(T_PkgVal.fCrossRateX(J_Rest_Percent, val_id, 55, T_PkgVal.fGetRatDscIdByCode('RAT_CB_UZ'),dDate),2)), --J
+  decode(val_id,55,K_Percent,round(T_PkgVal.fCrossRateX(K_Percent, val_id, 55, T_PkgVal.fGetRatDscIdByCode('RAT_CB_UZ'),dDate),2)), -- K
+  decode(val_id,55,L_CR_INT_BAL,round(T_PkgVal.fCrossRateX(L_CR_INT_BAL, val_id, 55, T_PkgVal.fGetRatDscIdByCode('RAT_CB_UZ'),dDate),2)), --L
+  decode(val_id,55,M_Penalty,round(T_PkgVal.fCrossRateX(M_Penalty, val_id, 55, T_PkgVal.fGetRatDscIdByCode('RAT_CB_UZ'),dDate),2)),--M
+  decode(val_id,55,N_CR_CON_CR_AMT,round(T_PkgVal.fCrossRateX(N_CR_CON_CR_AMT, val_id, 55, T_PkgVal.fGetRatDscIdByCode('RAT_CB_UZ'),dDate),2)),--N
+  cli_id,
+  cli_dep_id,
+  drnk,
+  nsum
+
+from Results;
+
+
+
+
+
+
+
+
+
+
+-- Формируем графики с даты выгрузки отчета
+  if p_SchedProp  = 1 then
+   insert into Z_116_LevLoanScheduleMonth
+(smonths)
+With T as
+(
+select distinct moy as dd
+,doper
+  from
+(
+select /*+ parallel(8)*/  to_char(doper,'mm.yyyy') as moy,to_char(doper,'mm') as mo,to_char(doper,'yyyy') as y, row_number() over (partition by to_char(doper,'mm.yyyy') order by to_char(doper,'mm'),to_char(doper,'yyyy')  ) rn,doper
+--to_char(doper,'mm.yyyy') as mont ,doper,dense_rank() over (order by  to_char(doper,'mm.yyyy'))
+ from T_DEASHDPNT d
+where
+ d.doper >= dDate
+  and exists
+  (select 1 from T_ARLCLC c where d.clc_id = c.id and c.ARL_ID = '584')
+
+ and exists
+ (select  /*+ index (PK_TT_POINT)*/ 1 from TT_POINT where id = d.tt_id and NORD=d.TT_NORD)
+ and ord_id in
+(select loanid from
+Z_116_LevLoanConcentration)
+)
+where rn=1
+order by doper)
+select dd as monthss from t;
+
+
+  else
+    -- по полю realdate
+--- для запроса по мес
+insert into Z_116_LevLoanScheduleMonth
+(smonths)
+With T as
+(
+select distinct moy as dd
+,doper
+  from
+(
+select /*+ parallel(8)*/  to_char(doper,'mm.yyyy') as moy,to_char(doper,'mm') as mo,to_char(doper,'yyyy') as y, row_number() over (partition by to_char(doper,'mm.yyyy') order by to_char(doper,'mm'),to_char(doper,'yyyy')  ) rn,doper
+--to_char(doper,'mm.yyyy') as mont ,doper,dense_rank() over (order by  to_char(doper,'mm.yyyy'))
+ from T_DEASHDPNT d
+
+
+where
+   exists
+  (select 1 from T_ARLCLC c where d.clc_id = c.id and c.ARL_ID = '584')
+
+ and exists
+ (select  /*+ index (PK_TT_POINT)*/ 1 from TT_POINT where id = d.tt_id and NORD=d.TT_NORD and realdate is null )
+ and ord_id in
+(select loanid from
+Z_116_LevLoanConcentration)
+)
+where rn=1
+order by doper)
+select dd as monthss from t;
+
+  end if;
+
+
+
+
+end Z_116_LEVELCONCENTRATION_PDA;
+]]>
+    </LOB_FIELD>
+    <PRCDPNBN>
+      <LINK:BSN 
+        REF_NAME="T_ANLACC"/>
+    </PRCDPNBN>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_LDEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="TT_POINT"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ARLCLC"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEASHDPNT"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_LEVLOANCONCENTRATION"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_LEVLOANSCHEDULEMONTH"/>
+    </PRCDPNENT>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAACC"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PRCDPNPKG>
+  </PRC>
+</DDC>

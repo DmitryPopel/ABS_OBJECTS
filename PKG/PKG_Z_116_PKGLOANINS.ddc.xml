@@ -1,0 +1,354 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGLOANINS" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="1E15771AEDC417A577688325ED96F841">
+  <PKG 
+    NAME="Z_116_PKGLOANINS">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGLOANINS is
+/**
+* Пакет для методов по страхованию кредитов
+*
+* @author Анатолий Бондаренко
+* @author Самадов Сирож
+* @version 2.1
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+/** Создать платеж в кассе по страховке
+* @param pDepId  идентификатор подразделения кредита
+* @param pId  идентификатор кредита
+* @param pAmount сумма страховки строкой
+* @param pValCode код валюты
+* @param pPayType способ оплаты (0/2 - нал/с карты)
+* @param dop дата
+* @param sAcc номер счета страховой
+* @param pCshId идентификатор кассы
+* @param pCliDepId ид. подразделения клиента (плательщика)
+* @param pCliId ид. клиента (плательщика)
+*/
+procedure pCreateInsPay(pDepId   in T_DEA.DEP_ID%type,
+                        pId      in T_DEA.ID%type,
+                        psAmount in varchar2,
+                        pValCode in T_VAL_STD.CODE%type,
+                        pPayType in M_ORDPAY.Rcvtype%type,
+                        dop      in date default p_operday,
+                        sAcc     in G_ACCBLN.CODE%type,
+                        pCshId        in M_CSHDSC.ID%type,
+                        pCliDepId     in G_CLI.DEP_ID%type,
+                        pCliId        in G_CLI.ID%type,
+                        pPayDepId     in C_DEP_STD.ID%type,
+                        oPayId        out M_ORDPAY.ID%type
+                        );
+
+/** Запуск операции оплаты страховки по кредиту в кассе
+* @param pDepId  идентификатор подразделения кредита
+* @param pId  идентификатор кредита
+* @param pAmount сумма страховки
+* @param pValCode код валюты
+* @param sAcc номер счета страховой
+* @param pCshId идентификатор кассы
+* @param pPayType способ оплаты (0/2 - нал/с карты)
+* @param oPayDepId  идентификатор подразделения БОС
+* @param oPayId  идентификатор БОС
+*/
+procedure pRun(pDepId    in T_DEA.DEP_ID%type,
+               pId       in T_DEA.ID%type,
+               pAmount   in number,
+               pValCode  in T_VAL_STD.CODE%type,
+               sAcc      in G_ACCBLN.CODE%type,
+               pCshId    in M_CSHDSC.ID%type,
+               pPayType  in M_ORDPAY.Rcvtype%type,
+               oPayDepId out M_ORDPAY.DEP_ID%type,
+               oPayId    out M_ORDPAY.ID%type,
+               oErr      out varchar2
+               );
+
+/** Признак завершения процесса
+* @param pDepId  идентификатор подразделения документа
+* @param pId  идентификатор докмента
+* @param nAnount  сумма оплаченного документа
+* @return признак завершенного процесса
+*/
+function fIsClosed(pDepId    in T_ORD.DEP_ID%type,
+                   pId       in T_ORD.ID%type,
+                   nAnount   out number
+                   ) return T_PROCESS.CLOSEFL%type;
+
+
+/** Удаление операции оплаты страховки по кредиту в кассе
+* @param pDepId  идентификатор подразделения кредита
+* @param pId  идентификатор кредита
+*/
+procedure pDeletePayment(pDepId number,
+                         pId    number);
+end Z_116_PKGLOANINS;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGLOANINS is
+  cBOS_KSO_CODE     constant varchar2(30) := '1053_XX';  -- 1053  1053_ХХ 1053_XX  1053_ХХ
+  cBOS_CHA_CODE     constant varchar2(30) := '120222';
+  cOnespay_longname constant varchar2(250) := 'Оплата страхового полиса невозврата кредита';
+  cKNPCSH           constant varchar2(30)  := '00668'; -- КНП для кассового документа по оплате страховки по кредиту
+  cKOdCSH           constant varchar2(30)  := '100';   -- Код отправителя денег
+
+  -- Создать платеж в кассе по страховке
+  procedure pCreateInsPay(pDepId        in T_DEA.DEP_ID%type,
+                          pId           in T_DEA.ID%type,
+                          psAmount      in varchar2,
+                          pValCode      in T_VAL_STD.CODE%type,
+                          pPayType      in M_ORDPAY.Rcvtype%type,
+                          dop           in date default p_operday,
+                          sAcc          in G_ACCBLN.CODE%type,
+                          pCshId        in M_CSHDSC.ID%type,
+                          pCliDepId     in G_CLI.DEP_ID%type,
+                          pCliId        in G_CLI.ID%type,
+                          pPayDepId     in C_DEP_STD.ID%type,
+                          oPayId        out M_ORDPAY.ID%type
+                          )
+  is
+    nId       M_ORDPAY.ID%type ;
+    cAccDepC  C_DEP_STD.CODE%type;
+    cAccDepN  C_DEP.LONGNAME%type;
+    nIdnJur   G_IDNDSC_STD.ID%type := G_PKGIDN.fId('IDN_JUR_UZ');
+    nIdnCli   G_IDNDSC_STD.ID%type := G_PKGIDN.fId('IDN_PRS_UZ');
+    nCliDepId G_CLI.DEP_ID%type;
+    nCliId    G_CLI.ID%type;
+    nPrtDepId M_TRANSFDEA.DEP_ID%type;
+    nPrtId    M_TRANSFDEA.ID%type;
+    cCliLname G_CLIHST.Longname%type;
+    cPn1      G_CLIHST.Pname1%type;
+    cPn2      G_CLIHST.Pname2%type;
+    cPn3      G_CLIHST.Pname3%type;
+  begin
+
+    select
+      d.code, d.LONGNAME, c.dep_id, c.id, ch.longname
+      into cAccDepC, cAccDepN, nCliDepId, nCliId , cCliLname
+      from G_ACCBLN b, C_DEP d
+           , G_ACCBLNHST a , G_CLI c, G_CLIHST ch
+      where b.code = sAcc
+        and b.dep_id = d.id
+        and b.dep_id = a.dep_id and b.id = a.id and dop between a.fromdate and a.todate
+        and a.clidep_id = c.dep_id and a.cli_id = c.id
+        and c.dep_id = ch.dep_id and c.id = ch.id and dop between ch.fromdate and ch.todate;
+
+    select d.dep_id, d.id into nPrtDepId, nPrtId
+      from M_TRANSFDEA d
+      where d.longname = cOnespay_longname;
+
+    select ch.pname1, ch.pname2, ch.pname3
+      into  cPn1, cPn2, cPn3
+      from G_CLIHST ch
+      where ch.dep_id = pCliDepId and ch.id = pCliId and dOp between ch.fromdate and ch.todate;
+
+    -- создадим перевод БОС
+    M_BSPAY.PSAVE(NDEP_ID => pPayDepId
+                 ,NID => nId
+                 ,SKSO_CODE => cBOS_KSO_CODE
+                 ,SCHA_CODE => cBOS_CHA_CODE
+                 ,SAMOUNT => psAmount
+                 ,SVAL_CODE => pValCode
+                 ,DDORD => dop
+                 ,DDVAL => dop
+                 ,SCODE_ACL => null
+                 ,SCODE_BCR => cAccDepC
+                 ,SCODE_BCR_NAME => cAccDepN
+                 ,SCODE_ACR => sAcc
+                 ,SIDENT_NUM_CL => G_PKGCLIIDN.fCliIdn(pCliDepId, pCliId, nIdnCli)
+                 ,SRNN_CR => G_PKGCLIIDN.fCliIdn(nCliDepId, nCliId, nIdnJur)
+                 ,SCODE_BC => null
+                 ,STXT_DSCR => 'Оплата страхового полиса по договору: '||t_fGetOrdCode(pDepId, pId)
+                 ,STXT_BEN => cCliLname
+                 ,NNOCMSFL => null
+                 ,SPRIM => 'Создан из кредитного модуля'
+                 ,SCODE => null
+                 ,IDCSH => pCshId
+                 ,NCLIDEP_ID => pCliDepId
+                 ,NCLI_ID => pCliId
+                 ,SRCVTYPE => pPayType
+                 ,SPNAME1 => cPn1 ,SPNAME2 => cPn2 ,SPNAME3 => cPn3
+                 ,NDEA_DEP_ID => nPrtDepId
+                 ,NDEA_ID => nPrtId
+                 ,SKNP => cKNPCSH
+                 ,SCODE_OD => cKOdCSH
+
+                 );
+    oPayId := nId;
+    t_log.debug('Z_116_PKGLOANINS.pCreateInsPay: создан платеж БОС с идентификаторами: %0:s, %1:s', vargs(pPayDepId, oPayId), 'PKG', 'Z_116_PKGLOANINS');
+  end pCreateInsPay;
+
+  -- Запуск операции оплаты страховки по кредиту в кассе
+  procedure pRun(pDepId   in T_DEA.DEP_ID%type,
+                 pId      in T_DEA.ID%type,
+                 pAmount  in number,
+                 pValCode in T_VAL_STD.CODE%type,
+                 sAcc     in G_ACCBLN.CODE%type,
+                 pCshId   in M_CSHDSC.ID%type,
+                 pPayType in M_ORDPAY.Rcvtype%type,
+                 oPayDepId out M_ORDPAY.DEP_ID%type,
+                 oPayId    out M_ORDPAY.ID%type,
+                 oErr      out varchar2
+                 )
+  is
+    cParIn  varchar2(4000);
+    cParOut varchar2(4000);
+    lstTbl  C_PKGSTR.TPrmTBlLst;
+  begin
+    if T_PkgRunOprUtl.fOprAvailable(pDepId, pId, 'Z_116_INSPAY') > 1 then
+      cParIn := 'AMOUNT=>'||pAmount||',VALCODE=>'||pValCode||',ACC_CODE=>'||sAcc||',CSHID=>'||pCshId||',PayType=>'||pPayType;
+      T_PkgRunOprUtl.pRunOperation(pDepId, pId, 'Z_116_INSPAY', sInOperParams => cParIn, sOutOperParams => cParOut);
+
+      t_log.debug('Z_116_PKGLOANINS.pRun: выходные параметры операции Z_116_INSPAY = %0:s', vargs(cParOut), 'PKG', 'Z_116_PKGSTUDCRD');
+
+      C_PKGSTR.ParsePar2(sstr => cParOut, prmtbllst => lstTbl);
+      oPayDepId := to_number(C_PKGSTR.fGetPrmVal(lstTbl, 'nPayDepId'));
+      oPayId := to_number(C_PKGSTR.fGetPrmVal(lstTbl, 'nPayID'));
+    else
+      oErr := localfrmt('Внутренняя ошибка: не доступна операция "Оплата страх. полиса" по кредитному договору %0:s', vargs(t_fGetOrdCode(pDepId, pId)),'PKG', 'Z_116_PKGLOANINS');
+    end if;
+
+  exception
+    when others then
+      oErr := localfrmt('Внутренняя ошибка: %0:s', vargs(regexp_substr(sqlerrm, 'ORA-\d+:\s*(.+)', 1, 1, '', 1)),'PKG', 'Z_116_PKGLOANINS');
+  end pRun;
+
+  -- Признак завершения процесса
+  function fIsClosed(pDepId    in T_ORD.DEP_ID%type,
+                     pId       in T_ORD.ID%type,
+                     nAnount   out number
+                     ) return T_PROCESS.CLOSEFL%type is
+    cRet T_PROCESS.CLOSEFL%type; -- YES
+  begin
+    cRet := t_pkgprocess.fGetCloseFlByMainOrd(pDepId, pId);
+    if cRet = '1' then
+      nAnount := 0;
+      if t_pkgprocess.fGetStatCodeByMainOrd(pDepId, pId) = 'YES' then
+        begin
+          select m.amount into nAnount from M_ORDPAY m where m.dep_id = pDepId and m.id = pId;
+        exception
+          when no_data_found then
+            nAnount := 0;
+        end;
+      end if;
+    end if;
+    return cRet;
+  end fIsClosed;
+
+  -- Удаление операции оплаты страховки по кредиту в кассе
+  procedure pDeletePayment(pDepId number,
+                           pId    number) is
+  begin
+    BS_OPERATION.RunOperByMainOrd(pDepId, pId, 'DELETE');
+  end;
+
+end Z_116_PKGLOANINS;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_OPERATION"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="M_BSPAY"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLNHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_IDNDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_CSHDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_ORDPAY"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_TRANSFDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_VAL"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="T_FGETORDCODE"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGSTR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGPROCESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGRUNOPRUTL"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

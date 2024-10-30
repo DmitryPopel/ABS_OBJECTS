@@ -1,0 +1,1156 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_T_PKGDEAACC" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="59A780C10DC96F1539DD8241CCB07B4D">
+  <PKG 
+    NAME="Z_116_T_PKGDEAACC">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_T_PKGDEAACC is
+/**
+* Функции по счетам договоров
+*
+* @author Кирилл Матвеенок
+* @author Николай Беспалов
+* @author Максим Полубоярцев
+* @author Виталий Черкасов
+* @version 2.2
+* @headcom
+*
+* Copyright (c) 2022 By Colvir Software Solutions. All Rights Reserved.
+*/
+
+-- Информация по счету договора
+type RAccInfo is record(
+  idCha integer,
+  idVal integer,
+  idDepAcc integer,
+  idAcc integer
+);
+
+/** Поиск счета по договору с учетом аналитик
+* @param idDep    Идентификатор подразделения
+* @param sChaCode Код счета по аналитическому плану
+* @param idAccVal Идентификатор валюты
+* @param tAnl     Наборов аналитических признаков
+* @param AccInfo  Информация по счету договора
+*/
+procedure pGetAccInfo(
+  idDep in integer, idDea in T_ORD.ID%TYPE,
+  sChaCode in varchar2,
+  idAccVal in integer,
+  tAnl in t_anlacc.ansigntbl,
+  AccInfo out RAccInfo
+);
+
+-- Определение договора по аналитическому счету
+procedure pGetDeaByAcc(idDepAcc in integer, idAcc in integer, idDepDea out integer, idDea out integer);
+
+/** Поиск аналитического счета с учетом аналитик
+* @param idDep    Идентификатор подразделения
+* @param idDea    Идентификатор договора
+* @param idCha    Идентификатор счёта в аналитическом плане счетов
+* @param idAccVal Идентификатор валюты
+* @param tAnl     Наборов аналитических признаков
+* @param idDepAcc Идентификатор счёта
+* @param idAcc    Идентификатор подразделения счёта
+*/
+procedure pGetDeaAcc(
+   idDep in integer
+  ,idDea in T_ORD.ID%TYPE
+  ,idCha in integer
+  ,idAccVal in integer
+  ,tAnl in t_anlacc.ansigntbl
+  ,idDepAcc out integer
+  ,idAcc out integer
+);
+
+function fEmptyAnlList return t_anlacc.ansigntbl;
+function fAnlStr2List(sAnl in varchar2 default null) return t_anlacc.ansigntbl;
+
+-- Остаток по счету договора с учетом аналитических признаков
+function fDeaAccBal(
+  idDep in integer, idDea in integer,
+  sChaCode in varchar2,                 -- Номер счета по АПС
+  idAccVal in integer default null,     -- Валюта
+  dOp in date default P_OPERDAY,        -- Дата
+  iInpBal in integer default 0,         -- 0 - исходящи, 1 - входящие
+  tAnl in t_anlacc.ansigntbl default fEmptyAnlList   -- Набор аналитик (кроме DEA и VALUTA)
+) return number;
+
+-- Остаток по счету договора с учетом аналитических признаков, только значение аналитик передается через строку
+function fDeaAccBal(
+  idDep in integer, idDea in integer,
+  sChaCode in varchar2,                 -- Номер счета по АПС
+  idAccVal in integer,                  -- Валюта
+  dOp in date,                          -- Дата
+  iInpBal in integer,                   -- 0 - исходящи, 1 - входящие
+  sAnlStr in varchar2                   -- строка аналитик (кроме DEA и VALUTA)
+) return number;
+
+/** Оборот по счету договора
+* @param dea      Договор
+* @param sChaCode Код счета по аналитическому плану
+* @param dFrom    Начало интервала
+* @param dTo      Окончание интервал
+* @param idAccVal Идентификатор валюты
+* @param zoFl     Признак заключительных оборотов
+* @param IncomFl  Знак проводки: 1 = приход (дебета), 0 = расход (кредит)
+* @param tAnl     Наборов аналитических признаков (кроме DEA и VALUTA)
+*/
+function fDeaAccMov(
+    dea in gl_anl.rAnlKey,                   -- Договор
+    sChaCode in varchar2,                    -- Код счета по аналитическому плану
+    dFrom in date,                           -- С
+    dTo in date,                             -- По
+    idAccVal in integer default null,        -- Валюта
+    zoFl in integer default 0,               -- Zo
+    IncomFl in integer default 0,            -- 0-по дебету, 1-по кредиту
+    tAnl in t_anlacc.ansigntbl default fEmptyAnlList   -- Набор аналитик (кроме DEA и VALUTA)
+  ) return number;
+
+/** Оборот по счету договора
+* @param idDep    Идентификатор подразделения
+* @param idDea    Идентификатор договора
+* @param sChaCode Код счета по аналитическому плану
+* @param dFrom    Начало интервала
+* @param dTo      Окончание интервал
+* @param idAccVal Идентификатор валюты
+* @param zoFl     Признак заключительных оборотов
+* @param IncomFl  Знак проводки: 1 = приход (дебета), 0 = расход (кредит)
+* @param tAnl     Наборов аналитических признаков (кроме DEA и VALUTA)
+*/
+function fDeaAccMov2(
+    idDep in integer,
+    idDea in T_ORD.ID%TYPE,
+    sChaCode in varchar2,                    -- Код счета по аналитическому плану
+    dFrom in date,                           -- С
+    dTo in date,                             -- По
+    idAccVal in integer default null,        -- Валюта
+    zoFl in integer default 0,               -- Zo
+    IncomFl in integer default 0,            -- 0-по дебету, 1-по кредиту
+    tAnl in t_anlacc.ansigntbl default fEmptyAnlList,   -- Набор аналитик (кроме DEA и VALUTA)
+    flNatVal in integer default 0
+  ) return number;
+
+/** Оборот по счету договора
+* @param idDep    Идентификатор подразделения
+* @param idDea    Идентификатор договора
+* @param sChaCode Код счета по аналитическому плану
+* @param dFrom    Начало интервала
+* @param dTo      Окончание интервал
+* @param idAccVal Идентификатор валюты
+* @param zoFl     Признак заключительных оборотов
+* @param IncomFl  Знак проводки: 1 = приход (дебета), 0 = расход (кредит)
+* @param tAnl     Наборов аналитических признаков (кроме DEA и VALUTA)
+*/
+function fDeaAccMov(
+    idDep in integer, idDea in T_ORD.ID%TYPE, -- Договор
+    sChaCode in varchar2,                    -- Код счета по аналитическому плану
+    dFrom in date,                           -- С
+    dTo in date,                             -- По
+    idAccVal in integer default null,        -- Валюта
+    zoFl in integer default 0,               -- Zo
+    IncomFl in integer default 0,            -- 0-по дебету, 1-по кредиту
+    tAnl in t_anlacc.ansigntbl default fEmptyAnlList   -- Набор аналитик (кроме DEA и VALUTA)
+  ) return number;
+
+/** Движение по счету договора в транзакции
+* @param idDep    Идентификатор подразделения
+* @param idDea    Идентификатор договора
+* @param sChaCode Код счета по аналитическому плану
+* @param idAccVal Идентификатор валюты
+* @param dOp      Дата операции
+* @param idTrn    Иидентификатор транзакции
+* @param iZO      Признак заключительных оборотов
+* @param iPlan    Признак планируемой проводки
+*/
+function fDeaAccTrnMov(idDep in integer, idDea in T_ORD.ID%TYPE, sChaCode in varchar2, idAccVal in integer,
+                       dOp in date, idTrn in T_TRNDTL.ID%TYPE, iZO in integer default 0, iPlan in integer default 0) return number;
+
+/** Движение по счету договора в транзакции
+* @param dea      Договор
+* @param sChaCode Код счета по аналитическому плану
+* @param idAccVal Идентификатор валюты
+* @param dOp      Дата операции
+* @param idTrn    Иидентификатор транзакции
+* @param iZO      Признак заключительных оборотов
+* @param iPlan    Признак планируемой проводки
+*/
+function fDeaAccTrnMov(dea in gl_anl.rAnlKey, sChaCode in varchar2, idAccVal in integer,
+                       dOp in date, idTrn in T_TRNDTL.ID%TYPE, iZO in integer default 0, iPlan in integer default 0) return number;
+
+/** Движение по счету договора в транзакции
+* @param dea      Договор
+* @param sChaCode Код счета по аналитическому плану
+* @param idAccVal Идентификатор валюты
+* @param dOp      Дата операции
+* @param idTrn    Иидентификатор транзакции
+* @param iZO      Признак заключительных оборотов
+* @param iPlan    Признак планируемой проводки
+*/
+function fDeaAccTrnMov(dea in varchar2, sChaCode in varchar2, idAccVal in integer,
+                       dOp in date, idTrn in T_TRNDTL.ID%TYPE, iZO in integer default 0, iPlan in integer default 0) return number;
+
+
+/** Подсчет количества счетов договора
+* @param idDep    Идентификатор подразделения
+* @param idDea    Идентификатор договора
+* @param sChaCode Код счета по аналитическому плану
+* @param dFrom    Начало интервала
+* @param dTo      Окончание интервал
+* @param IncomFl  Знак проводки: 1 = приход (дебета), 0 = расход (кредит)
+*/
+function fDeaAccMovCnt(idDep in integer, idDea in T_ORD.ID%TYPE, sChaCode in varchar2, dFrom in date, dTo in date, IncomeFl in char)
+  return pls_integer parallel_enable;
+
+/** Дата возникновения ненулевого остатка по счету
+* Если остаток на счете на dOp нулевой - возвращается null; иначе - ближайшая к dOp дата, когда входящий остаток был = 0, а исходящий <> 0
+* @param idDep    Идентификатор подразделения
+* @param idDea    Идентификатор договора
+* @param sChaCode Код счета по аналитическому плану
+* @param idAccVal Идентификатор валюты
+* @param dTo      Окончание интервал
+*/
+function fDeaAccBalDate(idDep in integer, idDea in T_ORD.ID%TYPE, sChaCode in varchar2, idAccVal in integer default null,
+                        dOp in date default P_OPERDAY) return date;
+function fDeaAccBalDate(dea in gl_anl.rAnlKey, sChaCode in varchar2, idAccVal in integer default null,
+                        dOp in date default P_OPERDAY) return date;
+function fDeaAccBalDate(dea in varchar2, sChaCode in varchar2, idAccVal in integer default null,
+                        dOp in date default P_OPERDAY) return date;
+
+-- Функция определения даты последнего провода по лицевому счету за определённый интервал времени.
+function fDeaMovLstDate(
+    idDep    integer,                 -- идентификатор подразделения.
+    idDea    T_DEA.ID%type,                 -- идентификатор договора
+    sChaCode varchar2,                -- Код счета по аналитическому плану
+    idAccVal integer default P_NatVal,-- идентификатор валюты
+    fDate    date,                    -- интервал дат,
+    lDate    date,                    -- интервал дат,
+    cFl    char     -- (дебет кредит)
+  ) return date;
+function fDeaMovLstDate(
+  dea in gl_anl.rAnlKey,            -- договор договора
+  sChaCode varchar2,                -- Код счета по аналитическому плану
+  idAccVal integer default P_NatVal,-- идентификатор валюты
+  fDate    date,                    -- интервал дат,
+  lDate    date,                    -- интервал дат,
+  cFl    char     -- (дебет кредит)
+) return date;
+
+function fDeaMovLstDate(
+  dea in varchar2,            -- договор договора
+  sChaCode varchar2,                -- Код счета по аналитическому плану
+  idAccVal integer default P_NatVal,-- идентификатор валюты
+  fDate    date,                    -- интервал дат,
+  lDate    date,                    -- интервал дат,
+  cFl    char     -- (дебет кредит)
+) return date;
+
+/** Обороты (дебет или кредит) по заданному счету на интервале дат
+* @param idDep    Идентификатор подразделения
+* @param idDea    Идентификатор договора
+* @param sChaCode Код счета по аналитическому плану
+* @param idAccVal Идентификатор валюты
+* @param fDate    Начало интервала
+* @param lDate    Окончание интервал
+* @param cFl      Знак проводки: 1 = приход (дебета), 0 = расход (кредит)
+*/
+function fDeaMovAcc(
+    idDep    integer,                 -- идентификатор подразделения.
+    idDea    T_ORD.ID%TYPE,           -- идентификатор договора
+    sChaCode varchar2,                -- Код счета по аналитическому плану
+    idAccVal integer default P_NatVal,-- идентификатор валюты
+    fDate    date,                    -- интервал дат,
+    lDate    date,                    -- интервал дат,
+    cFl    char     -- (дебет кредит)
+  ) return number;
+
+/** Функция определения дат  провода по лицевому счету за определённый интервал времени.
+* Результат возвращается в виде строки
+* @param idDep    Идентификатор подразделения
+* @param idDea    Идентификатор договора
+* @param sChaCode Код счета по аналитическому плану
+* @param idAccVal Идентификатор валюты
+* @param fDate    Начало интервала
+* @param lDate    Окончание интервал
+* @param cFl      Знак проводки: 1 = приход (дебета), 0 = расход (кредит)
+*/
+function fDeaMovListDate(
+    idDep    integer,                 -- идентификатор подразделения.
+    idDea    T_ORD.ID%TYPE,           -- идентификатор договора
+    sChaCode varchar2,                -- Код счета по аналитическому плану
+    idAccVal integer default P_NatVal,-- идентификатор валюты
+    fDate    date,                    -- интервал дат,
+    lDate    date,                    -- интервал дат,
+    cFl    char     -- (дебет кредит)
+  ) return varchar2;
+
+  /** Получение общего остатка группы аналитических счетов по договору
+  * @param idDep    Идентификатор подразделения
+  * @param idDea    Идентификатор договора
+  * @param sChaCode Код счета по аналитическому плану
+  * @param dOp      Дата операции
+  * @param idAccVal Идентификатор валюты
+  * @param iInpBal Признак входящего остатка
+  */
+  function fDeaGrpAccBal(idDep in integer, idDea in T_ORD.ID%TYPE, sChaCode in varchar2,
+  dOp in date default P_OPERDAY, idAccVal in integer default null,
+  iInpBal in integer default 0) return number;
+
+  /** Получение общего оборота группы аналитических счетов по договору
+  * @param idDep    Идентификатор подразделения
+  * @param idDea    Идентификатор договора
+  * @param sChaCode Код счета по аналитическому плану
+  * @param IncomFl  Знак проводки: 1 = приход (дебета), 0 = расход (кредит)
+  * @param dFrom    Начало интервала
+  * @param dTo      Окончание интервал
+  * @param idAccVal Идентификатор валюты
+  * @param iInpBal Признак входящего остатка
+  */
+  function fDeaGrpAccMov(idDep in integer, idDea in T_DEA.ID%TYPE, sChaCode in varchar2,
+  IncomFl in integer, dTo in date, dFrom in date default null,
+  idAccVal in integer default null) return number;
+
+  -- удаление счетов сделки
+  procedure pDelDeaAcc( nDepId in t_dea.dep_id%type, nId in t_dea.id%type );
+
+  -- возвращает признак Analiz типа счета договора по идентификатору типа счета
+  function fGetAccDscAnaliz( nId in t_deaaccdsc_std.id%type ) return t_deaaccdsc_std.analiz%type;
+  -- возвращает признак Analiz типа счета договора по кода типа счета
+  function fGetAccDscAnalizByCode( sCode in t_deaaccdsc_std.code%type ) return t_deaaccdsc_std.analiz%type;
+
+  -- поиск  счетов сделки
+  procedure pFindDeaAcc
+    ( nDepId        in t_dea.dep_id%type
+    , nId           in t_dea.id%type
+    , sAccTypeCode  in t_deaaccdsc_std.code%type
+    , tAccDepId    out dbms_utility.number_array
+    , tAccId       out dbms_utility.number_array
+  );
+
+  /** Добавление счета сделки, обновление данных существующего
+  * @param pDep_id     Идентификатор подразделения
+  * @param pId         Идентификатор договора
+  * @param pDea_id     Идентификатор типа счета
+  * @param pAcc_Dep_id Идентификатор подразделения счета
+  * @param pCode       Номер счета
+  * @param pVal_id     Идентификатор валюты
+  * @param pNord       Порядковый номер одного и того же типа счета в договоре
+  */
+  procedure pAddDeaAcc(pDep_id in integer, pId in T_DEAACC.ID%TYPE, pDea_id in integer
+                     , pAcc_Dep_id in integer, pCode in varchar2, pVal_id in integer, pNord in out integer);
+
+  /** Удаление счета сделки
+  * @param pDep_id     Идентификатор подразделения
+  * @param pId         Идентификатор договора
+  * @param pDea_id     Идентификатор типа счета
+  * @param pNord       Порядковый номер одного и того же типа счета в договоре
+  */
+  procedure pDelAcc(pDep_id in integer, pId in T_DEAACC.ID%TYPE, pDea_id in integer, pNord in integer);
+
+end Z_116_T_PKGDEAACC;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_T_PKGDEAACC is
+
+
+idAnlDea ANLACC_DET.SIGN_ID%type;  -- Аналитика DEA
+idAnlVal ANLACC_DET.SIGN_ID%type;  -- Аналитика VALUTA
+
+type tAccAnlList is table of char(1) index by binary_integer;
+type rAnChart is record (Anl tAccAnlList);
+type tAnChart is table of rAnChart index by binary_integer;
+tblAnlChart tAnChart;
+
+
+-- Определение договора по аналитическому счету
+procedure pGetDeaByAcc(idDepAcc in integer, idAcc in integer, idDepDea out integer, idDea out integer) is
+begin
+  idDepDea := null; idDea := null;
+  select PK1, PK2 into idDepDea, idDea from ANLACC_DET where DEP_ID=idDepAcc and ID=idAcc and SIGN_ID=idAnlDea;
+exception
+  when NO_DATA_FOUND then null;
+end;
+
+-- возвращает информацию по счету договора
+procedure pGetAccInfo(idDep in integer, idDea in T_ORD.ID%TYPE, sChaCode in varchar2,
+  idAccVal in integer, AccInfo out RAccInfo) is
+begin
+  pGetAccInfo(idDep, idDea, sChaCode, idAccVal, fEmptyAnlList, AccInfo);
+end;
+
+-- Поиск счета по договору с учетом значений аналитик счета
+procedure pGetAccInfo(
+  idDep in integer, idDea in T_ORD.ID%TYPE,
+  sChaCode in varchar2,
+  idAccVal in integer,
+  tAnl in t_anlacc.ansigntbl,
+  AccInfo out RAccInfo
+) is
+begin
+  begin
+    select ID into AccInfo.idCha from T_ANCHART_STD where CODE = sChaCode;
+  exception when NO_DATA_FOUND then
+    Raise_Application_Error (-20000,LocalFrmt(
+          'Счет с кодом %0:s отсутсвует в классификаторе аналитических счетов', vargs(sChaCode), 'PKG', 'T_PKGDEAACC'));
+  end;
+
+  -- Определяем валюту счета
+  if idAccVal is not null then
+    AccInfo.idVal := idAccVal;
+  else
+    AccInfo.idVal := T_PkgArl.fDeaVal(idDep, idDea);
+  end if;
+
+  if tAnl.count>0 then
+    pGetDeaAcc(idDep, idDea, AccInfo.idCha,  AccInfo.idVal, tAnl, AccInfo.idDepAcc, AccInfo.idAcc);
+  else
+    T_PkgArlClc.pGetDeaArlAcc(idDep, idDea, AccInfo.idCha, AccInfo.idVal, AccInfo.idDepAcc, AccInfo.idAcc);
+  end if;
+end;
+
+procedure pGetDeaAcc(
+   idDep    in integer
+  ,idDea    in T_ORD.ID%TYPE
+  ,idCha    in integer
+  ,idAccVal in integer
+  ,tAnl     in t_anlacc.ansigntbl
+  ,idDepAcc out integer
+  ,idAcc    out integer
+) is
+  rChaInf rAnChart;
+  rAnl t_anlacc.ansignrec;
+  tblSeekAnl t_anlacc.ansigntbl; -- Значения аналитик по которым ищем счет
+  sSQL varchar2(4000);
+  i pls_integer;
+  sChaCode T_ANCHART_STD.code%type;
+  ac T_ANLACC.SelfAttr;
+
+begin
+  if T_Log.IsEnabled then
+    select CODE into sChaCode from T_ANCHART_STD where id=idCha;
+    t_log.writel(1, LocalFrmt('Поиск аналитического счета счета %0:s, договор (%1:s, %2:s)', vargs(sChaCode, idDep, idDea)));
+  end if;
+
+
+  if tblAnlChart.exists(idCha) then
+    -- Поищем кэшированое значение
+    rChaInf := tblAnlChart(idCha);
+  else
+    begin
+      -- Инициализируем настройку аналитик на счете
+      for r in (
+        select s.SIGN_ID, s.NOTUSEDFL
+        from T_ANLSIGN s, (select id from T_ANCHART_STD connect by prior ID_HI=ID start with id = idCha) a
+        where a.ID = s.Cha_Id and s.notusedfl='0'
+      ) loop
+        rChaInf.Anl(r.SIGN_ID):=null;
+      end loop;
+
+      tblAnlChart(idCha) := rChaInf;
+    end;
+  end if;
+
+  -- Установим DEA
+  rAnl.SIGN_ID := idAnlDea; rAnl.PK1:=to_char(idDep); rAnl.PK2:=to_char(idDea);
+  tblSeekAnl(tblSeekAnl.count+1):=rAnl;
+
+  -- Копируем переданные аналитики, если они настроены
+  i := tAnl.First;
+  while i is not null loop
+    rAnl := tAnl(i);
+    --if rChaInf.Anl.exists(rAnl.SIGN_ID) then
+      tblSeekAnl(tblSeekAnl.count+1) := rAnl;
+    --end if;
+    i := tAnl.next(i);
+  end loop;
+
+  -- Для валютных установим аналитику по валюте
+  if rChaInf.Anl.Exists(idAnlVal) then
+    rAnl.SIGN_ID := idAnlVal; rAnl.PK1:=to_char(idAccVal); rAnl.PK2:='0';
+    tblSeekAnl(tblSeekAnl.count+1):=rAnl;
+  end if;
+
+  --if p_debug=1 then
+  --  while i is not null loop
+  --    t_log.writel(1, LocalFrmt('  %0:s: (%1:s, %2:s)', vargs(tblSeekAnl(i).SIGN_ID, tblSeekAnl(i).PK1, tblSeekAnl(i).PK2)));
+  --    i := tblSeekAnl.next(i);
+  --  end loop;
+  --end if;
+
+  -- Стандартный поиск аналитического счета
+  T_ANLACC.SEARCH(ac, tblSeekAnl, idCha, idDep, idAccVal, 0);
+  idDepAcc := ac.DEP_ID; idAcc := ac.ID;
+end;
+
+function fEmptyAnlList return t_anlacc.ansigntbl is
+  r t_anlacc.ansigntbl;
+begin
+  return r;
+end;
+
+-- Выбор списка аналитик из таблицы или строки
+function fAnlStr2List(sAnl in varchar2 default null) return t_anlacc.ansigntbl is
+  tAnl t_anlacc.ansigntbl;
+  t c_pkgarrstr.tAssArr;
+  i C_PkgArrStr.tAssKey;
+  idAnl integer;
+begin
+  t := C_PkgArrStr.fStr2Arr(sAnl, '=>', ',');
+  i := t.first;
+  while i is not null loop
+    idAnl := T_Asgn.fCode2Id(i);
+    tAnl(idAnl).SIGN_ID := idAnl;
+    t_asgn.pAnlPk(idAnl, t(i), tAnl(idAnl).PK1, tAnl(idAnl).PK2, 1);
+    i := t.next(i);
+  end loop;
+  return tAnl;
+end;
+
+
+-- Остаток по счету договора с учетом аналитических признаков
+function fDeaAccBal(
+  idDep in integer, idDea in integer,
+  sChaCode in varchar2,                 -- Номер счета по АПС
+  idAccVal in integer default null,     -- Валюта
+  dOp in date default P_OPERDAY,        -- Дата
+  iInpBal in integer default 0,         -- 0 - исходящи, 1 - входящие
+  tAnl in t_anlacc.ansigntbl default fEmptyAnlList   -- Набор аналитик (кроме DEA и VALUTA)
+) return number is
+  rAcc RAccInfo;
+  nRet  number(18,2) := 0;
+  iActivFl T_ACC.ACTIVFL%type;
+begin
+  pGetAccInfo(idDep, idDea, sChaCode, idAccVal, tAnl, rAcc);
+
+  if rAcc.idAcc is not null and rAcc.idDepAcc is not null then
+    nRet := T_PkgAccBal.fAddPln(rAcc.idDepAcc, rAcc.idAcc, dOp, iInpBal, idAccVal, 0);
+    select ACTIVFL into iActivFl from T_ACC where DEP_ID = rAcc.idDepAcc and ID = rAcc.idAcc;
+    if iActivFl = 0 then -- пассивные остатки переведем в положительные числа
+      nRet := - nRet;
+    end if;
+  end if;
+  return nRet;
+end;
+
+-- Остаток по счету договора с учетом аналитических признаков, только значение аналитик передается через строку
+function fDeaAccBal(
+  idDep in integer, idDea in integer,
+  sChaCode in varchar2,                 -- Номер счета по АПС
+  idAccVal in integer,                  -- Валюта
+  dOp in date,                          -- Дата
+  iInpBal in integer,                   -- 0 - исходящи, 1 - входящие
+  sAnlStr in varchar2                   -- строка аналитик (кроме DEA и VALUTA)
+) return number is
+  tAnl t_anlacc.ansigntbl := fAnlStr2List(sAnlStr);
+begin
+  return fDeaAccBal(idDep, idDea, sChaCode, idAccVal, dOp, iInpBal, tAnl);
+end;
+
+-- Оборот по счету договора
+function fDeaAccMov(
+    dea in gl_anl.rAnlKey,
+    sChaCode in varchar2,
+    dFrom in date,
+    dTo in date,
+    idAccVal in integer default null,
+    zoFl in integer default 0,
+    IncomFl in integer default 0,
+    tAnl in t_anlacc.ansigntbl default fEmptyAnlList   -- Набор аналитик (кроме DEA и VALUTA)
+) return number as
+  AccInfo RAccInfo;
+  nRet  number(18,2) := 0;
+begin
+  if tAnl.count=0 then
+    pGetAccInfo(dea.PK1, dea.PK2, sChaCode, idAccVal, AccInfo);
+  else
+    pGetAccInfo(dea.PK1, dea.PK2, sChaCode, idAccVal, tAnl, AccInfo);
+  end if;
+  if AccInfo.idAcc is not null then
+    nRet := T_PkgAccMov.fGetMovAcc(
+      AccInfo.idDepAcc, AccInfo.idAcc,
+      dFrom, dTo,
+      AccInfo.idVal, zoFl, IncomFL);
+  end if;
+
+  return nRet;
+end;
+
+-- Оборот по счету договора
+function fDeaAccMov(
+    idDep in integer, idDea in T_ORD.ID%TYPE,
+    sChaCode in varchar2,
+    dFrom in date,
+    dTo in date,
+    idAccVal in integer default null,
+    zoFl in integer default 0,
+    IncomFl in integer default 0,
+    tAnl in t_anlacc.ansigntbl default fEmptyAnlList   -- Набор аналитик (кроме DEA и VALUTA)
+) return number as
+  rDea gl_anl.rAnlKey;
+begin
+  rDea.PK1 := idDep;
+  rDea.PK2 := idDea;
+  return fDeaAccMov(rDea, sChaCode, dFrom, dTo, idAccVal, zoFl, IncomFl, tAnl);
+end;
+
+-- Движение по счету договора в транзакции
+function fDeaAccTrnMov(idDep in integer, idDea in T_ORD.ID%TYPE, sChaCode in varchar2, idAccVal in integer,
+                       dOp in date, idTrn in T_TRNDTL.ID%TYPE, iZO in integer default 0, iPlan in integer default 0)  return number
+as
+  AccInfo RAccInfo;
+  nRet  number(18,2) := 0;
+begin
+  pGetAccInfo(idDep, idDea, sChaCode, idAccVal, AccInfo);
+  if AccInfo.idAcc is not null then
+    nRet := T_PkgAccMov.fGetMovTrnAcc(idTrn, AccInfo.idDepAcc, AccInfo.idAcc, dOp, AccInfo.idVal, iZo, iPlan);
+  end if;
+  return nRet;
+end;
+
+function fDeaAccTrnMov(dea in gl_anl.rAnlKey, sChaCode in varchar2, idAccVal in integer,
+                       dOp in date, idTrn in T_TRNDTL.ID%TYPE, iZO in integer default 0, iPlan in integer default 0)  return number as
+begin
+  return fDeaAccTrnMov(to_number(dea.PK1), to_number(dea.PK2), sChaCode, idAccVal, dOp, idTrn, iZo, iPlan);
+end;
+
+function fDeaAccTrnMov(dea in varchar2, sChaCode in varchar2, idAccVal in integer,
+                       dOp in date, idTrn in T_TRNDTL.ID%TYPE, iZO in integer default 0, iPlan in integer default 0)  return number as
+begin
+  return fDeaAccTrnMov(C_PkgSbjUtl.StrToAnlKey(dea), sChaCode, idAccVal, dOp, idTrn, iZo, iPlan);
+end;
+
+
+-- Дата возникновения ненулевого остатка по счету
+function fDeaAccBalDate(idDep in integer, idDea in T_ORD.ID%TYPE, sChaCode in varchar2, idAccVal in integer default null,
+                        dOp in date default P_OPERDAY) return date as
+  idDepAcc T_ACC.DEP_ID%type;
+  idAcc T_ACC.ID%type;
+  idCha ANLACC_DET.CHA_ID%type;
+  idVal T_ORD.VAL_ID%type;
+  dRet date := null;
+  nBal number;
+  dDateZO date;
+  nBalZO number;
+begin
+  begin
+    select ID into idCha from T_ANCHART_STD where CODE = sChaCode;
+  exception
+    when NO_DATA_FOUND then
+      Raise_Application_Error (-20000,LocalFrmt('Счет с кодом %0:s отсутсвует в справочнике', vargs(sChaCode), 'PKG', 'T_PKGDEAACC'));
+  end;
+
+  if idAccVal is not null then
+    idVal := idAccVal;
+  else
+    idVal := T_PkgArl.fDeaVal(idDep, idDea);
+  end if;
+
+  T_PkgArlClc.pGetDeaArlAcc(idDep, idDea, idCha, idVal, idDepAcc, idAcc);
+
+  if idAcc is not null then
+    nBal := T_PkgAccBal.fAccBal(idDepAcc, idAcc, dOp, 0, idVal, 0, 0);
+    if nBal <> 0 then
+      dDateZO := trunc(dOp,'yyyy');
+      nBalZO := T_PkgAccBal.fBal (idDepAcc, idAcc, dDateZO, 0, idVal, 1, 0);
+      for r in (
+        select /*+index_desc(b PK_T_BAL)*/
+          b.FROMDATE, b.BAL_IN
+        from T_BAL b
+        where b.DEP_ID=idDepAcc and b.ID=idAcc and b.VAL_ID=idVal
+          and b.FLZO=0 and b.PLANFL=0 and b.SPECFL=0 and b.FROMDATE <=dOp
+      ) loop
+        if trunc(r.FROMDATE,'yyyy') <> dDateZO then
+          dDateZO := trunc(r.FROMDATE,'yyyy');
+          nBalZO := T_PkgAccBal.fBal (idDepAcc, idAcc, dDateZO, 0, idVal, 1, 0);
+        end if;
+        nBal := r.BAL_IN + nBalZO;
+        if nBal = 0 then
+          dRet := r.FROMDATE;
+          exit;
+        end if;
+      end loop;
+    end if;
+  end if;
+
+  t_log.debug(LocalFrmt('Относительно %0:s - дата возникновения остатка на счете "%1:s" по договору: %2:s', vargs(dOp, sChaCode, dRet), 'PKG', 'T_PKGDEAACC'));
+  return dRet;
+end;
+
+function fDeaAccBalDate(dea in gl_anl.rAnlKey, sChaCode in varchar2, idAccVal in integer default null,
+                        dOp in date default P_OPERDAY) return date as
+begin
+  return fDeaAccBalDate(to_number(dea.PK1), to_number(dea.PK2), sChaCode, idAccVal, dOp);
+end;
+
+function fDeaAccBalDate(dea in varchar2, sChaCode in varchar2, idAccVal in integer default null,
+                        dOp in date default P_OPERDAY) return date as
+begin
+  return fDeaAccBalDate(C_PkgSbjUtl.StrToAnlKey(dea), sChaCode, idAccVal, dOp);
+end;
+
+function fDeaAccMovCnt(idDep in integer, idDea in T_ORD.ID%TYPE, sChaCode in varchar2, dFrom in date, dTo in date, IncomeFl in char)
+  return pls_integer parallel_enable
+as
+  iRet pls_integer;
+begin
+  select count(*) into iRet
+  from T_TRNDTL td, ANLACC_DET ad, T_ANCHART_STD c
+  where c.CODE=sChaCode and ad.CHA_ID=c.ID and td.DEP_ID=ad.DEP_ID and td.ACC_ID=ad.ID and td.INCOMFL=IncomeFl
+     and ad.SIGN_ID=idAnlDea
+    and ad.PK1=to_char(idDep) and ad.PK2=to_char(idDea);
+  return iRet;
+end;
+
+-- Функция определения даты последнего провода по лицевому счету за определённый интервал времени.
+function fDeaMovLstDate(
+    idDep    integer,                 -- идентификатор подразделения.
+    idDea    T_DEA.ID%type,                 -- идентификатор договора
+    sChaCode varchar2,                -- Код счета по аналитическому плану
+    idAccVal integer default P_NatVal,-- идентификатор валюты
+    fDate    date,                    -- интервал дат,
+    lDate    date,                    -- интервал дат,
+    cFl    char     -- (дебет кредит)
+  ) return date as
+    idDepAcc T_ACC.DEP_ID%type;
+    idAcc T_ACC.ID%type;
+    idCha ANLACC_DET.CHA_ID%type;
+    idVal integer;
+    dRet date := null;
+begin
+
+  begin
+    select ID into idCha from T_ANCHART_STD where CODE = sChaCode;
+  exception
+    when NO_DATA_FOUND then
+      Raise_Application_Error (-20000,LocalFrmt('Счет с кодом %0:s отсутсвует в справочнике', vargs(sChaCode), 'PKG', 'T_PKGDEAACC'));
+  end;
+
+  if idAccVal is not null then
+    idVal := idAccVal;
+  else
+    idVal := T_PkgArl.fDeaVal(idDep, idDea);
+  end if;
+
+
+
+  T_PkgArlClc.pGetDeaArlAcc(idDep, idDea, idCha, idAccVal, idDepAcc, idAcc);
+
+  if idAcc is not null then
+    select
+     (select /*+ ordered index_desc (T_TRNDTL IE_T_TRNDTL_ACC) use_nl (T_TRNDTL, C_FLAG) */ DOPER
+      from T_TRNDTL
+        where DEP_ID=idDepAcc and ACC_ID=idAcc and INCOMFL=cFl and POSTFL='1' and DOPER between fDate and lDate
+           and VAL_ID=idVal and SDOK<>0 and ROWNUM=1
+     ) into dRet from dual;
+  end if;
+  t_log.writel(P_DEBUG, LocalFrmt('Дата возникновения остатка на счете "%0:s" по договору:%1:s', vargs(sChaCode, dRet), 'PKG', 'T_PKGDEAACC'));
+  return dRet;
+end;
+
+function fDeaMovLstDate(
+  dea in gl_anl.rAnlKey,            -- договор договора
+  sChaCode varchar2,                -- Код счета по аналитическому плану
+  idAccVal integer default P_NatVal,-- идентификатор валюты
+  fDate    date,                    -- интервал дат,
+  lDate    date,                    -- интервал дат,
+  cFl    char     -- (дебет кредит)
+) return date is
+begin
+  return fDeaMovLstDate(to_number(dea.PK1), to_number(dea.PK2), sChaCode, idAccVal, fDate, lDate, cFl);
+end;
+
+function fDeaMovLstDate(
+  dea in varchar2,            -- договор договора
+  sChaCode varchar2,                -- Код счета по аналитическому плану
+  idAccVal integer default P_NatVal,-- идентификатор валюты
+  fDate    date,                    -- интервал дат,
+  lDate    date,                    -- интервал дат,
+  cFl    char     -- (дебет кредит)
+) return date is
+begin
+  return fDeaMovLstDate(C_PkgSbjUtl.StrToAnlKey(dea), sChaCode, idAccVal, fDate, lDate, cFl);
+end;
+
+-- Обороты (дебет или кредит) по заданному счету на интервале дат
+function fDeaMovAcc(
+    idDep    integer,                 -- идентификатор подразделения.
+    idDea    T_ORD.ID%TYPE,           -- идентификатор договора
+    sChaCode varchar2,                -- Код счета по аналитическому плану
+    idAccVal integer default P_NatVal,-- идентификатор валюты
+    fDate    date,                    -- интервал дат,
+    lDate    date,                    -- интервал дат,
+    cFl    char     -- (дебет кредит)
+  ) return number as
+    idDepAcc T_ACC.DEP_ID%type;
+    idAcc T_ACC.ID%type;
+    idCha T_ANCHART_STD.ID%type;
+    idVal integer;
+    nRet number;
+begin
+
+  begin
+    select ID into idCha from T_ANCHART_STD where CODE = sChaCode;
+  exception
+    when NO_DATA_FOUND then
+      Raise_Application_Error (-20000,LocalFrmt('Счет с кодом %0:s отсутсвует в справочнике', vargs(sChaCode), 'PKG', 'T_PKGDEAACC'));
+  end;
+
+  if idAccVal is not null then
+    idVal := idAccVal;
+  else
+    idVal := T_PkgArl.fDeaVal(idDep, idDea);
+  end if;
+
+  T_PkgArlClc.pGetDeaArlAcc(idDep, idDea, idCha, idAccVal, idDepAcc, idAcc);
+
+  if idAcc is not null then
+      nRet:=T_PkgAccMov.fGetMovAcc (idDepAcc,idAcc,fDate,lDate,idVal,0,cFl);
+  end if;
+  return nRet;
+end;
+
+-- Функция определения дат  провода по лицевому счету за определённый интервал времени.
+--Результат возвращается в виде строки
+function fDeaMovListDate(
+    idDep    integer,                 -- идентификатор подразделения.
+    idDea    T_ORD.ID%TYPE,           -- идентификатор договора
+    sChaCode varchar2,                -- Код счета по аналитическому плану
+    idAccVal integer default P_NatVal,-- идентификатор валюты
+    fDate    date,                    -- интервал дат,
+    lDate    date,                    -- интервал дат,
+    cFl    char     -- (дебет кредит)
+  ) return varchar2 as
+    idDepAcc T_ACC.DEP_ID%type;
+    idAcc T_ACC.ID%type;
+    idCha T_ANCHART_STD.ID%type;
+    idVal integer;
+    sRet varchar2(255):=null;
+begin
+
+  begin
+    select ID into idCha from T_ANCHART_STD where CODE = sChaCode;
+  exception
+    when NO_DATA_FOUND then
+      Raise_Application_Error (-20000,LocalFrmt('Счет с кодом %0:s отсутсвует в справочнике', vargs(sChaCode), 'PKG', 'T_PKGDEAACC'));
+  end;
+
+  if idAccVal is not null then
+    idVal := idAccVal;
+  else
+    idVal := T_PkgArl.fDeaVal(idDep, idDea);
+  end if;
+
+  T_PkgArlClc.pGetDeaArlAcc(idDep, idDea, idCha, idAccVal, idDepAcc, idAcc);
+
+  if idAcc is not null then
+
+     for cur in (
+        select /*+ ordered index_desc (T_TRNDTL IE_T_TRNDTL_ACC) use_nl (T_TRNDTL, C_FLAG) */ DOPER
+        from  T_TRNDTL
+        where DEP_ID=idDepAcc and ACC_ID=idAcc and INCOMFL=cFl and POSTFL='1' and DOPER between fDate and lDate
+        and VAL_ID=idVal and SDOK<>0)
+        loop
+          if sRet is null then
+             sRet:=cur.DOPER;
+          else
+             sRet:=sRet||', '||cur.DOPER;
+          end if;
+        end loop;
+
+  end if;
+  return sRet;
+end;
+
+  -- Получение общего остатка группы аналитических счетов по договору
+  function fDeaGrpAccBal(idDep in integer, idDea in T_ORD.ID%TYPE, sChaCode in varchar2,
+  dOp in date default P_OPERDAY, idAccVal in integer default null,
+  iInpBal in integer default 0) return number as
+    nResult number(18,2);
+    idVal T_ORD.VAL_ID%type := idAccVal;
+  begin
+    if idVal is null then
+      idVal := T_PkgArl.fDeaVal(idDep, idDea);
+    end if;
+    select nvl(sum(decode(ACTIVFL, 0, -BAL, BAL)),0) into nResult from (
+      select t.ACTIVFL, T_PkgAccBal.fAccBal(t.DEP_ID, t.ID, dOp, iInpBal, idVal) as BAL
+      from T_ACC t, T_ANCHART c, ANLACC_DET d
+      where t.DEP_ID = d.DEP_ID and t.ID = d.ID
+      and d.CHA_ID = c.ID and d.SIGN_ID = idAnlDea and d.PK1 = to_char(idDep)
+      and d.PK2 = to_char(idDea) and upper(c.CODE) = sChaCode
+      and (t.VAL_ID = idVal or (idVal = P_NatVal and t.VALUTFL = 0) or (t.VALUTFL = 1 and t.VAL_ID is null))
+    );
+    return nResult;
+  end;
+
+  -- Получение общего оборота группы аналитических счетов по договору
+  function fDeaGrpAccMov(idDep in integer, idDea in T_DEA.ID%TYPE, sChaCode in varchar2,
+  IncomFl in integer, dTo in date, dFrom in date default null,
+  idAccVal in integer default null) return number as
+    nResult number(18,2);
+    idVal T_ORD.VAL_ID%type := idAccVal;
+    dDateFrom date := dFrom;
+  begin
+    if idVal is null then
+      idVal := T_PkgArl.fDeaVal(idDep, idDea);
+    end if;
+    if dDateFrom is null then
+      select FROMDATE into dDateFrom from T_DEA where DEP_ID = idDep and ID = idDea;
+    end if;
+    select sum(T_PkgAccMov.fGetMovAcc(t.DEP_ID, t.ID, dDateFrom, dTo, idVal, 0, IncomFl))
+      into nResult
+      from T_ACC t, T_ANCHART_STD c,  ANLACC_DET d
+      where t.DEP_ID = d.DEP_ID and t.ID = d.ID
+      and d.CHA_ID = c.ID and d.SIGN_ID = idAnlDea and d.PK1 = to_char(idDep)
+      and d.PK2 = to_char(idDea) and upper(c.CODE) = sChaCode
+      and (t.VAL_ID = idVal or (idVal = P_NatVal and t.VALUTFL = 0) or (t.VALUTFL = 1 and t.VAL_ID is null));
+    return nvl(nResult,0);
+  end;
+
+  -- удаление счетов сделки
+  procedure pDelDeaAcc( nDepId in t_dea.dep_id%type, nId in t_dea.id%type )
+  as
+    sFuncName varchar2(64) := $$PLSQL_UNIT||'.pDelDeaAcc. ';
+  begin
+    t_log.writel( p_debug, sFuncName||'nDepId='||to_char( nDepId )||', nId='||to_char( nId ));
+    delete from t_deaacc where dep_id = nDepId and id = nId;
+    t_log.writel( p_debug, sFuncName||'SQL%ROWCOUNT='||to_char( SQL%ROWCOUNT ));
+  end pDelDeaAcc;
+
+  -- возвращает признак Analiz типа счета договора по идентификатору типа счета
+  function fGetAccDscAnaliz( nId in t_deaaccdsc_std.id%type ) return t_deaaccdsc_std.analiz%type is
+    result t_deaaccdsc_std.analiz%type;
+  begin
+    select t.analiz into result from t_deaaccdsc_std t where t.id = nId;
+    return( result );
+  end fGetAccDscAnaliz;
+  -- возвращает признак Analiz типа счета договора по кода типа счета
+  function fGetAccDscAnalizByCode( sCode in t_deaaccdsc_std.code%type ) return t_deaaccdsc_std.analiz%type is
+    result t_deaaccdsc_std.analiz%type;
+  begin
+    select t.analiz into result from t_deaaccdsc_std t where t.code = sCode;
+    return( result );
+  end fGetAccDscAnalizByCode;
+
+  -- поиск  счетов сделки
+  procedure pFindDeaAcc
+    ( nDepId        in t_dea.dep_id%type
+    , nId           in t_dea.id%type
+    , sAccTypeCode  in t_deaaccdsc_std.code%type
+    , tAccDepId    out dbms_utility.number_array
+    , tAccId       out dbms_utility.number_array
+  ) as
+    nAnaliz   t_deaaccdsc_std.analiz%type;
+    sFuncName varchar2(64) := $$PLSQL_UNIT||'.pDelDeaAcc. ';
+  begin
+    t_log.writel( p_debug, sFuncName||'nDepId='||to_char( nDepId )||', nId='||to_char( nId )||', sAccTypeCode='||sAccTypeCode );
+    nAnaliz := fGetAccDscAnalizByCode( sAccTypeCode );
+    t_log.writel( p_debug, sFuncName||'nAnaliz='||to_char( nAnaliz ));
+    -- 0 - аналитический счет
+    -- 1 - балансовый счет
+    -- 2 - внебалансовый счет
+    -- ищем аналитический/балансовый/внебалансовый счет
+    if( nAnaliz = 0 ) then
+      select a.dep_id, a.id bulk collect into tAccDepId, tAccId
+        from anlacc a, t_deaacc d, t_deaaccdsc ds
+       where a.dep_id = d.acc_dep_id and a.code = d.code_acc
+         and d.dea_id = ds.id
+         and d.dep_id = nDepId and d.id = nId
+         and ds.code = sAccTypeCode;
+      t_log.writel( p_debug, sFuncName||'SQL%ROWCOUNT='||to_char( SQL%ROWCOUNT ));
+    elsif( nAnaliz in ( 1, 2 )) then
+      select a.dep_id, a.id bulk collect into tAccDepId, tAccId
+        from g_accbln a, t_deaacc d, t_deaaccdsc ds
+       where a.dep_id = d.acc_dep_id and a.code = d.code_acc
+         and d.dea_id = ds.id
+         and d.dep_id = nDepId and d.id = nId
+         and ds.code = sAccTypeCode;
+      t_log.writel( p_debug, sFuncName||'SQL%ROWCOUNT='||to_char( SQL%ROWCOUNT ));
+    end if;
+    t_log.writel( p_debug, sFuncName||'tAccId.count='||to_char( tAccId.count ));
+  exception
+    when no_data_found then
+      t_log.writel( p_debug, sFuncName||'exception: no_data_found' );
+      null;
+  end pFindDeaAcc;
+
+  procedure pAddDeaAcc(pDep_id in integer, pId in T_DEAACC.ID%TYPE, pDea_id in integer
+                     , pAcc_Dep_id in integer, pCode in varchar2, pVal_id in integer, pNord in out integer) as
+  begin
+    if pNORD is null then
+      insert into T_DEAACC(DEP_ID, ID, DEA_ID, ACC_DEP_ID, CODE_ACC, VAL_ID, OPENFL)
+      values   (pDep_id, pId, pDea_id, pAcc_dep_id, pCode, pVal_id, decode(pCode, null, 0, 1))
+      returning NORD
+      into      pNORD;
+    else
+      update T_DEAACC
+      set    ACC_DEP_ID = pAcc_Dep_id, CODE_ACC = pCode, VAL_ID = pVal_id, OPENFL = decode(pCode, null, 0, 1)
+      where  DEP_ID = pDep_id and ID = pId and DEA_ID = pDea_id and NORD = pNord;
+      if SQL%NOTFOUND then
+        insert into T_DEAACC(DEP_ID, ID, DEA_ID, ACC_DEP_ID, CODE_ACC, VAL_ID, OPENFL)
+        values   (pDep_id, pId, pDea_id, pAcc_dep_id, pCode, pVal_id, decode(pCode, null, 0, 1))
+        returning NORD
+        into      pNord;
+      end if;
+    end if;
+  end;
+
+  procedure pDelAcc(pDep_id in integer, pId in T_DEAACC.ID%TYPE, pDea_id in integer, pNord in integer) as
+  begin
+    delete from T_DEAACC
+    where DEP_ID = pDep_id
+    and ID = pId
+    and DEA_ID = pDea_id
+    and NORD = pNord;
+  end;
+
+-- Оборот по счету договора
+function fDeaAccMov2(
+    idDep in integer,
+    idDea in T_ORD.ID%TYPE,
+    sChaCode in varchar2,
+    dFrom in date,
+    dTo in date,
+    idAccVal in integer default null,
+    zoFl in integer default 0,
+    IncomFl in integer default 0,
+    tAnl in t_anlacc.ansigntbl default fEmptyAnlList,   -- Набор аналитик (кроме DEA и VALUTA)
+    flNatVal in integer default 0
+) return number as
+  AccInfo RAccInfo;
+  nRet  number(18,2) := 0;
+begin
+  if tAnl.count=0 then
+    pGetAccInfo(idDep, idDea, sChaCode, idAccVal, AccInfo);
+  else
+    pGetAccInfo(idDep, idDea, sChaCode, idAccVal, tAnl, AccInfo);
+  end if;
+  if AccInfo.idAcc is not null then
+    nRet := T_PkgAccMov.fGetMovAcc(idDep    => AccInfo.idDepAcc,
+                                   iAcc     => AccInfo.idAcc,
+                                   frmDt    => dFrom,
+                                   tDt      => dTo,
+                                   idVal    => AccInfo.idVal,
+                                   zoFl     => zoFl,
+                                   flIncom  => IncomFL,
+                                   flNatVal => flNatVal);
+  end if;
+
+  return nRet;
+end;
+
+begin
+  idAnlDea := T_ASGN.fCode2Id('DEA');
+  idAnlVal := t_asgn.fCode2Id('VALUTA');
+end Z_116_T_PKGDEAACC;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="T_ANLACC"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="ANLACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="ANLACC_DET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ANCHART"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ANLSIGN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BAL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAACCDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNDTL"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_DEBUG"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_NATVAL"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGARRSTR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGSBJUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="GL_ANL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_ASGN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCBAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCMOV"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARLCLC"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

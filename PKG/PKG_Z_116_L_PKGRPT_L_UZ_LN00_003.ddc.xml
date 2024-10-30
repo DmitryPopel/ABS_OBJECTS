@@ -1,0 +1,1737 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_L_PKGRPT_L_UZ_LN00_003" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="A2D23ABB19FEBDF8B937BE6C15F8D59E">
+  <PKG 
+    NAME="Z_116_L_PKGRPT_L_UZ_LN00_003">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_L_PKGRPT_L_UZ_LN00_003 as
+
+/**
+* Пакет для подготовки отчета L_UZ_LN00_003
+*
+* @author Владимир Федоров
+* @author Инна Комисарчик
+* @author Андрей Меркулов
+* @version 2.0
+* @headcom
+*
+* Copyright (c) 2023 By Colvir Software Solutions. All Rights Reserved.
+*/
+
+  /* Обертка для параллельной обработки T_PkgDeaPrm.fParByCode
+  *  <br/><i>С версии 2.0</i>
+  *  @param nIdDea ИД сдели
+  *  @param nDepDea Деп сделки;
+  *  @param sParCode Кодовое представление записи;
+  *  @return Значения параметра сделки
+  */
+  function fParByCodePRL (
+    nIdDea in T_DEA.ID%TYPE
+  , nDepDea in T_DEA.DEP_ID%TYPE
+  , sParCode in T_DEAPRMDSC_STD.CODE%TYPE)
+  return varchar2 deterministic
+  parallel_enable;
+
+  /* Обертка для параллельной обработки T_PkgDeaPer.fDeaPerName
+  *  <br/><i>С версии 2.0</i>
+  *  @param nIdPer ИД срока договора
+  *  @param dFrom Дата начала интервала действия;
+  *  @param dTo ДКонец интервала действия;
+  *  @param nIdDcl ИД типа договора;
+  *  @return Интервал строкой
+  */
+  function fDeaPerNamePRL(
+    nIdPer in T_DEAPRD.ID%TYPE
+  , dFrom in T_DEA.FROMDATE%TYPE
+  , dTo in T_DEA.TODATE%TYPE
+  , nIdDcl in T_DEA.DCL_ID%TYPE)
+  return varchar2
+  parallel_enable;
+
+  /* Обертка для параллельной обработки bs_dom.dLongname
+  *  <br/><i>С версии 2.0</i>
+  *  @param sSDcode Код домена
+  *  @param sVal Значение константы;
+  *  @return Длинное имя константы
+  */
+  function dLongnamePRL(
+    sSDcode in C_VALLIST_STD.CODE%TYPE
+  , sVal in C_VALLIST_STD.CONSTVAL%TYPE)
+  return varchar2 deterministic
+  parallel_enable;
+
+
+  /* Обертка для параллельной обработки b3lsn_pkgclc.fGetAmountFromAmountWithTax
+  *  <br/><i>С версии 2.0</i>
+  *  @param dOp Опердень
+  *  @param nDepId Деп договора;
+  *  @param nId ИД договора;
+  *  @param nAmountWithTax сумма с НДС;
+  *  @param sTaxAlias Вид суммы;
+  *  @return Сумма без НДС
+  */
+  function fGetAmountFromAmountWithTaxPRL(
+    dOp in date
+  , nDepId in T_DEA.DEP_ID%TYPE
+  , nId in T_DEA.ID%TYPE
+  , nAmountWithTax number
+  , sTaxAlias TV_ARLDEA.ALIAS%TYPE := 'TAX')
+  return number
+  parallel_enable;
+
+  /* Подготовка данных для одной группы договоров (параллельное вычисление)
+  *  @param pChunkNum Номер чанка
+  *  @param pSID Идентификатор сессии;
+  *  @param pOp Дата;
+  */
+  procedure pProcessOneChunk(pChunkNum number, pSID number, dOp date);
+
+  /** Процедура формирования основных данных для отчета L_UZ_LN00_003
+  * <br/><i>С версии 14.0</i>
+  * @param pDOp Дата формирования отчета
+  * @param pDepCode Код подразделения обслуживания
+  * @param pDepId Идентификатор подразделения обслуживания
+  * @param pDepName Наименование подразделения обслуживания
+  * @param pTypeCli Тип клиента Юридические лица и ИП|2|Физические лица|1
+  * @param pTypeVal Тип валюты договора Все||В иностранной валюте|2|В национальной валюте|1
+  * @return Наполняет сущность для основного запроса отчета
+  */
+  procedure pEXEC(pDop        in date default p_operday,
+                 pDepCode    in varchar2 default null,
+                 pDepId      in number default null,
+                 pDepName    in varchar2 default null,
+                 pTypeCli    in varchar2 default null,
+                 pTypeVal    in varchar2 default null,
+                 pNibbdCode  in varchar2 default null,
+                 vidcred     in varchar2 default null);
+
+end Z_116_L_PKGRPT_L_UZ_LN00_003;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_L_PKGRPT_L_UZ_LN00_003 as
+
+  nPRLCNT number := 10; --количество параллельных
+  nPRLCNTMLT number := 10; --множитель для чанков
+
+  idSignDea      t_ansign_std.ID%type;
+  idSignReview   t_ansign_std.ID%type;
+  cPk1Review     char(1);
+  cPk2Review     char(1);
+  idSignCourt    t_ansign_std.ID%type;
+  cPk1Court      char(1);
+  cPk2Court      char(1);
+
+
+  function fParByCodePRL (
+    nIdDea in T_DEA.ID%TYPE
+  , nDepDea in T_DEA.DEP_ID%TYPE
+  , sParCode in T_DEAPRMDSC_STD.CODE%TYPE)
+  return varchar2 deterministic
+  parallel_enable
+  as
+  begin
+    return T_PkgDeaPrm.fParByCode ( nIdDea
+                                  , nDepDea
+                                  , sParCode) ;
+  end;
+
+  function fDeaPerNamePRL(
+    nIdPer in T_DEAPRD.ID%TYPE
+  , dFrom in T_DEA.FROMDATE%TYPE
+  , dTo in T_DEA.TODATE%TYPE
+  , nIdDcl in T_DEA.DCL_ID%TYPE)
+  return varchar2
+  parallel_enable
+  as
+  begin
+    return T_PkgDeaPer.fDeaPerName(nIdPer, dFrom, dTo, nIdDcl);
+  end;
+
+  function dLongnamePRL(
+    sSDcode in C_VALLIST_STD.CODE%TYPE
+  , sVal in C_VALLIST_STD.CONSTVAL%TYPE)
+  return varchar2 deterministic
+  parallel_enable
+  as
+  begin
+    return bs_dom.dLongname(sSDcode, sVal) ;
+  end;
+
+  function fGetAmountFromAmountWithTaxPRL(
+    dOp in date
+  , nDepId in T_DEA.DEP_ID%TYPE
+  , nId in T_DEA.ID%TYPE
+  , nAmountWithTax number
+  , sTaxAlias TV_ARLDEA.ALIAS%TYPE := 'TAX')
+  return number
+  parallel_enable
+  as
+  begin
+    if C_PkgSession.dOper is null then
+      C_PkgSession.dOper := dOp; -- нужно в параллельных потоках созданных хинтом parallel
+    end if;
+    return b3lsn_pkgclc.fGetAmountFromAmountWithTax(
+      nDepId, nId, nAmountWithTax, sTaxAlias);
+  end;
+
+  function pProcessOneRow(pRec in out Z_116_LN_00_007_MAIN%rowtype, pDop date) return boolean is
+    nSumBal         number(18,2);
+    ACC12105BLN     number(18,2);
+    ACC16309BLN     number(18,2);
+    ACC16323BLN     number(18,2);
+    ACC16377BLN     number(18,2);
+
+    idDepAcc     T_ACC.DEP_ID%TYPE;
+    idAcc        T_ACC.ID%TYPE;
+    idCha        T_ANCHART_STD.ID%TYPE;
+
+    --
+    tmpMrtDscr      varchar2(2000);
+    n pls_integer := 1;
+    a pls_integer := 1;
+    b pls_integer := 1;
+    c pls_integer := 1;
+    endStrDelimiter varchar2(2) := chr(13)||chr(10);
+
+    v_code NUMBER;
+    v_errm VARCHAR2(200);
+
+    v_codeZR22 varchar2(500);
+    v_codeZR23 varchar2(500);
+    v_codeZR24 varchar2(500);
+    v_codezr21 varchar2(500);
+    v_codezr25 varchar2(500);
+    v_codezr75 varchar2(500);
+    v_codeZRother  varchar2(500);
+
+    v_ser varchar2(250);
+    v_num varchar2(250);
+    v_psp_date date;
+    v_regsign varchar2(250);
+
+
+    v_psp_giver varchar2(250);
+    v_mark varchar2(250);
+    v_vtype   varchar2(250);
+    v_engine_num varchar2(250);
+    v_vin varchar2(250);
+
+    v_vcat  varchar2(250);
+    v_chassis_num  varchar2(250);
+    v_body_num varchar2(250);
+    v_release_year varchar2(250);
+    v_color varchar2(250);
+
+    v_cadnum_object varchar2(250);
+    v_object_area varchar2(250);
+    v_living_space varchar2(250);
+    v_count_floor varchar2(250);
+    v_addrDescription  varchar2(250);
+    v_release_year24  varchar2(100);
+    v_factory_num    varchar2(100);
+    v_NNUMLABEL  varchar2(100);
+    v_DATEDOG    varchar2(100);
+    v_DATETERM   varchar2(100);
+
+  begin
+
+      --Выборка данных по баланcовым проводкам
+      select sum(decode(c.PART_CODE,'A',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0,pRec.val_id)),0)),
+             sum(decode (substr(c.code,1,5),'16309',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0)),
+             sum(decode (substr(c.code,1,5),'16323',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0)),
+             sum(decode (substr(c.code,1,5),'16377',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0)),
+             sum(decode (substr(c.code,1,5),'12105',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'12305',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'12405',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'12505',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'12605',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'12705',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'12805',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'12905',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'13005',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'13105',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'13205',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'13305',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'15617',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0)),
+
+             sum(decode (substr(c.code,1,5),'11199',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'12399',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'12499',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'12599',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'12699',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'12799',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'12899',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'12999',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'13099',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'13199',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'13299',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'13399',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'14399',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'14499',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'14799',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'14899',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'14999',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'15099',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'15199',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'15299',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'15399',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'15499',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'15599',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))+
+             sum(decode (substr(c.code,1,5),'15799',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0)),
+
+             sum(decode (substr(c.code,1,5),'95413',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0)),
+             sum(decode (substr(c.code,1,5),'91501',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0)),
+
+                          --
+             sum(decode (substr(c.code,1,5),'94501',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0)),
+             sum(decode (substr(c.code,1,5),'94502',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0)),
+             sum(decode (substr(c.code,1,5),'94503',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDop, 0, pRec.val_id)),0))
+
+
+        into nSumBal, ACC16309BLN, ACC16323BLN, ACC16377BLN, ACC12105BLN, pRec.ANL_PROV, pRec.ACC95413BLN, pRec.ACC91501BLN, pRec.acc94501bln,pRec.acc94502bln,pRec.acc94503bln
+        from LEDACC_STD c, G_ACCBLN a,T_ACC ta
+       where a.DEP_ID = ta.dep_id  and a.ID = ta.id and c.ID = a.CHA_ID
+         and instr(a.CODE,'#') = 0
+         and (tA.DEP_ID,tA.ID) in (SELECT DEP_ID,ACC_ID FROM (select /*+materialize no_merge*/ l.DEP_ID,l.ACC_ID
+                                                                from LEDACC_DET l
+                                                               where l.SGN_ID= idSignDea AND l.PK1=to_char(pRec.dep_id) AND l.PK2=to_char(pRec.id)
+                                                              ) acc
+                                  );
+      if nSumBal < 0 then
+        return false;
+      end if;
+
+     pRec.Region:= L_PkgRpt.fGetRegForDep2(pRec.SRV_DEP_ID);
+     pRec.Cli_longname:= G_PKGCLI.fGetCliLongName(pRec.cli_dep_id, pRec.cli_id);
+     pRec.VIDSOURCE:= L_PKGDEAUNIREF.fGetRefValCode(pRec.dep_id, pRec.id,'UZ_VIDIST')
+                 ||' - '||L_PKGDEAUNIREF.fGetRefValLongname(pRec.dep_id, pRec.id, u_PkgUniRef.fRefCode2Id('UZ_VIDIST'));
+
+     begin
+       select u.CODE||'-'||u.LONGNAME
+         into pRec.VIDCRED
+       from U_UZ_VIDCRED u
+         where code in coalesce(L_PKGDEAUNIREF.fGetRefValCode(pRec.dep_id, pRec.id, 'UZ_VIDCRED'),
+                              L_PKGDEAUNIREF.fGetClsRefValCode(t_pkgdea.fDeaDclId(pRec.dep_id, pRec.id), u_pkguniref.fRefCode2Id('UZ_VIDCRED'))) ;
+     exception
+       when no_data_found then pRec.VIDCRED:= null;
+     end;
+
+     select max(l.code)
+       into pRec.Bs03101
+     from LEDACC_STD l, G_ACCBLN a, T_ACC ta
+       where l.id = a.cha_id
+         and instr(a.code,'#') = 0
+         and a.dep_id = ta.dep_id and a.id = ta.id
+         and (a.dep_id,a.id) in (select dep_id,acc_id from ledacc_det where sgn_id=idSignDea and pk1=to_char(pRec.DEP_ID) and pk2=to_char(pRec.ID))
+         and (a.dep_id,a.id) not in (select dep_id,acc_id from ledacc_det where sgn_id=idSignCourt AND PK1=cPk1Court and pk2=cPk2Court)
+         and (a.dep_id,a.id) not in (select dep_id,acc_id from ledacc_det where sgn_id=idSignReview AND pk1=cPk1Review AND PK2=cPk2Review)
+         and (a.dep_id,a.id) = any (select dep_id,id from g_accbln
+                                                 where cha_id= any (select id from ledacc_std
+                                                                     start with id= any (select ch_id from chartlink
+                                                                     where bch_id= bl_support.fGetIDBPS(case when pRec.TP = 1 then '7805' else '03101' end))
+                                                                   connect by prior id=id_hi));
+
+      select max(lv.code||'-'||to_char(lv.dres,'dd.mm.yyyy'))
+        into pRec.REQNUMDATE
+      from l_reqsrv lv, t_procmem tm2
+        where lv.req_dep_id=tm2.dep_id and lv.req_id=tm2.ord_id and tm2.mainfl = '1'
+          and tm2.id in(select tm.id from  T_PROCMEM tm
+                                    where tm.dep_id= pRec.dep_id And tm.ord_id= pRec.id and tm.mainfl=0
+                                      and BS_BOP.FGETBOPCODE(tm.bop_id)='B3FOLN_REQDEA');
+
+      pRec.ACC03101RWBLN:=  nvl(l_pkgrpt.fGetBpsBal(pRec.DEP_ID, pRec.ID,(case when pRec.TP = 1 then '7805' else '03101' end), pDop, 0, 'REVIEW', '1','COURT', '0'),0);
+      pRec.ACC03101CRTBLN:= nvl(l_pkgrpt.fGetBpsBal(pRec.DEP_ID, pRec.ID,(case when pRec.TP = 1 then '7805' else '03101' end), pDop, 0, 'COURT', '1','REVIEW', '0'),0);
+
+      select sum(nvl(T_PkgAccBal.fAddPln(g.dep_id,g.id,pDop,0,nvl(a.val_id,p_natval)),0))
+        into pRec.ACC0318801BLN
+      from t_acc a, g_accbln g, ledacc_det d
+        where a.dep_id = g.dep_id and a.id = g.id
+          and g.dep_id = d.dep_id and g.id = d.acc_id
+          and d.sgn_id = idSignDea and d.pk1 = to_char(pRec.DEP_ID) and d.pk2 = to_char(pRec.ID)
+          and G_BlnAcc.fIsAccBCH(g.dep_id, g.id, g.cha_id, '0318801') = 1;
+
+      begin
+        pRec.REVIEWNUM:= t_pkgrunoprutl.fGetJrnAttr(p_idBP => pRec.bop_id,
+                                            p_noper => c_pkgBs_Scen.fGetScenNord(pRec.bop_id,'REVIEW' ),
+                                            p_attr => 'REVIEWNUM',
+                                            p_njrn => T_PKGRUNOPRUTL.fGetLastOperNJrn(pRec.id,'REVIEW'));
+      exception
+        when no_data_found then pRec.REVIEWNUM:= null;
+      end;
+
+      begin
+        pRec.REVIEWDATE:= t_pkgrunoprutl.fGetJrnAttr(p_idBP => pRec.bop_id,
+                                            p_noper => c_pkgBs_Scen.fGetScenNord(pRec.bop_id,'REVIEW' ),
+                                            p_attr => 'REVIEWDATE',
+                                            p_njrn => T_PKGRUNOPRUTL.fGetLastOperNJrn(pRec.id,'REVIEW'));
+      exception
+        when no_data_found then pRec.REVIEWDATE:= null;
+      end;
+
+      begin
+        pRec.LOERORG:= t_pkgrunoprutl.fGetJrnAttr(p_idBP => pRec.bop_id,
+                                            p_noper => c_pkgBs_Scen.fGetScenNord(pRec.bop_id,'SET_COURT_INFO' ),
+                                            p_attr => 'ORG_VAL',
+                                            p_njrn => T_PKGRUNOPRUTL.fGetLastOperNJrn(pRec.id,'SET_COURT_INFO'));
+      exception
+        when no_data_found then pRec.LOERORG:= null;
+      end;
+
+      begin
+        pRec.LOERCONCL:= t_pkgrunoprutl.fGetJrnAttr(p_idBP => pRec.bop_id,
+                                            p_noper => c_pkgBs_Scen.fGetScenNord(pRec.bop_id,'SET_COURT_INFO' ),
+                                            p_attr => 'CONCL_VAL',
+                                            p_njrn => T_PKGRUNOPRUTL.fGetLastOperNJrn(pRec.id,'SET_COURT_INFO'));
+      exception
+        when no_data_found then pRec.LOERCONCL:= null;
+      end;
+
+      begin
+        pRec.LOERDATE:= t_pkgrunoprutl.fGetJrnAttr(p_idBP => pRec.bop_id,
+                                           p_noper => c_pkgBs_Scen.fGetScenNord(pRec.bop_id,'SET_COURT_INFO' ),
+                                           p_attr => 'TRN_DATE',
+                                           p_njrn => T_PKGRUNOPRUTL.fGetLastOperNJrn(pRec.id,'SET_COURT_INFO'));
+      exception
+        when no_data_found then pRec.LOERDATE:= null;
+      end;
+
+
+      select sum(t_Pkgval.fCrossRate(T_PkgAccBal.fAccBal(a.DEP_ID, a.ID, pDop, 0, nvl(a.VAL_ID, p_natval)),nvl(a.VAL_ID, p_natval),p_natval,pDop))
+        into pRec.ACC09450BLN
+      from LEDACC c, G_ACCBLN ga, LEDACC_DET d, T_ACC a
+        where ga.DEP_ID = a.DEP_ID and ga.ID = a.ID
+          and c.ID = ga.CHA_ID
+          and d.DEP_ID = a.DEP_ID
+          and d.ACC_ID = a.ID
+          and d.SGN_ID = idSignDea and d.PK1 = to_char(pRec.DEP_ID) and d.PK2 = to_char(pRec.ID)
+          and c.CODE in ('94501','94502','94503');
+
+      begin
+        select u.LONGNAME
+          into pRec.CLICLASSCR
+        from U_UZ_CLASSCR u
+          where code in coalesce(L_PKGDEAUNIREF.fGetRefValCode(pRec.dep_id, pRec.id, 'UZ_CLCR'),
+                L_PKGDEAUNIREF.fGetClsRefValCode(t_pkgdea.fDeaDclId(pRec.dep_id, pRec.id), u_pkguniref.fRefCode2Id('UZ_CLCR'))) and rownum=1;
+      exception
+        when no_data_found then pRec.CLICLASSCR:= null;
+      end;
+
+      pRec.TYPECLINAME:= '('||L_PKGDEAUNIREF.fGetRefValCode(pRec.dep_id, pRec.id, 'UZ_TZ')
+                  ||') - '||L_PKGDEAUNIREF.fGetRefValLongname(pRec.dep_id, pRec.id, u_PkgUniRef.fRefCode2Id('UZ_TZ'));
+
+      -- 51 Цель кредитования
+      begin
+        select p.CODE||'-'||p.LONGNAME
+          into pRec.PURNAME
+        from L_PURDSC p
+          where p.ID = pRec.PUR_ID and rownum =1;
+      exception
+        when no_data_found then pRec.PURNAME:= null;
+      end;
+
+      -- 57 Адрес клиента
+      pRec.CLIADR:= l_pkgrpt.fGetCliFullAdr(pRec.cli_dep_id,pRec.cli_id,GCLIADR_REG);
+      -- 58 Уникальный номер
+      pRec.uniqnum:= T_PkgDeaPrm.fParByCode(pRec.ID, pRec.DEP_ID,'L_UZ_UNIQNUM');
+
+      -- 59 ИНН/Паспорт
+      begin
+        select G_PKGCLIIDN.fCliIdn_Fld(pRec.CLI_DEP_ID, pRec.CLI_ID, 'TAXCODE')||'/'||(select gcl.PASSSER||gcl.passnum  from G_CLIDOC gcl
+          where gcl.dep_id = pRec.cli_dep_id and gcl.id = pRec.cli_id and gcl.arcfl=0 and rownum=1)
+        into pRec.CLIINNPASS
+        from dual;
+      exception
+        when no_data_found then pRec.CLIINNPASS:= null;
+      end;
+      -- pda ПИНФЛ
+      begin
+      pRec.CLIPINFL := nvl(G_PKGCLIIDN.fCliIDN(pRec.cli_dep_id, pRec.cli_id, G_PKGIDN.fId('IDN_PRS_UZ')),0);
+      exception
+         when others then null;
+      end;
+      -- pda Тел
+       begin
+        select c.cont into pRec.CLIPHONE from G_CLICONT C, CR_CONTTYPE CT
+          where C.ID_CONTTYPE = CT.ID
+           and code = 'MOB'
+           and c.dep_id = pRec.cli_dep_id and c.id = pRec.cli_id;
+       exception
+         when others then null;
+       end;
+
+
+      -- 64 Инспектор
+      begin
+        select nvl(u.FIO , s.LONGNAME)
+          into pRec.CLIMNGR
+        from C_USR s, C_STFUSR l, C_USER u
+          where s.ID = pRec.TUS_ID  and l.STF_ID(+) = s.ID  and u.ID(+) = l.USR_ID and rownum =1;
+      exception
+         when no_data_found then pRec.CLIMNGR:= null;
+      end;
+
+     pRec.DEPBOSSNAME:= t_pkgdeaprm.fParByCode(pRec.ID, pRec.DEP_ID,'L_UZ_FIO_NIKI');
+
+      pRec.REGION_NAME:= U_PKGUNIREF_UZ.fGetOblNameByCode(pRec.REGION);
+      pRec.DEA_AMOUNT_NAT:= t_pkgval.fCrossRate(pRec.DEA_AMOUNT, pRec.val_id, p_Date => pDop);
+      -- 06 Кредитный счет/ 18- Остаток кредитного счета
+      select max(a.CODE), sum(T_PkgAccBal.fAccBal(ta.DEP_ID, ta.ID, pDop, 0, nvl(pRec.VAL_ID, p_natval)))
+        into pRec.ACC03101, pRec.ANL_BAL
+        from G_ACCBLN a, T_ACC ta
+       where instr(a.code,'#') = 0
+         and a.dep_id = ta.dep_id and a.id = ta.id
+         and (a.dep_id,a.id) in (select dep_id,acc_id from ledacc_det where sgn_id=idSignDea and pk1=to_char(pRec.DEP_ID) and pk2=to_char(pRec.ID))
+         and (a.dep_id,a.id) not in (select dep_id,acc_id from ledacc_det where sgn_id=idSignCourt AND PK1=cPk1Court and pk2=cPk2Court)
+         and (a.dep_id,a.id) not in (select dep_id,acc_id from ledacc_det where sgn_id=idSignReview AND pk1=cPk1Review AND PK2=cPk2Review)
+         and (a.dep_id,a.id) = any (select dep_id,id from g_accbln
+                                     where cha_id= any (select id from ledacc_std
+                                                         start with id= any (select ch_id from chartlink
+                                                         where bch_id= bl_support.fGetIDBPS(case when pRec.TP = 1 then '7805' else '03101' end))
+                                                       connect by prior id=id_hi));
+
+      -- 12 Дата фактической выдачи теперь расчитывается в запросе отбора данных
+
+      for pcn in ( select ar.CODE,T_PkgArl.fPcnVal(ar.DEP_ID, ar.ORD_ID, ar.PCN_ID, pDop, iRaiseFl=>0) cvalue from TV_ARLDEA ar
+              where ar.DEP_ID = pRec.dep_id and ar.ORD_ID =pRec.id
+              and ar.CODE in ('CR_INTER','CR_EXP_INT','CR_DBT_COM'))
+      loop
+        if pcn.code = 'CR_INTER' then pRec.PRC_PCN_VALUE := pcn.cvalue; --% кредита
+        elsif  pcn.code in ('LS_EXP_INT','CR_EXP_INT') then pRec.EXPPRC_PCN_VALUE:= pcn.cvalue; --% просрочки
+        elsif  pcn.code = 'CR_DBT_COM' then pRec.COM_PCN_VALUE := pcn.cvalue; --%за ВедСчета
+        end if;
+      end loop;
+
+      pRec.ANL_EXPPD:= nvl(ACC12105BLN,0);
+      pRec.ANL_PRC:= nvl(ACC16309BLN,0) + nvl(ACC16323BLN,0);
+      pRec.ANL_EXPPRC:= nvl(ACC16377BLN,0);
+      -- 21 Дата погашения после пролонгации
+      if (t_pkgdeaprm.fParByCode(pRec.ID,pRec.DEP_ID, 'L_REVIEWSTAT')<>0)  then
+         SELECT max(j.doper) into pRec.DLASTREV
+          FROM T_OPERJRN J, T_OPRCHR_STD op
+          WHERE J.CANCELFL ='0' and J.UNDOFL ='0' and op.id = j.cha_id and op.CODE in ('105202','240302')
+            and J.DEP_ID = pRec.DEP_ID  and J.ORD_ID = pRec.ID;
+      end if;
+      -- 23 Дата возникновения просрочки
+      if  pRec.ANL_EXPPD > 0 or pRec.ACC95413BLN > 0 then
+        select ID into idCha from T_ANCHART_STD where CODE = (case when  pRec.TP = 1 then 'LS_PD_EXP' else 'CR_EXP_PD' end);
+        T_PkgArlClc.pGetDeaArlAcc(pRec.DEP_ID, pRec.ID, idCha,  pRec.val_id, idDepAcc, idAcc);
+        if idDepAcc is not null and idAcc is not null then
+           pRec.EXP_DATECRE:= t_pkgaccmov.fgetmovlstdate(idDepAcc,idAcc, iday => pDop);
+        end if;
+      end if;
+
+      for unr in ( select u.code, r.value from  U_UNIREF_STD u, G_CLIREFVAL r
+         where r.dep_id = pRec.cli_dep_id and r.id = pRec.cli_id and u.id  = r.ref_id
+          and pDop between r.FROMDATE and nvl(r.TODATE,p_maxdate)) loop
+       begin
+        if unr.code = 'UZ_VOGHS' then
+  --ВышеcтОргКлиента
+          select '('||uv.CODE||')'||uv.LONGNAME into pRec.CLIVOGHS from U_UZ_VOGHS uv where uv.CODE=unr.value and rownum =1;
+        elsif  unr.code = 'UZ_SECON' then
+  -- ОтраcльКлиента, ОтраcльКредита
+          select '('||uv.CODE||')'||substr(uv.LONGNAME,instr(uv.LONGNAME,')')+1) into pRec.CLIOKONH from U_UZ_SECON uv where uv.CODE=unr.value and rownum =1;
+        end if;
+       exception when others then
+        t_log.debug(' Не найдено значение классификатора '||unr.code||', установленное у клиента '||G_PKGCLI.FGETCLICODE(pRec.CLI_DEP_ID, pRec.CLI_ID));
+       end;
+      end loop;
+      if pRec.CLIOKONH is null then
+        select '('||uv.CODE||')'||substr(uv.LONGNAME,instr(uv.LONGNAME,')')+1)  into pRec.CLIOKONH from U_UZ_SECON_STD uv where upper(uv.LONGNAME) like upper('%Другие отрасли для физических лиц%') and rownum =1;
+      end if;
+
+      if pRec.CLIVOGHS is null then
+        select '('||uv.CODE||')'||uv.LONGNAME into pRec.CLIVOGHS from U_UZ_VOGHS_STD uv where upper(uv.LONGNAME) like upper('%Физические лица%') and rownum =1;
+      end if;
+
+      select substr(listagg(ee.CODE || '-' || ee.LONGNAME||endStrDelimiter,'' ON OVERFLOW TRUNCATE '…') within group(order by ee.CODE),1,2000)
+           into pRec.MRTENSCODE
+         from (select e.CODE, e.LONGNAME
+                 from l_ensdsc e, l_mortgage mo, L_MRTDEA md
+                where e.ID = mo.ens_id
+                  and mo.dep_id = md.mrt_dep_id and mo.id = md.mrt_id
+                  and md.dea_dep_id = pRec.dep_id  and md.dea_id = pRec.id
+                  order by e.code, md.DEA_NN) ee;
+      -- Атрибуты Обеспечение
+      n := 1; a := 1; b := 1; c := 1;
+      for ens in (select e.CODE as ensCode, e.LONGNAME as ensName, e.STYP,
+                         mo.dscr, mo.market_cost,
+                         t_pkgval.fCrossRateN(mo.mortg_cost, mo.mrt_val_id, p_Date => pDop) as mortg_cost,
+                         substr(T_pkgVal.fGetCode(mo.mrt_val_id),1,27) as MRT_VAL_CODE,
+                         mo.dep_id, mo.id,
+                         bs.LONGNAME as statName,
+                         decode(bs.LONGNAME,'Введено описание',1,'Принят к учету',1,0) as statNameconst,
+                         md.cli_dep_id,md.cli_id,
+                         g_pkgcli.fGetCliLongName(md.cli_dep_id,md.cli_id) as cliName,
+                         L_pkgMortgage.fGetObjAddAtrValue(mo.dep_id, mo.id, 'NAMEZAL') as nameZal,
+                         mo.id as   moid,
+                         mo.dep_id as modep_id
+                    from t_bop_stat bs, t_process p, t_procmem mem, l_ensdsc e, l_mortgage mo, L_MRTDEA md
+                   where bs.id = p.bop_id and bs.nord = p.nstat
+                     and p.id = mem.id
+                     and mem.dep_id = mo.dep_id and mem.ord_id = mo.id and mem.mainfl = '1'
+                     and e.ID = mo.ens_id
+                     and mo.dep_id = md.mrt_dep_id and mo.id = md.mrt_id
+                     and md.dea_dep_id = pRec.dep_id and md.dea_id = pRec.id
+                     order by e.code, md.DEA_NN)
+      loop
+        tmpMrtDscr:= '';
+        -- Описание
+        case
+          when ens.styp = 'REALTY' then -- Недвижимость
+            select ens.nameZal||': '||t.cadnum_object||' ('||ens.statname||') - '||ens.cliname||'; '
+              into tmpMrtDscr
+              from l_real_estate t where t.dep_id = ens.dep_id and t.id = ens.id;
+          when ens.styp = 'AUTO' then -- Транспортные средства
+             v_ser := null;
+             v_num  := null;
+             v_psp_date  := null;
+             v_regsign  := null;
+             v_psp_giver  := null;
+             v_mark  := null;
+             v_vtype  := null;
+             v_engine_num  := null;
+             v_vin  := null;
+
+             v_vcat := null;
+             v_chassis_num := null;
+             v_body_num := null;
+             v_release_year := null;
+             v_color := null;
+
+             v_NNUMLABEL := null;
+             v_DATEDOG   := null;
+             v_DATETERM  := null;
+
+
+            select ens.nameZal||': '||t.regsign||' ('||ens.statname||') - '||ens.cliname||'; ', t.psp_ser,t.psp_num, psp_date, regsign,
+            psp_giver, mark,vtype,engine_num,vin,vcat,chassis_num,body_num, release_year,color
+              into tmpMrtDscr, v_ser, v_num, v_psp_date,v_regsign, v_psp_giver, v_mark,v_vtype,v_engine_num,v_vin,
+              v_vcat,v_chassis_num,v_body_num, v_release_year,v_color
+              from l_vehicle t where t.dep_id = ens.dep_id and t.id = ens.id;
+
+               begin
+             select value into v_NNUMLABEL /*номер договора купли продажи*/ from L_MORTGAGE_ADD where id = ens.id and dep_id = ens.dep_id and code='NNUMLABEL';
+            exception when others then
+              v_NNUMLABEL := null;
+            end;
+
+             if  pRec.NNUMLABEL is null then
+               pRec.NNUMLABEL := v_NNUMLABEL;
+             else
+               pRec.NNUMLABEL := pRec.vser || endStrDelimiter  ||v_NNUMLABEL;
+             end if;
+
+
+            begin
+            select value into v_DATEDOG/*дата договора купли продажи*/ from L_MORTGAGE_ADD where id = ens.id and dep_id = ens.dep_id and code='DATEDOG';
+            exception when others then
+              v_DATEDOG := null;
+            end;
+
+            if pRec.DATEDOG is null then
+               pRec.DATEDOG := v_DATEDOG;
+            else
+               pRec.DATEDOG := pRec.DATEDOG || endStrDelimiter  ||v_DATEDOG;
+            end if;
+
+            begin
+            select value into v_DATETERM /*срок поставки*/ from L_MORTGAGE_ADD where id = ens.id and dep_id = ens.dep_id and code='DATETERM';
+            exception when others then
+              v_DATETERM := null;
+            end;
+
+            if pRec.DATETERM is null then
+               pRec.DATETERM := v_DATETERM;
+            else
+               pRec.DATETERM := pRec.DATETERM || endStrDelimiter  ||v_DATETERM;
+            end if;
+
+             if  pRec.vser is null then
+               pRec.vser := v_ser;
+             else
+               pRec.vser := pRec.vser || endStrDelimiter  ||v_ser;
+             end if;
+
+             if  pRec.vnum is null then
+               pRec.vnum := v_num;
+             else
+               pRec.vnum := pRec.vnum || endStrDelimiter  ||v_num;
+             end if;
+
+              if  pRec.psp_date is null then
+               pRec.psp_date := v_psp_date;
+             else
+               pRec.psp_date := pRec.psp_date || endStrDelimiter  ||v_psp_date;
+             end if;
+
+             if  pRec.regsign is null then
+               pRec.regsign := v_regsign;
+             else
+               pRec.regsign := pRec.regsign || endStrDelimiter  ||v_regsign;
+             end if;
+
+             if  pRec.psp_giver is null then
+               pRec.psp_giver := v_psp_giver;
+             else
+               pRec.psp_giver := pRec.psp_giver || endStrDelimiter  ||v_psp_giver;
+             end if;
+
+
+            -- pRec.vser := v_ser;
+           --  pRec.vnum := v_num;
+            -- pRec.psp_date := v_psp_date;
+            -- pRec.regsign := v_regsign;
+           --  pRec.psp_giver := v_psp_giver;
+             pRec.mark := v_mark;
+             pRec.vtype := v_vtype;
+             pRec.engine_num := v_engine_num;
+             pRec.vin := v_vin;
+
+             pRec.vcat  := v_vcat;
+             pRec.chassis_num := v_chassis_num;
+             pRec.body_num := v_body_num;
+             pRec.release_year := v_release_year;
+             pRec.color := v_color;
+
+
+
+          when ens.styp = 'DEPO' then -- Депозит
+            select decode (t.dea_id,null,ens.nameZal,substr(ah.LONGNAME,instr(ah.LONGNAME,'-')+1))||' ('||ens.statname||'):'
+              ||to_money(to_number(ens.mortg_cost))||' '||ens.MRT_VAL_CODE||' - '||ens.cliname||'; '
+              into tmpMrtDscr
+              from G_ACCBLNHST ah,
+              (select d.DEP_ID as DEA_DEP_ID
+                     , d.ID as DEA_ID
+                     , d.ACC_DEP_ID,d.ACC_ID
+                from D_DEA d
+              union all
+              select sd.dep_id  as dea_dep_id
+                     ,sd.id      as dea_id
+                     , sd.ACC_DEP_ID,sd.ACC_ID
+                from s_deaacc sd) dd,
+              L_DEPO t, l_mortgage mo, L_MRTDEA md
+              where ah.dep_id(+) = dd.ACC_DEP_ID and ah.id(+) = dd.ACC_ID
+              and mo.dep_id = md.mrt_dep_id and mo.id = md.mrt_id
+              and dd.dea_dep_id(+) = t.dea_dep_id and dd.dea_id(+) = t.dea_id
+              and t.DEP_ID = mo.DEP_ID and t.ID = mo.ID
+              and t.dep_id = ens.dep_id and t.id = ens.id and rownum = 1;
+          when ens.styp = 'EQUIP' then -- Оборудование
+            tmpMrtDscr:= ens.nameZal||': ('||ens.statname||') - '||ens.cliname||'; ';
+          when ens.styp = 'GRNT' then -- Поручительства и гарантии
+            tmpMrtDscr:= ens.cliname||' ('||ens.statname||') - ';
+            if g_pkgcli.fgetTypeFl(ens.cli_dep_id,ens.cli_id) = '1' then
+              select tmpMrtDscr||(select max(gcl.PASSSER)||max(gcl.passnum)||'; '  from G_CLIDOC gcl
+              where gcl.dep_id = ens.cli_dep_id and gcl.id = ens.cli_id and gcl.arcfl=0 and rownum=1) into tmpMrtDscr from dual;
+            else
+              tmpMrtDscr:= tmpMrtDscr||Localize('; ')||g_pkgCli.fGetCliTaxCode(ens.cli_dep_id,ens.cli_id)||'; ';
+            end if;
+          when ens.styp = 'INSUR' then -- Страховой полис
+            tmpMrtDscr:= ens.cliname||': ('||ens.statname||');';
+          else
+            tmpMrtDscr:= ens.nameZal||': ('||ens.statname||') - '||ens.cliname||'; ';
+        end case;
+        if substr(tmpMrtDscr,1,2) = '; ' then tmpMrtDscr:= substr(tmpMrtDscr,3); end if;
+        if pRec.MRTDSCR is null then
+          pRec.MRTDSCR:= to_char(n)||')'||tmpMrtDscr;
+        else
+          n:= n+1;
+          pRec.MRTDSCR := substr(pRec.MRTDSCR||endStrDelimiter||to_char(n)||')'||tmpMrtDscr,1,2000);
+        end if;
+        select REGEXP_REPLACE(replace(replace(replace(replace(replace(pRec.MRTDSCR,'; ;',';'),'.;',';'),'- ;','- '),'-;','-'),',;',';'), ';;*', ';') into pRec.MRTDSCR from dual;
+        -- Стоимость
+        case
+          when ens.ensCode = '21' then
+            pRec.MRT21COST:= nvl(pRec.MRT21COST,0)+ens.MORTG_COST;
+
+             v_cadnum_object := null;
+             v_object_area := null;
+             v_living_space := null;
+             v_count_floor := null;
+             v_addrDescription  := null;
+                     select  cadnum_object,object_area,living_space,count_floor,substr(g_pkgAddress.fGetFullAddr(addr_id),1,2000) as addrDescription
+
+              into  v_cadnum_object, v_object_area, v_living_space, v_count_floor, v_addrDescription
+              from l_real_estate t where t.dep_id = ens.dep_id and t.id = ens.id;
+          -------
+           if pRec.cadnum_object is null then
+             pRec.cadnum_object := v_cadnum_object;
+           else
+              pRec.cadnum_object :=  pRec.cadnum_object || endStrDelimiter  || v_cadnum_object;
+           end if;
+
+           if pRec.object_area is null then
+             pRec.object_area := v_object_area;
+           else
+              pRec.object_area :=  pRec.object_area || endStrDelimiter  || v_object_area;
+           end if;
+
+           if pRec.living_space is null then
+             pRec.living_space := v_living_space;
+           else
+              pRec.living_space :=  pRec.living_space || endStrDelimiter  || v_living_space;
+           end if;
+
+           if pRec.count_floor is null then
+             pRec.count_floor := v_count_floor;
+           else
+              pRec.count_floor :=  pRec.count_floor || endStrDelimiter  || v_count_floor;
+           end if;
+
+            if pRec.addrDescription is null then
+             pRec.addrDescription := v_addrDescription;
+           else
+              pRec.addrDescription :=  pRec.addrDescription || endStrDelimiter  || v_addrDescription;
+           end if;
+
+          ------
+           if ens.statNameconst = 1 then
+            pRec.MRT21COST := nvl(pRec.MRT21COST,0)+ens.MORTG_COST;
+           end if;
+             if  pRec.NameState21_75 is null then
+               pRec.NameState21_75 := ens.ensName || ' ' || ens.statname;
+             else
+               pRec.NameState21_75 := pRec.NameState21_75 || endStrDelimiter  ||ens.ensName || ' ' || ens.statname;
+             end if;
+
+             begin
+             select code_request||' ('||decode(state,1,'Активный',2,'Исключен',3,'Введен','Деактивизирован') || ')' into v_codeZR21/*pRec.codezr21_25*/ from ct_zr_request where dep_id=ens.modep_id and  code_request in
+              (select value from L_MORTGAGE_ADD a where a.id = ens.moid and a.dep_id=ens.modep_id and a.code ='ZRCODE') and rownum = 1;
+             exception
+              when others then
+               v_codeZR21 := null;
+             end;
+             if pRec.codezr21_75 is null then
+               pRec.codezr21_75 := v_codeZR21;
+             else
+               pRec.codezr21_75 := pRec.codezr21_75 || endStrDelimiter  || v_codeZR21;
+             end if;
+
+          when ens.ensCode = '22' then
+           if ens.statNameconst = 1 then
+            pRec.MRT22COST:= nvl(pRec.MRT22COST,0)+ens.MORTG_COST;
+           end if;
+            begin
+            select code_request||' ('||decode(state,1,'Активный',2,'Исключен',3,'Введен','Деактивизирован') || ')' into v_codeZR22 from ct_zr_request where dep_id=ens.modep_id and  code_request in
+              (select value from L_MORTGAGE_ADD a where a.id = ens.moid and a.dep_id=ens.modep_id and a.code ='ZRCODE') and rownum = 1;
+            exception
+             when others then
+             v_codeZR22 := null;
+            end;
+            if pRec.codeZR22 is null then
+             pRec.codeZR22 := v_codeZR22;
+            else
+             pRec.codeZR22 := pRec.codeZR22 || endStrDelimiter  || v_codeZR22;
+            end if;
+
+
+          when ens.ensCode = '23' then
+            if ens.statNameconst = 1 then
+              pRec.MRT23COST:= nvl(pRec.MRT23COST,0)+ens.MORTG_COST;
+            end if;
+            if pRec.MRT23NZAL is null then
+              pRec.MRT23NZAL:= to_char(a)||')'||tmpMrtDscr;
+            else
+              a := a + 1;
+              pRec.MRT23NZAL:= substr(pRec.MRT23NZAL||endStrDelimiter||to_char(a)||')'||tmpMrtDscr,1,2000);
+            end if;
+
+            begin
+            select code_request||' ('||decode(state,1,'Активный',2,'Исключен',3,'Введен','Деактивизирован') || ')' into v_codeZR23 from ct_zr_request where dep_id=ens.modep_id and  code_request in
+              (select value from L_MORTGAGE_ADD a where a.id = ens.moid and a.dep_id=ens.modep_id and a.code ='ZRCODE') and rownum = 1;
+            exception
+            when others then
+              v_codeZR23 := null;
+            end;
+            if pRec.codeZR23 is null then
+              pRec.codeZR23 := v_codeZR23;
+            else
+              pRec.codeZR23 := pRec.codeZR23 || endStrDelimiter || v_codeZR23;
+            end if;
+           when ens.ensCode = '24' then
+            v_release_year24 := null;
+            v_factory_num := null;
+           select release_year,factory_num into v_release_year24,v_factory_num from  L_EQUIPMENT where dep_id = ens.dep_id and id = ens.id;
+
+            if pRec.release_year24 is null then
+              pRec.release_year24 := v_release_year24;
+            else
+              pRec.release_year24 := pRec.release_year24 || endStrDelimiter  || v_release_year24;
+            end if;
+
+            if pRec.factory_num is null then
+              pRec.factory_num := v_factory_num;
+            else
+              pRec.factory_num := pRec.factory_num || endStrDelimiter  ||v_factory_num;
+            end if;
+
+
+
+            if pRec.NameState24 is null then
+              pRec.NameState24 := ens.ensName || ' ' || ens.statname;
+            else
+              pRec.NameState24 := pRec.NameState24 || endStrDelimiter  ||ens.ensName || ' ' || ens.statname;
+            end if;
+            begin
+            select code_request||' ('||decode(state,1,'Активный',2,'Исключен',3,'Введен','Деактивизирован') || ')' into v_codeZR24 from ct_zr_request where dep_id=ens.modep_id and  code_request in
+              (select value from L_MORTGAGE_ADD a where a.id = ens.moid and a.dep_id=ens.modep_id and a.code ='ZRCODE') and rownum = 1;
+            exception
+             when others then
+               v_codeZR24 := null;
+            end;
+            if pRec.codeZR24 is null then
+              pRec.codeZR24 := v_codeZR24;
+            else
+              pRec.codeZR24 := pRec.codeZR24 || endStrDelimiter  ||  v_codeZR24;
+            end if;
+
+          when ens.ensCode = '25' then
+             if ens.statNameconst = 1 then
+              pRec.MRT25COST:= nvl(pRec.MRT25COST,0)+ens.MORTG_COST;
+             end if;
+             if pRec.NameState25 is null then
+             pRec.NameState25 := ens.ensName || ' (' || ens.statname || ')';
+            else
+             pRec.NameState25 := pRec.NameState25 || endStrDelimiter  ||ens.ensName || ' (' || ens.statname || ')';
+            end if;
+            begin
+             select code_request||' ('||decode(state,1,'Активный',2,'Исключен',3,'Введен','Деактивизирован') || ')' into v_codezr25/*pRec.codezr21_25*/ from ct_zr_request where dep_id=ens.modep_id and  code_request in
+              (select value from L_MORTGAGE_ADD a where a.id = ens.moid and a.dep_id=ens.modep_id and a.code ='ZRCODE') and rownum = 1;
+            exception
+              when others then
+             v_codezr25 := null;
+            end;
+           if pRec.codezr25 is null then
+             pRec.codezr25 := v_codezr25;
+           else
+            pRec.codezr25 := pRec.codezr25 || endStrDelimiter  || v_codezr25;
+           end if;
+
+          when ens.ensCode = '26' then
+           if ens.statNameconst = 1 then
+             pRec.MRT26COST:= nvl(pRec.MRT26COST,0)+ens.MORTG_COST;
+           end if;
+         when ens.ensCode in ('41','43') then
+            if ens.statNameconst = 1 then
+              pRec.MRT41COST:= nvl(pRec.MRT41COST,0)+ens.MORTG_COST;
+            end if;
+            if pRec.MRT41NZAL is null then
+              pRec.MRT41NZAL:= to_char(b)||')'||tmpMrtDscr;
+            else
+              b := b + 1;
+              pRec.MRT41NZAL:= substr(pRec.MRT41NZAL||endStrDelimiter||to_char(b)||')'||tmpMrtDscr,1,2000);
+            end if;
+          when ens.ensCode = '51' then
+            if ens.statNameconst = 1 then
+              pRec.MRT51COST:= nvl(pRec.MRT51COST,0)+ens.MORTG_COST;
+            end if;
+            if pRec.MRT51NZAL is null then
+              pRec.MRT51NZAL:= to_char(c)||')'||tmpMrtDscr;
+            else
+              c := c + 1;
+              pRec.MRT51NZAL:= substr(pRec.MRT51NZAL||endStrDelimiter||to_char(c)||')'||tmpMrtDscr,1,2000);
+            end if;
+           -- pda Инн Залогодателя
+            begin
+            pRec.PledgerINNClient :=  G_PKGCLIIDN.fCliIdn_Fld(ens.cli_dep_id, ens.cli_id, 'TAXCODE');
+            exception
+              when others then null;
+            end;
+
+          when ens.ensCode = '75' then
+           begin
+           select code_request||' ('||decode(state,1,'Активный',2,'Исключен',3,'Введен','Деактивизирован') || ')' into v_codezr75/*pRec.codezr21_25*/ from ct_zr_request where dep_id=ens.modep_id and  code_request in
+              (select value from L_MORTGAGE_ADD a where a.id = ens.moid and a.dep_id=ens.modep_id and a.code ='ZRCODE') and rownum = 1;
+           exception
+             when others then
+           v_codezr75 := null;
+           end;
+           if pRec.codezr21_75 is null then
+            pRec.codezr21_75 := v_codezr75;
+           else
+            pRec.codezr21_75 := pRec.codezr21_75 || endStrDelimiter  || v_codezr75;
+           end if;
+           if pRec.NameState21_75 is null then
+            pRec.NameState21_75 := ens.ensName || ' ' || ens.statname;
+           else
+            pRec.NameState21_75 := pRec.NameState21_75 || endStrDelimiter  ||ens.ensName || ' ' || ens.statname;
+           end if;
+
+
+          else
+            pRec.MRT00COST:= nvl(pRec.MRT00COST,0)+ens.MORTG_COST;
+
+          if pRec.NameStateOther is null then
+             pRec.NameStateOther := ens.ensName || ' ' || ens.statname;
+            else
+             pRec.NameStateOther := pRec.NameStateOther || endStrDelimiter  ||ens.ensName || ' ' || ens.statname;
+            end if;
+            begin
+            select code_request ||' ('||decode(state,1,'Активный',2,'Исключен',3,'Введен','Деактивизирован') || ')' into v_codeZRother from ct_zr_request where dep_id=ens.modep_id and  code_request in
+              (select value from L_MORTGAGE_ADD a where a.id = ens.moid and a.dep_id=ens.modep_id and a.code ='ZRCODE') and rownum = 1;
+            exception
+             when others then
+             v_codeZRother := null;
+            end;
+            if pRec.codeZRother is null then
+             pRec.codeZRother := v_codeZRother;
+            else
+             pRec.codeZRother := pRec.codeZRother || endStrDelimiter  ||  v_codeZRother;
+            end if;
+
+        end case;
+        pRec.MRTALLCOST:= nvl(pRec.MRTALLCOST,0)+ens.MORTG_COST;
+      end loop;
+      -- 61 Назначение
+      pRec.DEADSCR := t_pkgdeaprm.fParByCode(pRec.ID, pRec.DEP_ID, 'L_PURPOSE_CREDLINE'); -- КонкрНазнКредита
+      return true;
+  exception
+    when others then
+         v_code := SQLCODE;
+         v_errm := SUBSTR(SQLERRM, 1, 200);
+         pRec.Cli_longname:= substr('!!!ERROR!!! dep_id=>'||pRec.dep_id||', id=>'||pRec.id||' The error code is ' || v_code || '- ' || v_errm,1,250);
+         return true;
+  end;
+
+  procedure pProcessOneChunk(pChunkNum number, pSID number, dOp date) is
+    cursor c is
+      select * from Z_116_LN_00_007_MAIN where SID = pSID and chunknum = pChunkNum for update;
+    nRec Z_116_LN_00_007_MAIN%rowtype;
+  begin
+    open c;
+    loop
+      fetch c into nRec;
+      exit when c%notfound;
+      if pProcessOneRow(nRec, dOp) then
+        update Z_116_LN_00_007_MAIN set row = nRec where current of c;
+      else
+        delete Z_116_LN_00_007_MAIN where current of c;
+      end if;
+    end loop;
+    close c;
+  end;
+
+  procedure pEXEC(pDop        in date default p_operday,
+                 pDepCode    in varchar2 default null,
+                 pDepId      in number default null,
+                 pDepName    in varchar2 default null,
+                 pTypeCli    in varchar2 default null,
+                 pTypeVal    in varchar2 default null,
+                 pNibbdCode  in varchar2 default null,
+                 vidcred     in varchar2 default null)
+  is
+    cTask varchar2(100) := 'Z_116_L_PKGRPT_L_UZ_LN00_003';
+    l_chunk_sql varchar2(4000);
+    l_sql_stmt varchar2(32000);
+    nTaskState number;
+    nTry number:= 2;
+    nMainSID number:= sys_context('USERENV','SID');
+    iNatval integer := p_natval;
+    dCurOP date := p_operday;
+    v_typeCredid varchar2(10);
+  begin
+    --удалить свои
+    delete from Z_116_LN_00_007_MAIN where SID = nMainSID;
+    --удалить не существующие
+    delete from Z_116_LN_00_007_MAIN where SID not in (SELECT t.SID FROM v$session t);
+    commit;
+     -- для вида кредитования
+    v_typeCredid := regexp_replace(vidcred, '[^0-9]', '');
+
+    t_log.debug('Формирование данных для отчета "Кредитный портфель(обеспечение)"');
+
+    insert into Z_116_LN_00_007_MAIN (
+      DEP_ID             ,
+      ID                 ,
+      SRV_DEP_ID         ,
+      CLI_DEP_ID         ,
+      CLI_ID             ,
+      VAL_ID             ,
+      TP                 ,
+      CODE               ,
+      REGION             ,
+      REGION_NAME        ,
+      SRV_DEP_CODE       ,
+      SRV_DEP_NAME       ,
+      Srv_localCode      ,
+      CLI_LONGNAME       ,
+      BS03101            ,
+      ACC03101           ,
+      ANL_BAL            ,
+      REQNUMDATE         ,
+      VALCODE            ,
+      DEA_AMOUNT         ,
+      DEA_AMOUNT_NAT     ,
+      DORD               ,
+      FROMDATE           ,
+      TODATE             ,
+      PRDNAME            ,
+      ACC03101RWBLN      ,
+      ACC03101CRTBLN     ,
+      ACC0318801BLN      ,
+      PRC_PCN_VALUE      ,
+      EXPPRC_PCN_VALUE   ,
+      COM_PCN_VALUE      ,
+      REVIEWNUM          ,
+      REVIEWDATE         ,
+      DLASTREV           ,
+      LOERORG            ,
+      LOERCONCL          ,
+      LOERDATE           ,
+      CATDEA             ,
+      EXP_DATECRE        ,
+      ANL_EXPPD          ,
+      ANL_PROV           ,
+      ANL_PRC            ,
+      ANL_EXPPRC         ,
+      MRTENSCODE         ,
+      MRTDSCR            ,
+      MRT22COST          ,
+      MRT25COST          ,
+      MRT23COST          ,
+      MRT23NZAL          ,
+      MRT21COST          ,
+      MRT26COST          ,
+      MRT41COST          ,
+      MRT41NZAL          ,
+      MRT51COST          ,
+      MRT51NZAL          ,
+      MRT00COST          ,
+      MRTALLCOST         ,
+      ACC09450BLN        ,
+      VIDSOURCE          ,
+      VIDCRED            ,
+      CLIOKONH           ,
+      CLIVOGHS           ,
+      CLICLASSCR         ,
+      TYPECLINAME        ,
+      PURNAME            ,
+      CLIADR             ,
+      UNIQNUM            ,
+      CLIINNPASS         ,
+      CLIMNGR            ,
+      ACC91501BLN        ,
+      ACC95413BLN        ,
+      DEPBOSSNAME        ,
+      DEADSCR            ,
+      TUS_ID             ,
+      PUR_ID             ,
+      BOP_ID             ,
+      SID                ,
+      DCL_ID
+    )
+      with dea as --Кредиты
+                  (select /*+materialize no_merge*/ td.dep_id,td.id,td.cli_dep_id,td.cli_id,td.srv_dep_id,
+                         o.val_id,td.analiz_l,o.dord,ld.code codeld,td.todate,td.fromdate,td.sdok,td.dcl_id,
+                         ld.pur_id, ld.prd_id, o.TUS_ID, 0 tp, fParByCodePRL(td.ID,td.DEP_ID,'DCLOSE') as dateClose
+                    from t_dea td,t_ord o,l_dea ld
+                   where o.dep_id = td.dep_id and o.id = td.id
+                     and ld.dep_id = td.dep_id and ld.id = td.id
+                   union all
+                  --Кредитные линии
+                  select td.dep_id,td.id,td.cli_dep_id,td.cli_id,td.srv_dep_id,
+                         o.val_id,td.analiz_l,o.dord,o.code codeld,td.todate,td.fromdate,td.sdok,td.dcl_id,
+                         ld.pur_id, ld.prd_id, o.TUS_ID, 2 tp, fParByCodePRL(td.ID,td.DEP_ID,'DCLOSE') as dateClose
+                    from t_dea td,t_ord o,l_ldea ld
+                   where o.dep_id = td.dep_id and o.id = td.id
+                     and ld.dep_id = td.dep_id and ld.id = td.id
+                     and nvl(fParByCodePRL(td.ID,td.DEP_ID,'LL_TECHOVER'),0) = 0
+                   union all
+                  --Лизинг
+                  select td.dep_id,td.id,td.cli_dep_id,td.cli_id,td.srv_dep_id,
+                         o.val_id,td.analiz_l,o.dord,o.code codeld,td.todate,td.fromdate,td.sdok,td.dcl_id,
+                         ld.pur_id, ld.prd_id, o.TUS_ID, 1 tp, fParByCodePRL(td.ID,td.DEP_ID,'DCLOSE') as dateClose
+                    from t_dea td,t_ord o,ls_dea ld
+                   where o.dep_id = td.dep_id and o.id = td.id
+                     and ld.dep_id = td.dep_id and ld.id = td.id
+        )
+        ,fromd as (
+            select /*+ leading(dea) */ dea.DEP_ID, dea.ID, min(j.doper) min_dop
+              from t_operjrn j, t_oprchr_std op, dea
+             where j.doper<= pDop and J.undofl ='0' and op.id = j.cha_id
+               and op.code in ('10011','240102','240710')
+               and j.dep_id = dea.dep_id  and j.ord_id = dea.id
+             group by dea.dep_id, dea.id)
+         select --+ parallel(10) leading(fromd)
+                dea.dep_id,
+                dea.id,
+                dea.srv_dep_id,
+                dea.cli_dep_id,
+                dea.cli_id,
+                dea.val_id,
+                dea.tp,
+                dea.codeld as CODE,
+                -- 02 - Код региона
+                null as Region,
+                null as Region_Name,
+                -- 03 - МФО
+                srv.code                              as Srv_dep_code,
+                srv.longname                          as Srv_dep_name,
+                decode(srv.code,'00623',srv.code,'00861',srv.code,'00874',srv.code,'00923',srv.code,'00961',srv.code,
+                '00967',srv.code,'00985',srv.code,'00990',srv.code,'01007',srv.code,
+                '01011',srv.code,'01026',srv.code,'01091',srv.code,'01092',srv.code,'10576',srv.code, C_PKGDEP.fGetCodeDep(srv.id_hi))       as Srv_localCode,
+                -- 04 - Наименование клиента
+                null as Cli_longname,
+                -- 05 - Балансовый счет
+                null as BS03101,
+                null as ACC03101,
+                null as ANL_BAL,
+                -- 07 № и Дата Решения
+                null as REQNUMDATE,
+                -- 08 Код валюты
+                (select case when dea.val_id = iNatval then '000' else t.altercode end from T_VAL_STD t where t.id = dea.val_id) as VALCODE,
+                -- 09 Сумма договора(номинал)
+                (case when dea.TP <> 1 then dea.SDOK else fGetAmountFromAmountWithTaxPRL(dCurOP,dea.dep_id,dea.id,dea.sdok,'LS_PD_TAX') end) as DEA_AMOUNT,
+                -- 10 Сумма договора(эквивалент)
+                null as DEA_AMOUNT_NAT,
+                -- 11 Дата выдачи
+                dea.fromdate as DORD,
+                -- 12 Дата фактической выдачи
+                fromd.min_dop as FromDate,
+                -- 13 Дата погашения
+                dea.todate,
+                -- 14 Срок
+                substr(fDeaPerNamePRL(null, dea.FROMDATE, dea.TODATE, dea.DCL_ID),1,250) as PRDNAME,
+                -- Остатки лицевых счетов
+                null as ACC03101RWBLN,
+                null as ACC03101CRTBLN,
+                null as ACC0318801BLN,
+                -- Аналит.счета
+                null as PRC_PCN_VALUE,
+                null as EXPPRC_PCN_VALUE,
+                null as COM_PCN_VALUE,
+                null as REVIEWNUM,
+                null as REVIEWDATE,
+                null as DLASTREV,
+                -- 25 Код правоохран. органа
+                null as LOERORG,
+                -- 26 Признак решения
+                null as LOERCONCL,
+                -- 27 Дата решения
+                null as LOERDATE,
+                -- 29 Класс качества
+                substr(dLongnamePRL('T_DEA_ANALIZ_L', dea.ANALIZ_L), 1, 250) as CATDEA,
+                null as EXP_DATECRE,
+                null as ANL_EXPPD,
+                -- 30
+                null as ANL_PROV,
+                -- 31
+                null as ANL_PRC,
+                -- 32
+                null as ANL_EXPPRC,
+                -- 34 Обеспечение
+               null as MRTENSCODE,
+               null as MRTDSCR,
+               null as MRT22COST,
+               null as MRT25COST,
+               null as MRT23COST,
+               null as MRT23NZAL,
+               null as MRT21COST,
+               null as MRT26COST,
+               null as MRT41COST,
+               null as MRT41NZAL,
+               null as MRT51COST,
+               null as MRT51NZAL,
+               null as MRT00COST,
+               null as MRTALLCOST,
+                -- Остаток 94501/94502/94503
+               null  as ACC09450BLN,
+               --Виды источников кредитования
+               null as VIDSOURCE,
+               --ВидКредитования
+               null as VIDCRED,
+               null as CLIOKONH,
+            --ВышеcтОргКлиента
+               null as CLIVOGHS,
+               null as CLICLASSCR,
+               null as TYPECLINAME,
+               -- 51 Цель кредитования
+               null as PURNAME,
+               -- 57 Адрес клиента
+               null as CLIADR,
+               -- 58 Уникальный номер
+               null as uniqnum,
+               -- 59 ИНН/Паспорт
+               null as CLIINNPASS,
+               -- 64 Инспектор
+               null as CLIMNGR,
+               null as ACC91501BLN,
+               null as ACC95413BLN,
+               null as DEPBOSSNAME,
+               null as DEADSCR,
+               TUS_ID,
+               PUR_ID,
+               p.BOP_ID,
+               nMainSID as SID,
+               dea.DCL_ID
+       from c_dep_std srv,
+            t_process p, t_procmem m, g_cli g, dea
+            , fromd
+      where srv.id = dea.srv_dep_id
+        and p.id = m.id
+        and m.dep_id = dea.dep_id and m.ord_id = dea.id and m.mainfl = '1'
+        and g.dep_id = dea.cli_dep_id and g.id = dea.cli_id
+        --and (dea.dateClose is null or dea.dateClose > pDop)
+        -- Фильтр по типу валюты
+        and (pTypeVal is null or (pTypeVal=1 and dea.val_id=iNatval) or (pTypeVal=2 and dea.val_id<>iNatval))
+        and (v_typeCredid is null or L_PKGDEAUNIREF.fGetRefValCode(dea.DEP_ID,  dea.id, 'UZ_VIDCRED') = v_typeCredid)
+        -- Фильтр по подразделению
+        and (pDepCode is null or dea.srv_dep_id in (select dep.id
+                                                     from c_dep_std dep
+                                                    start with dep.id = pDepId
+                                                  connect by prior dep.id = dep.id_hi))
+        -- Фильтр по Коду НИББД клиента
+        --and (pNibbdCode is null or pNibbdCode = G_PKGNIBBDUTL.fGetNIBBDCode(dea.cli_dep_id, dea.cli_id))
+        and (pNibbdCode is null or
+                exists(select 1
+                      from G_CLIIDN i, G_IDNDSC_STD s
+                        where s.CODE LIKE 'IDN_NIBBD%'
+                          and i.IDN_ID = s.ID and i.IDN_NUM = pNibbdCode and i.DEP_ID = dea.cli_dep_id and i.ID = dea.cli_id ))
+
+      -- Фильтр по типу клиентов(1-Физ.лица;2-Юр.лица)
+      and (pTypeCli is null or (pTypeCli = 1 and g.typefl = 1) or (pTypeCli = 2 and g.typefl <> 1))
+      -- Выполнена операция предоставления
+      and fromd.DEP_ID = dea.DEP_ID  and fromd.ID = dea.ID
+    ;
+
+    --разделим на чанки
+    update Z_116_LN_00_007_MAIN set chunknum = mod(rownum, nPRLCNT*nPRLCNTMLT) where SID = nMainSID;
+    commit;
+
+    --Удаляем процессы если они есть
+    begin
+      dbms_parallel_execute.stop_task(cTask);
+      dbms_parallel_execute.drop_task(cTask);
+    exception
+      when OTHERS then
+        null;
+    end;
+
+    DBMS_PARALLEL_EXECUTE.CREATE_TASK (cTask);
+
+    l_chunk_sql := 'select distinct chunknum as iStart, SID as iEnd from Z_116_LN_00_007_MAIN where SID='||to_char(nMainSID);
+
+    dbms_parallel_execute.create_chunks_by_SQL(
+      task_name => cTask,
+      sql_stmt => l_chunk_sql,
+      by_rowid => false
+    );
+
+    l_sql_stmt := q'[
+      declare
+        nChunkNum number := :start_id;
+        nSID number := :end_id;
+        dOp date := to_date(':Dop', 'dd.mm.yyyy');
+      begin
+        c_pkgconnect.popen(iNotRegist=>1);
+        Z_116_L_PKGRPT_L_UZ_LN00_003.pProcessOneChunk(nChunkNum, nSID, dOp);
+        commit;
+      end;
+    ]';
+    l_sql_stmt:= replace(l_sql_stmt, ':Dop', to_char(pDop, 'dd.mm.yyyy'));
+
+    dbms_parallel_execute.run_task(
+      task_name => cTask,
+      sql_stmt => l_sql_stmt,
+      language_flag => DBMS_SQL.NATIVE,
+      parallel_level => nPRLCNT
+    );
+    --состояние по завершению
+    nTaskState := dbms_parallel_execute.task_status(cTask);
+    while (nTry>0 and nTaskState in (dbms_parallel_execute.crashed, dbms_parallel_execute.finished_with_error))
+    loop
+      nTry := nTry-1;
+      dbms_parallel_execute.resume_task(cTask);
+      nTaskState := dbms_parallel_execute.task_status(cTask);
+    end loop;
+
+    if nTaskState not in (dbms_parallel_execute.finished, dbms_parallel_execute.chunked )
+    then
+      t_log.debug('Ошибка при формировании отчета Z_116_L_UZ_LN00_003: '||to_char(nTaskState));
+      raise_application_error(-20000,Localize('Ошибка при формировании отчета Z_116_L_UZ_LN00_003: '||to_char(nTaskState), 'PKG', 'Z_116_L_PKGRPT_L_UZ_LN00_003'));
+    else
+      dbms_parallel_execute.drop_task(cTask);
+    end if;
+
+    commit;
+  end pEXEC;
+
+  procedure pOpen
+  as
+    pragma autonomous_transaction;
+  begin
+    if C_PkgSession.idUser is null then
+      c_pkgconnect.popen;
+    end if;
+    commit;
+  end;
+
+begin
+  popen; -- необходимо для параллелизма хинтом (parallel)
+  idSignDea      := T_ASGN.fCode2Id('DEA');
+  idSignReview   := T_ASGN.fCode2Id('REVIEW');
+  cPk1Review     := T_ASGN.FANLPK(idSignReview,'1',1);
+  cPk2Review     := T_ASGN.FANLPK(idSignReview,'1',2);
+  idSignCourt    := T_ASGN.fCode2Id('COURT');
+  cPk1Court      := T_ASGN.FANLPK(idSignCourt,'1',1);
+  cPk2Court      := T_ASGN.FANLPK(idSignCourt,'1',2);
+end Z_116_L_PKGRPT_L_UZ_LN00_003;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_BOP"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_DOM"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="G_BLNACC"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="CHARTLINK"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="CR_CONTTYPE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="CT_ZR_REQUEST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_STFUSR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_USER"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_USR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_VALLIST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="D_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLNHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLICONT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIDOC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIIDN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIREFVAL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_IDNDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC_DET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LS_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEPO"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_ENSDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_EQUIPMENT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_LDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MORTGAGE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MORTGAGE_ADD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MRTDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_PURDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REAL_ESTATE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REQSRV"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_VEHICLE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="S_DEAACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="TV_ARLDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ANCHART"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ANSIGN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPRD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPRMDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPRCHR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_VAL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UNIREF"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_CLASSCR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_SECON"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_VIDCRED"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_VOGHS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_LN_00_007_MAIN"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_MAXDATE"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_NATVAL"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="TO_MONEY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="B3LSN_PKGCLC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="BL_SUPPORT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGBS_SCEN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDEP"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGADDRESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGDEAUNIREF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGMORTGAGE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGRPT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_ASGN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCBAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCMOV"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARLCLC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEA"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPER"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGRUNOPRUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="U_PKGUNIREF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="U_PKGUNIREF_UZ"/>
+    </PKGDPNPKG>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="G_CLIADR_TYPE"/>
+    </PKGDPNDOM>
+  </PKG>
+</DDC>

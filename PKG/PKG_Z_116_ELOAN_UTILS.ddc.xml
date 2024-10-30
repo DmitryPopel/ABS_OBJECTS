@@ -1,0 +1,1056 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_ELOAN_UTILS" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="0527D05583679AD276814F4E318AF29C">
+  <PKG 
+    NAME="Z_116_ELOAN_UTILS">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_ELOAN_UTILS is
+/**
+* Пакет утилит для работы с кредитами
+*
+* @author Алешкевич Дмитрий
+* @author Бондаренко Анатолий
+* @author Ахмеджанов Сардор
+* @author Каюмов Денис
+* @version 14.0
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+function fDecodeFromBase64(pFILE in clob) return blob;
+
+/** Справочник филиалов с регионами и районами
+* <br/><i>Появилась в 2.0</i>
+* @param pOutput  JSON со структурой подразделений обслуживания
+*/
+procedure pGetDepList(pInput in clob,
+                      pOutput out Clob);
+
+/** Формирование CLOB с JSON с сообщением об ошибке
+* <br/><i>Появилась в 2.0</i>
+* @param pErrCode код ошибки
+* @param pMess текст сообщения об ошибке
+* @param pArgs аргументы сообщения об ошибке
+* @return pOutput  CLOB с JSON с сообщением об ошибке
+*/
+function fErr(pErrCode in integer, pMess in varchar2, pArgs in vargs default vargs(null)) return CLOB;
+
+/** Получить cardIdn карты по номеру карты
+* <br/><i>Появилась в 3.0</i>
+* @param pOutput  JSON со структурой подразделений обслуживания
+*/
+procedure pGetCardIdnByCardNumber(pInput in clob,
+                                  pOutput out Clob);
+
+/** Получить список касс по подразделению
+* <br/><i>Появилась в 4.0</i>
+* @param pInput  JSON с идентификатором подразделения
+* @param pOutput  JSON со списком касс подразделения
+*/
+procedure pGetCshLst(pInput in clob,
+                    pOutput out Clob);
+
+/** Добавить номера телефона на карточку клиента
+* <br/><i>Появилась в 5.0</i>
+* @param pInput  JSON с кодом клиента и массивом номеров телефонов
+* @param pOutput JSON с сообщением об ошибке (опционально)
+*/
+procedure pAddPhones(pInput  in clob,
+                     pOutput out Clob);
+
+/** Создание мемориального ордера
+* <br/><i>Появилась в 6.0</i>
+* @param pInput  JSON с данными счетов, подразделения и суммы
+* @param pOutput JSON с идентификаторы документа
+*/
+procedure pCreateSordPay(pInput  in  clob,
+                         pOutput out clob);
+
+/** Сохранение атрибута в журнал операции договора
+* <br/><i>Появилась в 7.0</i>
+* @param pInput  JSON с идентификаторами договора, номером операции по журналу, кодом атрибута и его значением
+* @param pOutput JSON с ошибкой (опционально)
+*/
+procedure pSaveNOperAttr(pInput  in  clob,
+                         pOutput out clob);
+
+/** Обновление паспортных данных клиента из EGOV
+* <br/><i>Появилась в 8.0</i>
+* @param pInput  JSON с идентификаторами карточки клиента
+* @param pOutput JSON с ошибкой (опционально)
+*/
+procedure pUpdPass(pInput  in  clob,
+                   pOutput out clob);
+
+/** Получение списка регионов и районов
+* <br/><i>Появилась в 9.0</i>
+* @param pInput JSON пустышка
+* @param pOutput JSON список регинонов и районов
+*/
+procedure pGetRegionAndDistrictList(pInput  in  clob,
+                                    pOutput out clob);
+
+/** Обновление полей "Область" и "Район" в актуальном адресе регистрации клиента
+* <br/><i>Появилась в 10.0</i>
+* @param pInput  JSON с кодом карточки клиента
+* @param pOutput JSON с ошибкой (опционально)
+*/
+procedure pUpdAdrRegistration(pInput  in  clob,
+                              pOutput out clob);
+
+/** Получить текщий опер-день
+* <br/><i>Появилась в 11.0</i>
+* @param pInput  JSON пустышка
+* @param pOutput JSON с оперднем
+*/
+procedure pGetOperday(pInput  in  clob,
+                      pOutput out clob);
+
+/** Получение успешно выполненной операции в Z_116_ELOAN_OPERATIONS
+* <br/><i>С версии 12.0</i>
+* @param pInput pRequestId id запроса, pOperation имя операции (например TRANCHE_ISSUANCE)
+* @param pResponse Успешный ответ
+*/
+procedure pGetOperation(pRequestId in varchar2,
+                        pOperation in varchar2,
+                        pResponse  out clob);
+
+/** Сохранение успешно выполненной операции в Z_116_ELOAN_OPERATIONS
+* <br/><i>С версии 12.0</i>
+* @param pInput pRequestId - id запроса, pOperation - имя операции (например TRANCHE_ISSUANCE), pResult - тело запроса
+* @param pResult - id от созданной записи в бд или null
+*/
+procedure pSaveOperation(pRequestId in varchar2,
+                         pOperation in varchar2,
+                         pResponse  in clob,
+                         pResult    out number);
+
+/** Функция проверки связи залогового обеспечения с договором онлайн кредита
+* <br/><i>Появилась в версии 13.0</i>
+* @param nDepId идентификатор подразделения залога
+* @param nId идентификатор залога
+*/
+function fChkMrtDeaOnline(nDepid in t_dea.dep_id%type, nId in t_dea.id%type) return integer;
+
+/** Функция проверки наличия на кредите залогового обеспечения с типом "Поручительство"
+* <br/><i>Появилась в версии 14.0</i>
+* @param nDepId идентификатор подразделения кредитного договора
+* @param nId идентификатор кредитного договора
+*/
+function fChkMrtDeaGrnt(nDepid in t_dea.dep_id%type, nId in t_dea.id%type) return integer;
+
+/** Функция проверки наличия на кредите залогового обеспечения с типом "Поручительство"
+* <br/><i>Появилась в версии 14.0</i>
+* @param dea
+*/
+function fChkMrtDeaGrnt(dea in gl_anl.rAnlKey) return integer;
+
+end Z_116_ELOAN_UTILS;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_ELOAN_UTILS is
+
+-- создание CLOB-а с JSON-ом об ошибке для возврата методу API
+function fErr(pErrCode in integer, pMess in varchar2, pArgs in vargs default vargs(null)) return CLOB
+is
+  ObjTmp  JSON_OBJECT_T;
+  ObjR    JSON_OBJECT_T;
+begin
+  ObjTmp := new JSON_OBJECT_T;
+  ObjTmp.put('code', pErrCode);
+  ObjTmp.put('message', LocalFrmt(pMess||dbms_utility.format_error_backtrace, pArgs,'PKG', 'Z_116_ELOAN_UTILS'));
+  ObjR := new JSON_OBJECT_T;
+  ObjR.put_null('result');
+  ObjR.put('error', ObjTmp);
+  t_log.debug('Z_116_ELOAN_UTILS.fErr, ошибка: %0:s', vargs(ObjR.To_String), 'PKG', 'Z_116_ELOAN_UTILS');
+  return ObjR.To_Clob;
+end fErr;
+
+function fDecodeFromBase64(pFILE in clob) return blob
+ is
+   l_encoded_value blob;
+   l_len number;
+   l_cur_offset number := 1;
+   l_read_amount number := 9000;
+   l_buffer varchar2(32000);
+   l_raw_buffer RAW(32000);
+ begin
+   l_len := dbms_lob.getlength(pFILE);
+   if l_len = 0 or pFILE is null or pFILE = EMPTY_CLOB then
+     return EMPTY_BLOB();
+   end if;
+   l_len := dbms_lob.getlength(pFILE);
+   dbms_lob.createtemporary(l_encoded_value, True);
+   l_len := dbms_lob.getlength(pFILE);
+   loop
+     exit when l_cur_offset >= l_len;
+     dbms_lob.read(pFILE, l_read_amount, l_cur_offset, l_buffer);
+     l_raw_buffer := utl_raw.cast_to_raw(l_buffer);
+     l_raw_buffer := utl_encode.base64_decode(l_raw_buffer);
+     l_cur_offset := l_cur_offset + l_read_amount;
+     dbms_lob.writeappend(l_encoded_value, dbms_lob.getlength(l_raw_buffer), l_raw_buffer);
+   end loop;
+   return l_encoded_value;
+ end;
+
+-- Справочник филиалов с регионами и районами
+procedure pGetDepList(pInput in clob,
+                      pOutput out Clob) is
+  lArr	                  JSON_ARRAY_T;
+  ObjTmp                  JSON_OBJECT_T;
+  nMainDepId              C_DEP_STD.ID%type := C_PKGDEP.fGetIdDep(c_pkgprm.fGetValPrm('GL_MAINDEP'));
+begin
+  Z_116_PKGCONNECT.pOpen();
+  lArr := new JSON_ARRAY_T;
+
+  for dep in (select x.*, /*c.code,*/ nvl(a.fulladdr, nvl(ch.addrjur, ch.address)) as address,
+                     g_pkgaddress_uz.fgetObl(a.ID) as UzOblCode,
+                     g_pkgaddress_uz.fgetRn(a.ID) as UzRnCode
+              from (select d.ID, d.ID_HI, d.CODE, trim(d.LONGNAME) as LONGNAME, decode(d.ID, P_Branch(d.ID), '0', '1') as dep_type,  NLEVEL
+                    from   C_DEP d
+                    where  d.ARCFL=0
+                    and d.SERVOFFICEFL=1
+                    and c_pkgprm.fInList(substr(d.CODE,1,2),'D_EXCLUDDEPCODE') = 0
+                    and d.ID <> nMainDepId   -- исключим головное 00401 из списка - оно не обслуживет ФЛ
+                    and not exists(select 1
+                                   from   G_BNK_ADD h
+                                   join   G_BNK b on b.id = h.id
+                                   where  b.code = d.CODE
+                                   and    h.ID = b.id
+                                   and    p_operday > nvl(h.value, p_maxdate)
+                                   and    h.code = 'DATE_CLOSE')
+                    start with d.ID = nMainDepId -- но строить список будем начисная с "головы" 00401
+                    connect by prior d.ID=d.ID_HI) x, G_CLI c, G_CLIHST ch, G_CLIADDRESS t, G_ADDRESS a
+              where c.depcrd_id = x.id
+              and   c.dep_id = ch.dep_id and c.id = ch.id and p_operday between ch.fromdate and ch.todate
+              and   c.dep_id = t.dep_id and c.id = t.id
+              and   a.ID = t.ADR_ID
+              and   t.ADRTYPE = nvl(C_PKGPRM.fGetValPrm('CDEPADRTYPE'), GCLIADR_FACT)
+              and   t.ARCFL = '0'
+  ) loop
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('id', dep.ID);
+    ObjTmp.put('parentId', dep.ID_HI);
+    ObjTmp.put('code', dep.CODE );
+    ObjTmp.put('type', dep.DEP_TYPE);  -- "0" - РЦКУ, "1" - ЦКУ
+    ObjTmp.put('name', dep.LONGNAME);
+    ObjTmp.put('address', dep.address);
+    ObjTmp.put('area', dep.UzOblCode);
+    ObjTmp.put('region', dep.UzRnCode);
+    lArr.append(ObjTmp);
+  end loop;
+  ObjTmp := new JSON_OBJECT_T;
+  ObjTmp.put('departments', lArr);
+  pOutput := ObjTmp.To_Clob;
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'Ошибка получения справочника филиалов: %0:s', vargs(substr(sqlerrm,1,2000)));
+
+end pGetDepList;
+
+procedure pGetCardIdnByCardNumber(pInput in clob,
+                                  pOutput out Clob) is
+  ObjIn  JSON_OBJECT_T;
+  ObjRes JSON_OBJECT_T;
+  sCardCode varchar2(30 byte);
+  sCardIdn varchar2(30 byte);
+  sPinfl varchar2(30 byte);
+begin
+  Z_116_PKGCONNECT.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  sCardCode := ObjIn.get_String('cardNumber');
+  begin
+    select crd.cardidn,
+           i.idn_num
+    into   sCardIdn,
+           sPinfl
+    from   n_crd crd
+    join   G_CLIIDN i on i.dep_id = crd.holder_dep_id and i.id = crd.holder_id
+    join   G_IDNDSC d on d.ID = i.IDN_ID
+    where  crd.cardcode = sCardCode
+    and    d.CODE = 'IDN_PRS_UZ' -- ПИНФЛ
+    and    P_OPERDAY() between i.FROMDATE and i.TODATE;
+  exception
+    when no_data_found then
+      sCardIdn := null;
+  end;
+  -- заполним ответ
+  ObjRes := new JSON_OBJECT_T;
+  if sCardIdn is null then
+    ObjRes.put_Null('cardIdn');
+    ObjRes.put_Null('pinfl');
+  else
+    ObjRes.put('cardIdn', sCardIdn);
+    ObjRes.put('pinfl', sPinfl);
+  end if;
+  pOutput := ObjRes.To_Clob;
+end;
+
+
+-- Получить список касс по подразделению
+procedure pGetCshLst(pInput in clob,
+                    pOutput out Clob) is
+  lArr	                  JSON_ARRAY_T;
+  ObjIn                   JSON_OBJECT_T;
+  ObjTmp                  JSON_OBJECT_T;
+  idDeaDep                C_DEP_STD.ID%type;
+begin
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  idDeaDep := ObjIn.get_Number('depId');
+  lArr := new JSON_ARRAY_T;
+  for c in (-- ЦКУ
+            select C.ID,
+                  C.CODE,
+                  C.DEP_ID,
+                  D.CODE as DEP_CODE,
+                  substr(bs_dom.DLongname('M_CSHDSC_CSHTYPE', C.CSHTYPE)||', '||C.ADDRESS,1,250) as NAME,
+                  substr(d.CODE||'.'||c.CODE,1,30) as CSH_CODE
+                from
+                  M_CSHDSC C, C_DEP_STD D
+                where
+                  D.ID = C.DEP_ID
+                  and C.DEP_ID = idDeaDep
+                  and d.id <>  P_Branch(d.id)
+                  and c.cshtype = BS_DOM.DVAL('M_CSHDSC_CSHTYPE','M_CSHDSC_EXC')
+                  and c.ARCFL <> 1
+            union all
+            -- РЦКУ
+            select C.ID,
+                  C.CODE,
+                  C.DEP_ID,
+                  D.CODE as DEP_CODE,
+                  substr(bs_dom.DLongname('M_CSHDSC_CSHTYPE', C.CSHTYPE)||', '||C.ADDRESS,1,250) as NAME,
+                  substr(d.CODE||'.'||c.CODE,1,30) as CSH_CODE
+                from
+                  M_CSHDSC C, C_DEP_STD D
+                where
+                  D.ID = C.DEP_ID
+                  and C.DEP_ID = any(select c2.ID from C_DEP_STD c2
+                                        where c2.ARCFL=0
+                                          and c_pkgprm.fInList(c2.CODE,'Z_116_UKFORRCKULST',idDeaDep) = 1
+                                          and c2.SERVOFFICEFL = 1
+                                          start with ID = idDeaDep
+                                          connect by prior ID=ID_HI
+                                             )
+                  and idDeaDep = P_Branch(idDeaDep)
+                  and c.cshtype = BS_DOM.DVAL('M_CSHDSC_CSHTYPE','M_CSHDSC_EXC')
+                  and c.ARCFL <> 1   ) loop
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('id', c.id);
+    ObjTmp.put('code', c.code);
+    ObjTmp.put('depId', c.dep_id);
+    ObjTmp.put('depCode', c.dep_code);
+    ObjTmp.put('name', c.name);
+    ObjTmp.put('cshCode', c.csh_code);
+    lArr.append(ObjTmp);
+  end loop;
+  pOutput := lArr.To_Clob;
+
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'Ошибка получения списка касс по подразделению ID = %0:s: %1:s', vargs(idDeaDep, substr(sqlerrm,1,2000)));
+
+end pGetCshLst;
+
+
+-- Добавить номера телефона на карточку клиента
+procedure pAddPhones(pInput  in clob,
+                     pOutput out Clob)
+is
+  lArr	             JSON_ARRAY_T;
+  ObjIn              JSON_OBJECT_T;
+  cCliCode           G_CLI.CODE%type;
+  nCliDepId          G_CLI.DEP_ID%type;
+  nCliId             G_CLI.ID%type;
+  nNord              G_CLICONT.NORD%type;
+  nConTypeId         CR_CONTTYPE_STD.ID%type;
+  cNordLst           varchar2(500);
+  ObjRes             JSON_OBJECT_T;
+  nCnt               pls_integer;
+  cCont              G_CLICONT.CONT%type;
+begin
+  Z_116_PKGCONNECT.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  cCliCode := ObjIn.get_String('clientId');
+  lArr := ObjIn.get_Array('phoneNumber');
+
+  g_pkgcli.pGetCliId(sCode => cCliCode, idDep => nCliDepID, idCli => nCliID, bExcept => true);
+  select ID into nConTypeId from CR_CONTTYPE_STD where CODE = 'MOB';
+
+  for indx in 0 .. lArr.get_size - 1 loop
+    -- чтоб не записывать дубли
+    cCont := lArr.get_string(indx);
+    select count(1) into nCnt
+      from G_CLICONT
+      where DEP_ID = nCliDepID and ID = nCliID
+        and CONT = cCont;
+    if nCnt = 0 then
+      g_pkgCliCont.pSaveCont(nCliDepID, nCliID
+                            ,P_IDCTYPE => nConTypeId
+                            ,P_NORD => nNord
+                            ,P_CONT => cCont
+                            ,P_ATYP => bs_dom.DVAL('G_CLIPHONE_TYP', 'OTHER')
+                            );
+      cNordLst := cNordLst||to_char(nNord)||dbase.iif(indx != lArr.get_size - 1, ',','');
+      nNord := null;
+    end if;
+  end loop;
+  -- заполним ответ
+  ObjRes := new JSON_OBJECT_T;
+  if cNordLst is null then
+    ObjRes.put_Null('nordLst');
+  else
+    ObjRes.put('nordLst', cNordLst);
+  end if;
+  pOutput := ObjRes.To_Clob;
+exception
+  when OTHERS then
+    pOutput := fErr(sqlcode, 'Ошибка добавления телефонных номеров: %0:s', vargs(substr(sqlerrm,1,2000)));
+
+end pAddPhones;
+
+procedure pCreateSordPay(pInput  in  clob,
+                         pOutput out clob)
+is
+  /* Неизменяемые переменные для операции */
+  -- Тип РКД ( Мем. ордер (внутренний) )
+  vTypeRKD   varchar2(10)  := '211';
+  -- Операция ( Внутрибанковские операции мем. ордером)
+  vTypeOper  varchar2(10)  := '020391';
+  -- Поступление в банк
+  vRecInBank varchar2(100) := to_char(sysdate, 'hh24:mi:ss');
+  -- КНП
+  vKNP       varchar2(10)  := '00668';
+
+  type tDataByAcc is record(
+    RESULT       INTEGER,
+    DEP_ID       INTEGER,
+    SERRMSG      VARCHAR2(500),
+    SCLIRNN      VARCHAR2(500),
+    SCLINAME     VARCHAR2(500),
+    SACCNAME     VARCHAR2(500),
+    SBAL         VARCHAR2(500),
+    SCOD         VARCHAR2(500),
+    SCOD_NAME    VARCHAR2(500),
+    STXTHEAD     VARCHAR2(500),
+    STXTBUCH     VARCHAR2(500),
+    NCLIDEPID    INTEGER,
+    NCLIID       INTEGER,
+    NCLIJURFL    INTEGER,
+    SVAL_CODE    VARCHAR2(500),
+    SACCVALCODE  VARCHAR2(500),
+    SVALNAME     VARCHAR2(500),
+    NDECPART     INTEGER,
+    NACC_ID      INTEGER,
+    NCLIPBOYULFL INTEGER);
+
+  -- Данные плательщика
+  vDataPay tDataByAcc;
+
+  -- Данные получателя
+  vDataRec tDataByAcc;
+
+  /* Идентификаторы поражденного мем. ордера*/
+
+  vCrDepIdMemOrd number;
+  vCrIdMemOrd    number;
+
+  /*Входные переменные JSON*/
+  ObjIn        JSON_OBJECT_T;
+  ObjOut        JSON_OBJECT_T;
+
+  vFromAccCode g_accbln.code%type;
+  vToAccCode   g_accbln.code%type;
+  vAmount      number;
+  vTxtDscr     varchar2(500);
+
+  --------------------------------------------------
+  procedure pGetByAccData(pInAccCode  in out  varchar2,
+                          pInTypeRKD  in  varchar2,
+                          pOutData    out tDataByAcc) is
+  begin
+    pOutData.RESULT := S_BSPAY.PCHKACCCLI(NDEP_ID      => pOutData.DEP_ID,
+                                          SBNK_CODE    => '00401',
+                                          SACC_CODE    => pInAccCode,
+                                          SKSO_CODE    => pInTypeRKD,
+                                          DDVAL        => p_operday, -- Дата валютирования
+                                          SERRMSG      => pOutData.SERRMSG,
+                                          SCLIRNN      => pOutData.SCLIRNN,
+                                          SCLINAME     => pOutData.SCLINAME,
+                                          SACCNAME     => pOutData.SACCNAME,
+                                          SBAL         => pOutData.SBAL,
+                                          SCOD         => pOutData.SCOD,
+                                          SCOD_NAME    => pOutData.SCOD_NAME,
+                                          STXTHEAD     => pOutData.STXTHEAD,
+                                          STXTBUCH     => pOutData.STXTBUCH,
+                                          NCLIDEPID    => pOutData.NCLIDEPID,
+                                          NCLIID       => pOutData.NCLIID,
+                                          NCLIJURFL    => pOutData.NCLIJURFL,
+                                          SVAL_CODE    => pOutData.SVAL_CODE,
+                                          IZO          => 0,
+                                          SACCVALCODE  => pOutData.SACCVALCODE,
+                                          SVALNAME     => pOutData.SVALNAME,
+                                          NDECPART     => pOutData.NDECPART,
+                                          NACC_ID      => pOutData.NACC_ID,
+                                          NCLIPBOYULFL => pOutData.NCLIPBOYULFL);
+  end pGetByAccData;
+
+  --------------------------------------------------
+  function fCorrect(pCrIdMemOrd in integer, pCrDepIdMemOrd in integer) return CLOB
+  is
+    ObjOut JSON_OBJECT_T;
+    ResultObj JSON_OBJECT_T;
+  begin
+
+    ObjOut := new JSON_OBJECT_T;
+    ResultObj := new JSON_OBJECT_T;
+
+    ResultObj.put('id', pCrIdMemOrd);
+    ResultObj.put('depId', pCrDepIdMemOrd);
+
+    ObjOut.put('result', ResultObj);
+    ObjOut.put_Null('error');
+
+    return ObjOut.To_Clob;
+  end fCorrect;
+
+begin
+  c_pkgconnect.pOpen();
+  begin
+    ObjIn := JSON_OBJECT_T.parse(pInput);
+    vCrDepIdMemOrd := ObjIn.get_Number('depId');
+    vFromAccCode := ObjIn.get_string('fromAccCode');
+    vToAccCode := ObjIn.get_string('toAccCode');
+    vAmount := ObjIn.get_number('amount');
+    vTxtDscr := ObjIn.get_string('txtDscr');
+    -- Данные плательщика
+    pGetByAccData( pInAccCode => vFromAccCode,
+                   pInTypeRKD => vTypeRKD,
+                   pOutData   => vDataPay);
+    -- Данные получателя
+    pGetByAccData( pInAccCode => vToAccCode,
+                   pInTypeRKD => vTypeRKD,
+                   pOutData   => vDataRec);
+  exception
+     when others then
+      pOutput := fErr(sqlcode, 'Ошибка при инициализации переменных: %0:s', vargs(substr(sqlerrm,1,2000)));
+      return;
+  end;
+  begin
+    S_BSPAY.PSAVE(NDEP_ID   => vDataPay.DEP_ID,
+                  NID       => vCrIdMemOrd, -- Индетификатор поражденного мем. ордера
+                  SKSO_CODE => vTypeRKD,    -- Тип РКД
+                  SCHA_CODE => vTypeOper,   -- Операция
+                  SAMOUNT   => vAmount,     -- Сумма
+                  SVAL_CODE => 'UZS',
+                  DDORD     => p_operday,
+                  DDVAL     => p_operday,
+                  SCODE_ACL => trim(vFromAccCode),  -- Счет отправителя
+                  SCODE_BCR => '00401',
+                  SCODE_ACR => trim(vToAccCode),    -- Счет получателя
+                  SRNN_CR   => vDataRec.SCLIRNN,
+                  SCODE_BC  => null,
+                  STXT_HEAD => '',
+                  STXT_BUCH => '',
+                  STXT_DSCR => vTxtDscr,
+                  STXT_BEN  => vDataRec.SCLINAME,
+                  NNOCMSFL  => 0,
+                  SKNP      => vKNP,
+                  SCODE_OD  => '',
+                  SCODE_BE  => '',
+                  SPRIM     => '',
+                  SCODE     => null,
+                  NFLZO     =>  0,
+                  SLIMFL    => '0',
+                  SSPEEDFL  => '0',
+                  SRNNCLI   => vDataPay.SCLIRNN,
+                  STXTPAY   => vDataPay.SCLINAME,
+                  SVOPER    => '06',
+                  SOVERFL   => '0');
+    S_PKGDEALOC.pSAVE(IDDEP          => vDataPay.DEP_ID,
+                      IID            => vCrIdMemOrd,
+                      SADD_TIME      => vRecInBank);
+    S_PKGORDPAY.PSAVE(NDEP_ID     => vDataPay.DEP_ID,
+                      NID         => vCrIdMemOrd,
+                      NBAT_ID     => null);
+  exception
+    when others then
+      pOutput := fErr(sqlcode, 'Ошибка при создании мем. ордера: %0:s', vargs(substr(sqlerrm,1,2000)));
+      return;
+  end;
+  if T_PkgRunOprUtl.fOprAvailable(vDataPay.DEP_ID, vCrIdMemOrd, 'PAY') > 1 then
+    begin
+      T_PkgRunOprUtl.pRunOprByMainOrd(vDataPay.DEP_ID, vCrIdMemOrd, 'PAY');
+      pOutput := fCorrect(vDataPay.DEP_ID, vCrIdMemOrd);
+    exception
+      when others then
+        pOutput := fErr(sqlcode, 'Ошибка при оплате мем. ордер: %0:s', vargs(substr(sqlerrm,1,2000)));
+        return;
+    end;
+  else
+    pOutput := fErr('-20001', 'Недоступная операция PAY: %0:s', vargs(substr('Unavailable "PAY" operation',1,2000)));
+    return;
+  end if;
+end pCreateSordPay;
+
+-- Сохранение атрибута в журнал операции договора
+procedure pSaveNOperAttr(pInput  in  clob,
+                         pOutput out clob)
+is
+  ObjIn            JSON_OBJECT_T;
+  ObjRes           JSON_OBJECT_T;
+  idDeaDep         T_DEA.DEP_ID%type;
+  idDea            T_DEA.ID%type;
+  cAttrCode        T_OPERDET.CODE%type;
+  cValue           T_OPERDET.CVALUE%type;
+  nProcID          T_PROCESS.ID%type;
+  nJOp             T_OPERJRN.NJRN%type;
+begin
+  Z_116_PKGCONNECT.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  idDeaDep := ObjIn.get_Number('deaDepId');
+  idDea := ObjIn.get_Number('deaId');
+  nJOp := ObjIn.get_Number('njrn');
+  cAttrCode := ObjIn.get_string('code');
+  cValue := ObjIn.get_string('value');
+
+  nProcID := t_pkgprocess.fGetIdByMainOrd(idDeaDep, idDea);
+  T_PkgScnUtl.pSaveOperAttr(nProcID, nJOp, cAttrCode, cValue);
+
+  -- заполним ответ
+  ObjRes := new JSON_OBJECT_T;
+  ObjRes.put_Null('error');
+  pOutput := ObjRes.To_Clob;
+
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'Ошибка при сохранении атрибута %0:s == %1:s: %2:s', vargs(cAttrCode, cValue, substr(sqlerrm,1,2000)));
+
+end pSaveNOperAttr;
+
+-- Обновление паспортных данных клиента из EGOV
+procedure pUpdPass(pInput  in  clob,
+                   pOutput out clob)
+is
+  ObjIn            JSON_OBJECT_T;
+  ObjRes           JSON_OBJECT_T;
+  nCliDepId        G_CLI.DEP_ID%type;
+  nCliId           G_CLI.ID%type;
+  nProcId          T_PROCESS.ID%type;
+  nBopId           T_PROCESS.BOP_ID%type;
+  nSt              T_PROCESS.NSTAT%type;
+  cParIn           varchar2(32000) := '';
+  cParOut          varchar2(32000) := '';
+  i                pls_integer;
+begin
+  Z_116_PKGCONNECT.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  nCliDepId := ObjIn.get_Number('cliDepId');
+  nCliId := ObjIn.get_Number('cliId');
+
+  G_PKGCLINIBBD.pGetCliProc(nCliDepId, nCliId, 1, nProcId,nBopId,nSt);
+
+  -- заполним ответ
+  ObjRes := new JSON_OBJECT_T;
+
+  if t_pkgrunoprutl.fOprAvailable(nProcId, 'EGOV_UPDPASS') = 2 then
+    i := t_pkgrunoprutl.fRunOperation(nProcId, 'EGOV_UPDPASS', cParIn, cParOut);
+    if i = 1 then
+      ObjRes.put_Null('error');
+    else
+      ObjRes.put('error', localize('Ошибка при выполнении операции обновления паспортных данных', 'PKG', 'Z_116_ELOAN_UTILS') );
+    end if;
+  else
+    ObjRes.put('error', localize('Операция не доступна', 'PKG', 'Z_116_ELOAN_UTILS') );
+  end if;
+
+  pOutput := ObjRes.To_Clob;
+
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'Ошибка при обновлении паспортных данных КК (%0:s, %1:s): %2:s', vargs(nCliDepId, nCliId, substr(sqlerrm, 1, 2000)));
+
+end pUpdPass;
+
+procedure pGetRegionAndDistrictList(pInput  in  clob,
+                                    pOutput out clob)
+is
+  lRegions    JSON_ARRAY_T;
+  lDisctricts JSON_ARRAY_T;
+  ObjTmp      JSON_OBJECT_T;
+  nMainDepId  C_DEP_STD.ID%type := C_PKGDEP.fGetIdDep(c_pkgprm.fGetValPrm('GL_MAINDEP'));
+begin
+  Z_116_PKGCONNECT.pOpen();
+  lRegions := new JSON_ARRAY_T;
+  lDisctricts := new JSON_ARRAY_T;
+  for cur in (select t.CODE as CODE,
+                     SUBSTR(t.LONGNAME, 0, 255) as NAME
+              from   U_UZ_OBL t
+              where  t.ARCFL = 0
+              and    t.CODE != '00'
+              order by
+                     t.CODE)
+  loop
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('code', cur.CODE);
+    ObjTmp.put('name', cur.NAME);
+    lRegions.append(ObjTmp);
+  end loop;
+
+  for cur in (select t.ALTERCODE,
+                     t.CODE,
+                     SUBSTR(t.LONGNAME, 0, 255) as NAME
+              from   U_UZ_RN t
+              where  t.ARCFL = 0
+              and    t.CODE != '000'
+              order by
+                     CODE)
+  loop
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('regionCode', cur.ALTERCODE);
+    ObjTmp.put('code', cur.CODE);
+    ObjTmp.put('name', cur.NAME);
+    lDisctricts.append(ObjTmp);
+  end loop;
+  ObjTmp := new JSON_OBJECT_T;
+  ObjTmp.put('regions', lRegions);
+  ObjTmp.put('districts', lDisctricts);
+  pOutput := ObjTmp.To_Clob;
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'Ошибка получения справочника регионов: %0:s', vargs(substr(sqlerrm, 1, 2000)));
+end pGetRegionAndDistrictList;
+
+-- Обновление полей "Область" и "Район" в актуальном адресе регистрации клиента
+procedure pUpdAdrRegistration(pInput  in  clob,
+                              pOutput out clob)
+is
+  ObjIn              JSON_OBJECT_T;
+  ObjRes             JSON_OBJECT_T;
+  cCliCode           G_CLI.CODE%type;
+  nCliDepId          G_CLI.DEP_ID%type;
+  nCliId             G_CLI.ID%type;
+  nAdrId             G_CLIADDRESS.ADR_ID%type;
+  cObl               G_ADDRESS_UZ.OBL_CODE%type;
+  cRn                G_ADDRESS_UZ.RN_CODE%type;
+begin
+  Z_116_PKGCONNECT.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  cCliCode := ObjIn.get_String('clientId');
+  cObl := ObjIn.get_String('oblCode');
+  cRn := ObjIn.get_String('rnCode');
+
+  g_pkgcli.pGetCliId(sCode => cCliCode, idDep => nCliDepID, idCli => nCliID, bExcept => true);
+
+  -- получим актуальный адрес регистрации клиента
+  nAdrId := g_pkgaddress.fCliAddrId(nCliDepID,nCliID, GCLIADR_REG);
+  ObjRes := new JSON_OBJECT_T;
+
+  if nAdrId is not null then
+    G_PKGADDRESS_UZ.pSave(nAdrId, cRn, cObl);
+    ObjRes.put_Null('error');
+  else
+    ObjRes.put('error', localize('По клиенту не найден актуальный адрес регистрации', 'PKG', 'Z_116_ELOAN_UTILS') );
+  end if;
+  pOutput := ObjRes.To_Clob;
+
+exception
+  when OTHERS then
+    pOutput := fErr(sqlcode, 'Ошибка обновления адреса регистрации клиента %0:s: %1:s', vargs(cCliCode, substr(sqlerrm,1,2000)));
+
+end pUpdAdrRegistration;
+
+procedure pGetOperday(pInput  in  clob,
+                      pOutput out clob)
+is
+  ObjRes JSON_OBJECT_T;
+begin
+  Z_116_PKGCONNECT.pOpen();
+  ObjRes := new JSON_OBJECT_T;
+  ObjRes.put('result', to_char(p_operday, 'YYYY-MM-DD'));
+  pOutput := ObjRes.To_Clob;
+end pGetOperday;
+
+procedure pGetOperation(pRequestId in varchar2,
+                        pOperation in varchar2,
+                        pResponse  out clob)
+is
+begin
+  c_pkgconnect.pOpen();
+  begin
+    select response
+    into pResponse
+    from Z_116_ELOAN_OPERATIONS
+    where operation = pOperation and request_id = pRequestId;
+  exception
+    when no_data_found then
+      pResponse := null;
+  end;
+end pGetOperation;
+
+procedure pSaveOperation(pRequestId in varchar2,
+                         pOperation in varchar2,
+                         pResponse  in clob,
+                         pResult    out number)
+is
+  cResponse clob;
+begin
+  c_pkgconnect.pOpen();
+  pGetOperation(pRequestId, pOperation, cResponse);
+
+  if cResponse is null then
+    insert into Z_116_ELOAN_OPERATIONS (operation, request_id, response)
+    values (pOperation, pRequestId, pResponse)
+    returning id into pResult;
+    commit;
+  else
+    pResult := null;
+  end if;
+end pSaveOperation;
+
+--Функция проверки связи залога с кредитом, выданным онлайн
+
+function fChkMrtDeaOnline(nDepid in t_dea.dep_id%type, nId in t_dea.id%type) return integer
+is
+  iRes integer;
+begin
+  select count(1) into iRes from l_mrtdea l
+  where
+   l.mrt_dep_id = nDepid
+  and l.mrt_id = nId
+  and nvl(T_PkgDeaPrm.fParByCode(l.dea_id,l.dea_dep_id, 'L_ONLINE_PRODUCT'), '0') = '1';
+  return iRes;
+end fChkMrtDeaOnline;
+
+--Функция определения типа обеспечения - "Поручительство"
+
+function fChkMrtDeaGrnt(nDepid in t_dea.dep_id%type, nId in t_dea.id%type) return integer
+is
+  iRes integer;
+begin
+  select count(1) into iRes from l_mrtdea l
+  where
+   l.dea_dep_id = nDepid
+  and l.dea_id = nId
+  and L_PkgMortgage.fGetMortgageBaseType(l.mrt_dep_id,l.mrt_id) = 'GRNT';
+  return iRes;
+end fChkMrtDeaGrnt;
+
+-- Перегруженная версия fChkMrtDeaGrnt для вызова из ППО
+function fChkMrtDeaGrnt(dea in gl_anl.rAnlKey) return integer
+  as
+  begin
+    return fChkMrtDeaGrnt(to_number(dea.PK1), to_number(dea.PK2));
+end fChkMrtDeaGrnt;
+
+
+end Z_116_ELOAN_UTILS;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_DOM"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="S_BSPAY"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="CR_CONTTYPE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ADDRESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ADDRESS_UZ"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_BNK"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_BNK_ADD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIADDRESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLICONT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIIDN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_IDNDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MRTDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_CSHDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERDET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_OBL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_RN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_ELOAN_OPERATIONS"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_BRANCH"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_LOCID"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_MAXDATE"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDEP"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="DBASE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="GL_ANL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGADDRESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGADDRESS_UZ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLICONT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLINIBBD"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGMORTGAGE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="S_PKGDEALOC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="S_PKGORDPAY"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGPROCESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGRUNOPRUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGSCNUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="G_CLIADR_TYPE"/>
+    </PKGDPNDOM>
+  </PKG>
+</DDC>

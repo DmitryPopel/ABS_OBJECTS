@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGCLI" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="80BC5C99649729601AC44C6A90E792DA">
+  <PKG 
+    NAME="Z_116_PKGCLI">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGCLI is
+/**
+* Пакет для кастомного функционала 116 по клиентам
+*
+* @author Анатолий Бондаренко
+* @version 2.0
+* @headcom
+*
+*/
+
+  /** Фунцкия поиска клиентов подходящих под заданные параметры поиска (дата рождения обязательна, остальное опционально - как минимум 2 поля обязательны к заполнению)
+  * <br/><i>С версии 1.0</i>
+  * @param p_firstName имя клиента
+  * @param p_lastName фамилия клиента
+  * @param p_patronym отчество клиента
+  * @param p_series серия паспорта
+  * @param p_number номер паспорта
+  * @param p_birthDate дата рождения клиента
+  * @param p_cli_type тип клиента, по-умолчанию - ищем ФЛ
+  * @param p_Err код ошибки, если что то пошло не так
+  * @param p_Mes текст сообщения об ошибке, если что то пошло не так
+  * @return Return курсор с информацией о найденных клиентах
+  */
+  function fgetCliLst(p_firstName  in varchar2 default null,
+                      p_lastName   in varchar2 default null,
+                      p_patronym   in varchar2 default null,
+                      p_series     in varchar2 default null,
+                      p_number     in varchar2 default null,
+                      p_birthDate  in date,
+                      p_cli_type   in varchar2 default '1',
+                      p_Err        out varchar2,
+                      p_Mes        out varchar2
+                      ) return SYS_REFCURSOR;
+
+  /** Процедура поиска клиентов подходящих под заданные параметры поиска (дата рождения обязательна, остальное опционально - как минимум 2 поля обязательны к заполнению)
+  * <br/><i>С версии 1.0</i>
+  * @param p_firstName имя клиента
+  * @param p_lastName фамилия клиента
+  * @param p_patronym отчество клиента
+  * @param p_series серия паспорта
+  * @param p_number номер паспорта
+  * @param p_birthDate дата рождения клиента
+  * @param p_cli_type тип клиента, по-умолчанию - ищем ФЛ
+  * @param p_Err код ошибки, если что то пошло не так
+  * @param p_Mes текст сообщения об ошибке, если что то пошло не так
+  * @param p_Res курсор с информацией о найденных клиентах
+  */
+  procedure pgetCliLst(p_firstName  in varchar2 default null,
+                      p_lastName   in varchar2 default null,
+                      p_patronym   in varchar2 default null,
+                      p_series     in varchar2 default null,
+                      p_number     in varchar2 default null,
+                      p_birthDate  in date,
+                      p_cli_type   in varchar2 default '1',
+                      p_Err        out varchar2,
+                      p_Mes        out varchar2,
+                      p_Res        out sys_refcursor
+                      );
+
+end Z_116_PKGCLI;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGCLI is
+  sObj    constant varchar2(30) := $$PLSQL_UNIT;
+  ANL_DEA constant T_ANSIGN.ID%type := T_ASGN.fCode2Id('DEA');
+
+  -- Фунцкия поиска клиентов подходящих под заданные параметры поиска
+  function fgetCliLst(p_firstName  in varchar2 default null,
+                      p_lastName   in varchar2 default null,
+                      p_patronym   in varchar2 default null,
+                      p_series     in varchar2 default null,
+                      p_number     in varchar2 default null,
+                      p_birthDate  in date,
+                      p_cli_type   in varchar2 default '1',
+                      p_Err        out varchar2,
+                      p_Mes        out varchar2
+                      ) return SYS_REFCURSOR
+  as
+    lRes     SYS_REFCURSOR;
+  begin
+
+    open lRes for
+      select  h.pname1
+            , h.pname2
+            , h.pname3
+            , h.passser
+            , h.passnum
+            , c.birdate
+            , c.code
+         from G_CLI c, G_CLIHST h
+         where 1 = 1
+           and c.dep_id = h.dep_id and c.id = h.id and p_operday between h.fromdate and h.todate   --dd.mm.yyyy
+           and c.typefl = p_cli_type  -- ФЛ, см. домен в АБС "CLI_TYPE"
+           --фильтры
+           -- по дате рождения
+           and p_birthDate = c.BIRDATE
+           -- по фамилии
+           and ((p_lastName is not null and (upper(h.pname1) like '%'||upper(p_lastName)||'%' or upper(h.plname1) like '%'||upper(p_lastName)||'%')) or p_lastName is null)
+           -- по имени
+           and ((p_firstName is not null and (upper(h.pname2) like '%'||upper(p_firstName)||'%' or upper(h.plname2) like '%'||upper(p_firstName)||'%')) or p_firstName is null)
+           -- по отчеству
+           and ((p_patronym is not null and (upper(h.pname3) like '%'||upper(p_patronym)||'%' or upper(h.plname3) like '%'||upper(p_patronym)||'%')) or p_patronym is null)
+           -- по паспорту
+           and ((p_series is not null and upper(p_series) = upper(h.passser)) or p_series is null)
+           and ((p_number is not null and p_number = h.passnum) or p_number is null)
+           and h.arcfl = 0
+           ;
+
+    return lRes;
+  exception
+    when others then
+      p_Err := sqlcode;
+      p_Mes := sqlerrm;
+      return null;
+
+  end fgetCliLst;
+
+  -- Процедура поиска клиентов подходящих под заданные параметры поиска (дата рождения обязательна, остальное опционально - как минимум 2 поля обязательны к заполнению)
+  procedure pgetCliLst( p_firstName  in varchar2 default null,
+                        p_lastName   in varchar2 default null,
+                        p_patronym   in varchar2 default null,
+                        p_series     in varchar2 default null,
+                        p_number     in varchar2 default null,
+                        p_birthDate  in date,
+                        p_cli_type   in varchar2 default '1',
+                        p_Err        out varchar2,
+                        p_Mes        out varchar2,
+                        p_Res        out sys_refcursor
+                        ) as
+  begin
+    c_pkgconnect.pOpen();
+    p_Res := fgetCliLst(p_firstName,
+                        p_lastName,
+                        p_patronym,
+                        p_series,
+                        p_number,
+                        p_birthDate,
+                        p_cli_type,
+                        p_Err,
+                        p_Mes
+                        );
+  end pgetCliLst;
+
+
+end Z_116_PKGCLI;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ANSIGN"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_ASGN"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

@@ -1,0 +1,507 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_RETAIL_LOANS" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="85A76F01AEF13F602271884520B2DC4A">
+  <PKG 
+    NAME="Z_116_PKG_RETAIL_LOANS">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_RETAIL_LOANS is
+  ----------------------------------------------------------------------------------------------------
+  Procedure Gen_Info
+  (
+    Rep_Date      date,
+    Vid_Cred      varchar2 := null,
+    Vid_Cred_Code varchar2 := null,
+    State         varchar2 := null,
+    Credit_Kind   varchar2 := null
+  );
+  ----------------------------------------------------------------------------------------------------
+  Procedure Clear;
+
+end Z_116_PKG_RETAIL_LOANS;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_RETAIL_LOANS is
+  ----------------------------------------------------------------------------------------------------
+  Procedure Gen_Credit_Sloan
+  (
+    i_Session_Id number,
+    Vid_Cred     varchar2 := null,
+    State        varchar2 := null
+  ) is
+  begin
+    insert into z_116_Tbl_Retail_Loans
+      (Uniqnum,
+       Code,
+       Full_Name,
+       Product_Name,
+       From_Date,
+       to_date,
+       Amount,
+       Cr_Bal,
+       State_Name,
+       Goal_Credit,
+       Goal,
+       State_Type,
+       Procent,
+       Credit_Kind,
+       Source_Credit,
+       Credit_Type,
+       Credit_Goal,
+       Sorce_Credit,
+       Sid)
+      (select t_Pkgdeaprm.Fdeaparbycode(d.Id, d.Dep_Id, 'L_UZ_UNIQNUM') as Uniqnum,
+              o.Code as Code,
+              case g.Encodefl
+                when '0' then
+                 Substr(g_Acattrs.Fcliname(d.Cli_Dep_Id, d.Cli_Id), 1, 250)
+                else
+                 Substr(g_Pkgcli.Fgetclilongname(d.Cli_Dep_Id, d.Cli_Id, p_Operday), 1, 250)
+              end as Full_Name,
+              c.Code || ' - ' || c.Longname as Product_Name,
+              d.Fromdate,
+              d.Todate,
+              Substr(To_Money(d.Sdok, t_Pkgval.Fgetfac(o.Val_Id)), 1, 27) as Amount,
+              t_Pkgarlrun.Fdeaaccbal(Dd.Dep_Id, Dd.Id, 'CR_BAL', Dop => p_Operday) +
+              t_Pkgarlrun.Fdeaaccbal(Dd.Dep_Id, Dd.Id, 'CR_EXP_PD', Dop => p_Operday) as Cr_Bal, -- CR_Bal
+              l_Pkgaccreq.Fprocandaccstate(s.Code, s.Longname, d.Dep_Id, d.Id) as State_Name,
+              t_Pkgdeaprm.Fparbycode(d.Id, d.Dep_Id, 'L_PURPOSE_CREDLINE') as Goal_Credit,
+              (select Lv.Pur_Code || ' - ' || Lv.Pur_Name
+                 from Lv_Main_Fj Lv
+                where Lv.Dep_Id = d.Dep_Id
+                  and Lv.Id = d.Id) as Goal,
+              t_Pkgdeaprm.Fparbycode(d.Id, d.Dep_Id, 'L_VIDNED') as State_Type,
+              t_Pkgarl.Fpcnvalbyarlalias(d.Dep_Id, d.Id, 'INTEREST', p_Operday, 1) as Procent,
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is null
+                  and Pf.Linkparams like 'U_UZ_VIDCRED%') || ' - ' ||
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is not null
+                start with Pf.Linkparams like 'U_UZ_VIDCRED%'
+               connect by prior Pf.Name = Pf.Parentparam) as Credit_Kind,
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is null
+                  and Pf.Linkparams like 'U_UZ_VIDIST%') || ' - ' ||
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is not null
+                start with Pf.Linkparams like 'U_UZ_VIDIST%'
+               connect by prior Pf.Name = Pf.Parentparam) as Source_Credit,
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is null
+                  and Pf.Linkparams like 'U_UZ_TYPECRED_110%') || ' - ' ||
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is not null
+                start with Pf.Linkparams like 'U_UZ_TYPECRED_110%'
+               connect by prior Pf.Name = Pf.Parentparam) as Credit_Type,
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is null
+                  and Pf.Linkparams like 'U_UZ_PURPCRED_112%') || ' - ' ||
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is not null
+                start with Pf.Linkparams like 'U_UZ_PURPCRED_112%'
+               connect by prior Pf.Name = Pf.Parentparam) as Credit_Goal,
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is null
+                  and Pf.Linkparams like 'U_UZ_ISTCRED_113%') || ' - ' ||
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is not null
+                start with Pf.Linkparams like 'U_UZ_ISTCRED_113%'
+               connect by prior Pf.Name = Pf.Parentparam) as Sorce_Credit,
+              i_Session_Id
+         from t_Ord      o,
+              t_Dea      d,
+              t_Process  p,
+              g_Cli      g,
+              t_Bop_Stat s,
+              t_Procmem  m,
+              t_Deacls   c,
+              c_Dep_Std  Srvd,
+              c_Dep_Std  Cd,
+              l_Dea      Dd
+        where o.Dep_Id = d.Dep_Id
+          and o.Id = d.Id
+          and d.Dep_Id = m.Dep_Id
+          and d.Id = m.Ord_Id
+          and m.Mainfl = '1'
+          and p.Id = m.Id
+          and s.Id = p.Bop_Id
+          and s.Nord = p.Nstat
+          and c.Id = d.Dcl_Id
+          and Dd.Dep_Id = d.Dep_Id
+          and Dd.Id = d.Id
+          and exists (select 1
+                 from Dual
+                where c_Pkggrant.Fchkusrord_2(d.Dep_Id, d.Id, 3) = 1
+                  and Bs_Operation.Fisparentwait(p.Id) = 0)
+          and Dd.Retfl = 0
+          and Dd.Dep_Id = Cd.Id
+          and g.Dep_Id = d.Cli_Dep_Id
+          and g.Id = d.Cli_Id
+          and g.Typefl = '1' -- Физ. Лиц
+          and Srvd.Id = d.Srv_Dep_Id
+          and exists
+        (select 1
+                 from Dual
+                where c_Pkggrant.Fchkclidet(d.Cli_Dep_Id, d.Cli_Id) = 1)
+          and (t_Pkgarlrun.Fdeaaccbal(Dd.Dep_Id, Dd.Id, 'CR_BAL', Dop => p_Operday) +
+              t_Pkgarlrun.Fdeaaccbal(Dd.Dep_Id, Dd.Id, 'CR_EXP_PD', Dop => p_Operday) > 0 or
+              l_Pkgaccreq.Fprocandaccstate(s.Code, s.Longname, d.Dep_Id, d.Id) in
+              ('Актуален',
+                'Списан',
+                'Списан ОД',
+                'Списаны убытки',
+                'Списан ОД и %%',
+                'Списан долг',
+                'Списаны проценты',
+                'Введен',
+                'Зарегистрирован',
+                'Графики рассчитаны',
+                'Открытие счетов'))
+          and (State is null or
+              State = l_Pkgaccreq.Fprocandaccstate(s.Code, s.Longname, d.Dep_Id, d.Id))
+          and (Vid_Cred is null or
+              Vid_Cred = (select Pf.Value
+                             from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                            where Pf.Visible = 1
+                              and Pf.Parentparam is null
+                              and Pf.Linkparams like 'U_UZ_VIDCRED%'))); -- доступ пользователя к клиенту;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  Procedure Gen_Credit_Slloan
+  (
+    i_Session_Id number,
+    Vid_Cred     varchar2 := null,
+    State        varchar2 := null
+  ) is
+  begin
+    insert into z_116_Tbl_Retail_Loans
+      (Uniqnum,
+       Code,
+       Full_Name,
+       Product_Name,
+       From_Date,
+       to_date,
+       Amount,
+       Cr_Bal,
+       State_Name,
+       Goal_Credit,
+       Goal,
+       State_Type,
+       Procent,
+       Credit_Kind,
+       Source_Credit,
+       Credit_Type,
+       Credit_Goal,
+       Sorce_Credit,
+       Sid)
+      (select t_Pkgdeaprm.Fdeaparbycode(d.Id, d.Dep_Id, 'L_UZ_UNIQNUM') as Uniqnum,
+              o.Code as Code,
+              Substr(g_Pkgcli.Fgetclilongname(d.Cli_Dep_Id, d.Cli_Id), 1, 250) as Full_Name,
+              c.Code || ' - ' || c.Longname as Product_Name,
+              d.Fromdate,
+              d.Todate,
+              Substr(To_Money(d.Sdok, t_Pkgval.Fgetfac(o.Val_Id)), 1, 27) as Amount,
+              t_Pkgarlrun.Fdeaaccbal(d.Dep_Id, d.Id, 'CR_BAL', Dop => p_Operday) +
+              t_Pkgarlrun.Fdeaaccbal(d.Dep_Id, d.Id, 'CR_EXP_PD', Dop => p_Operday) as Cr_Bal, -- CR_Bal
+              l_Pkgaccreq.Fprocandaccstate(s.Code, s.Longname, d.Dep_Id, d.Id) as State_Name,
+              t_Pkgdeaprm.Fparbycode(d.Id, d.Dep_Id, 'L_PURPOSE_CREDLINE') as Goal_Credit,
+              r.Code || ' - ' || r.Longname as Goal,
+              t_Pkgdeaprm.Fparbycode(d.Id, d.Dep_Id, 'L_VIDNED') as State_Type,
+              t_Pkgarl.Fpcnvalbyarlalias(d.Dep_Id, d.Id, 'INTEREST', p_Operday, 1) as Procent,
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is null
+                  and Pf.Linkparams like 'U_UZ_VIDCRED%') || ' - ' ||
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is not null
+                start with Pf.Linkparams like 'U_UZ_VIDCRED%'
+               connect by prior Pf.Name = Pf.Parentparam) as Credit_Kind,
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is null
+                  and Pf.Linkparams like 'U_UZ_VIDIST%') || ' - ' ||
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is not null
+                start with Pf.Linkparams like 'U_UZ_VIDIST%'
+               connect by prior Pf.Name = Pf.Parentparam) as Source_Credit,
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is null
+                  and Pf.Linkparams like 'U_UZ_TYPECRED_110%') || ' - ' ||
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is not null
+                start with Pf.Linkparams like 'U_UZ_TYPECRED_110%'
+               connect by prior Pf.Name = Pf.Parentparam) as Credit_Type,
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is null
+                  and Pf.Linkparams like 'U_UZ_PURPCRED_112%') || ' - ' ||
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is not null
+                start with Pf.Linkparams like 'U_UZ_PURPCRED_112%'
+               connect by prior Pf.Name = Pf.Parentparam) as Credit_Goal,
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is null
+                  and Pf.Linkparams like 'U_UZ_ISTCRED_113%') || ' - ' ||
+              (select Pf.Value
+                 from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                where Pf.Visible = 1
+                  and Pf.Parentparam is not null
+                start with Pf.Linkparams like 'U_UZ_ISTCRED_113%'
+               connect by prior Pf.Name = Pf.Parentparam) as Sorce_Credit,
+              i_Session_Id
+         from t_Ord      o,
+              t_Dea      d,
+              t_Process  p,
+              g_Cli      g,
+              t_Bop_Stat s,
+              t_Procmem  m,
+              t_Deacls   c,
+              l_Ldea     l,
+              c_Dep      Cd,
+              c_Dep_Std  Srvd,
+              l_Purdsc   r
+        where o.Dep_Id = d.Dep_Id
+          and o.Id = d.Id
+          and l.Dep_Id = d.Dep_Id
+          and l.Id = d.Id
+          and d.Dep_Id = m.Dep_Id
+          and d.Id = m.Ord_Id
+          and m.Mainfl = '1'
+          and p.Id = m.Id
+          and s.Id = p.Bop_Id
+          and s.Nord = p.Nstat
+          and c.Id = d.Dcl_Id
+          and g.Dep_Id = d.Cli_Dep_Id
+          and g.Id = d.Cli_Id
+          and g.Typefl = '1' -- Физ. Лиц
+          and l.Dep_Id = Cd.Id
+          and d.Srv_Dep_Id = Srvd.Id
+          and r.Id = l.Pur_Id
+          and exists (select 1
+                 from Dual
+                where c_Pkggrant.Fchkusrord_2(d.Dep_Id, d.Id, 3) = 1
+                  and Bs_Operation.Fisparentwait(p.Id) = 0)
+          and exists
+        (select 1
+                 from Dual
+                where c_Pkggrant.Fchkclidet(d.Cli_Dep_Id, d.Cli_Id) = 1) -- доступ пользователя к клиенту
+          and (t_Pkgarlrun.Fdeaaccbal(d.Dep_Id, d.Id, 'CR_BAL', Dop => p_Operday) +
+              t_Pkgarlrun.Fdeaaccbal(d.Dep_Id, d.Id, 'CR_EXP_PD', Dop => p_Operday) > 0 or
+              l_Pkgaccreq.Fprocandaccstate(s.Code, s.Longname, d.Dep_Id, d.Id) in
+              ('Актуален',
+                'Списан',
+                'Списан ОД',
+                'Списаны убытки',
+                'Списан ОД и %%',
+                'Списан долг',
+                'Списаны проценты',
+                'Введен',
+                'Зарегистрирован',
+                'Графики рассчитаны',
+                'Открытие счетов'))
+          and (State is null or
+              State = l_Pkgaccreq.Fprocandaccstate(s.Code, s.Longname, d.Dep_Id, d.Id))
+          and (Vid_Cred is null or
+              Vid_Cred = (select Pf.Value
+                             from table(l_Pkgdeauniref.Fgettblrefsfromdea(o.Dep_Id, o.Id, d.Dcl_Id)) Pf
+                            where Pf.Visible = 1
+                              and Pf.Parentparam is null
+                              and Pf.Linkparams like 'U_UZ_VIDCRED%')));
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  Procedure Gen_Info
+  (
+    Rep_Date      date,
+    Vid_Cred      varchar2 := null,
+    Vid_Cred_Code varchar2 := null,
+    State         varchar2 := null,
+    Credit_Kind   varchar2 := null
+  ) is
+    v_Session_Id        number := Sys_Context('USERENV', 'SID');
+    v_Num               number;
+    v_Credit_Kind_Sloan varchar2(50) := 'SLOAN';
+  begin
+    c_Pkgconnect.Pchday(Rep_Date, v_Num);
+
+    --удалить свои
+    delete from z_116_Tbl_Retail_Loans
+     where Sid = v_Session_Id;
+
+    --удалить не существующие
+    delete from z_116_Tbl_Retail_Loans
+     where v_Session_Id not in (select t.Sid
+                                  from V$session t);
+
+    if Credit_Kind is null then
+      Gen_Credit_Sloan(v_Session_Id, Vid_Cred_Code, State);
+      Gen_Credit_Slloan(v_Session_Id, Vid_Cred_Code, State);
+    else
+      if Credit_Kind = v_Credit_Kind_Sloan then
+        Gen_Credit_Sloan(v_Session_Id, Vid_Cred_Code, trim(State));
+      else
+        Gen_Credit_Slloan(v_Session_Id, Vid_Cred_Code, trim(State));
+      end if;
+    end if;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  Procedure Clear is
+    v_Session_Id number := Sys_Context('USERENV', 'SID');
+  begin
+    delete from z_116_Tbl_Retail_Loans
+     where Sid = v_Session_Id;
+  end;
+
+end Z_116_PKG_RETAIL_LOANS;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_OPERATION"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LV_MAIN_FJ"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_LDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_PURDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEACLS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_TBL_RETAIL_LOANS"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="TO_MONEY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGGRANT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_ACATTRS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGACCREQ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGDEAUNIREF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARLRUN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

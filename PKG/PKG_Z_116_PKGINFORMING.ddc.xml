@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGINFORMING" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="08CE9A3EE2C5F5BB83A6A27BF77BD51C">
+  <PKG 
+    NAME="Z_116_PKGINFORMING">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGINFORMING is
+/**
+* Кастомизированные функции и процедуры для информирования
+*
+* @author Каюмов Денис
+* @version 1.0
+* @headcom
+*
+* Copyright (c) 2023 By Aloqabank. All Rights Reserved.
+*/
+
+/** Отправка е-мейл уведомления об ошибках в массовых операциях. Список бизнес-объектов, по которым анализируем ошибки из параметра Z_116_MASSBOPCOD.
+*   Отправляется на адреса из таблицы Z_116_MASSOPRERRSND
+*   <i>Появилась в 1.0</i>
+*/
+  procedure pMassErrSnd;
+
+end Z_116_PKGINFORMING;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGINFORMING is
+--Отправка е-мейл уведомления об ошибках в массовых операциях
+ procedure pMassErrSnd as
+   sMailAdr varchar2(250);
+   Lst C_PkgDecTbl.tNamedAttrList;
+   sValue varchar2(50);
+   TextToSnd clob;
+ begin
+   for rec in (select
+             d.code as dep_code,
+             mo.LONGNAME as mass_name,
+             sc.name as opr_name,
+             sc.code as opr_code,
+             mj.doper,
+             mj.errcnt as err_count,
+             b.name as bop_name,
+             b.code as bop_code
+             from T_MASJRN MJ, T_MASOPR MO, T_SCEN_STD SC, T_BOP_DSCR_STD B, C_DEP_STD D
+               where
+                  mj.mas_id = mo.ID
+                  and mo.BOP_ID = sc.id
+                  and mo.NOPR = sc.nord
+                  and sc.id = b.id
+                  and mj.dep_id = d.id
+                  and mj.dbeg > c_pkgdate.fPrev(p_operday,iNum => 1)+1/3
+                  and c_pkgprm.fInList(b.code,'Z_116_MASSBOPCODE') = 1
+                  and mj.errcnt > 0)
+     loop
+       Lst.delete;
+       C_PkgDecTbl.pAddName(Lst, 'BOP_CODE', rec.bop_code);
+       C_PkgDecTbl.pAddName(Lst, 'OPR_CODE', rec.opr_code);
+       sValue := C_PkgDecTbl.fDecision('Z_116_MASSOPRERRSND', Lst);
+       t_log.writel(P_DEBUG, 'sValue=>' || sValue);
+       if sValue is not null then
+          sMailAdr := sValue;
+          TextToSnd :=  'В дате '||rec.doper||', в подразделении '||rec.dep_code||' имеются ошибки в массовой операции ' ||'"'||rec.mass_name||'"'||'.  Наименование исполняемой операции '||'"'||rec.opr_name||'"'||', количество ошибочных записей - '||rec.err_count||'. Требуется анализ в задаче MASSOPJRN!';
+          t_log.Debug(LocalFrmt('Отправляем оповещение на %0:s',
+                         vargs(sMailAdr),
+                         'PKG',
+                         'Z_116_PKGINFORMING'));
+                         c_pkgMsgAQData.pSingleDirect(sChannel  => 'EMAIL',
+                                sAddress  => sMailAdr,
+                                sSubject  => 'Ошибки в массовых операциях '||rec.doper,
+                                sText     => to_clob(TextToSnd),
+                                nPriority => 50,
+                                sAttach   => null,
+                                sRefer    => rawtohex(SYS_GUID()));
+     end if;
+   end loop;
+
+ end;
+end Z_116_PKGINFORMING;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_DSCR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_MASJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_MASOPR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_SCEN"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_DEBUG"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDATE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDECTBL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGMSGAQDATA"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

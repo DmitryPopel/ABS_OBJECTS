@@ -1,0 +1,326 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PRC" 
+  KEY="Z_116_PRC_REPAYMENTCREDIT_PDA" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="1EA0F9436DDB27A55B673D6576F76002">
+  <PRC 
+    NAME="Z_116_PRC_REPAYMENTCREDIT_PDA">
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace procedure COLVIR.Z_116_PRC_REPAYMENTCREDIT_PDA (pFromDate date, pToDate date)
+
+as
+  nMainSID number:= sys_context('USERENV','SID');
+
+begin
+--return;
+  delete from REPAY_LOAN_PDA where SID = nMainSID;
+  delete from REPAY_LOAN_PDA where SID not in (SELECT t.SID FROM v$session t);
+
+    --удалить свои
+  delete from Z_116_CREDACC_PDA where SID = nMainSID;
+    --удалить не существующие
+  delete from Z_116_CREDACC_PDA where SID not in (SELECT t.SID FROM v$session t);
+
+  delete from   z_116_credacc_pda_Itog where SID = nMainSID;
+  delete from   z_116_credacc_pda_Itog where SID not in (SELECT t.SID FROM v$session t);
+  commit;
+
+  insert into /*+ parallel(8)*/ REPAY_LOAN_PDA
+ With dea as
+(select /*+ materialize use_nl(ld td o)*/
+         1 as credittype,
+         ld.id,
+         ld.dep_id,
+         td.cli_id,
+         td.cli_dep_id,
+         o.val_id,
+         td.fromdate,
+         td.todate,
+         srv_dep_id
+     from l_dea ld, t_dea td, t_ord o--, g_cli g
+   where ld.dep_id = td.dep_id and ld.id = td.id
+         and o.dep_id = td.dep_id and o.id = td.id
+         --and td.id = 15466997 and td.dep_id = 3012
+
+         )
+select /*+ parallel(8) use_nl(dea p m bs) leading(dea)*/
+         dea.credittype,
+         dea.id,
+         dea.dep_id,
+         dea.cli_id,
+         dea.cli_dep_id,
+         dea.val_id,
+         dea.fromdate,
+         dea.todate,
+         dea.srv_dep_id,
+         nMainSID
+ from  dea, t_process p, t_procmem m, t_bop_stat bs, g_cli g
+        where p.id = m.id
+        and m.dep_id = dea.dep_id and m.ord_id = dea.id and m.mainfl = '1'
+        and bs.id = p.bop_id
+        and bs.nord = p.nstat
+        and g.id = dea.cli_id
+        and g.dep_id = dea.cli_dep_id
+        and g.typefl =1
+        and bs.code in ('PD_OFF','ACTUAL');
+       -- and rownum < 5000;
+ debug_pda('test1:  '||nMainSID);
+
+insert into --+ parallel(8)
+ REPAY_LOAN_PDA
+ With dea as
+ --Кредитные линии
+  (select --+ materialize use_nl(td o ld)
+   666 as credittype,
+        ld.id,
+        ld.dep_id,
+        td.cli_id,
+        td.cli_dep_id,--5
+        o.val_id,
+        td.fromdate,
+        td.todate,
+        srv_dep_id
+   from t_dea td,t_ord o,l_ldea ld
+  where o.dep_id = td.dep_id
+        and o.id = td.id
+        and ld.dep_id = td.dep_id
+        and ld.id = td.id
+        and nvl(T_PkgDeaPrm.fParByCode(td.ID,td.DEP_ID,'LL_TECHOVER'),0) = 0
+        )
+  select --+ parallel(8) use_nl(dea p m bs) leading(dea)
+         dea.credittype,
+         dea.id,
+         dea.dep_id,
+         dea.cli_id,
+         dea.cli_dep_id,
+         dea.val_id,
+         dea.fromdate,
+         dea.todate,
+         dea.srv_dep_id,
+         nMainSID
+ from  dea, t_process p, t_procmem m, t_bop_stat bs, g_cli g
+        where p.id = m.id
+        and m.dep_id = dea.dep_id
+        and m.ord_id = dea.id
+        and m.mainfl = '1'
+        and bs.id = p.bop_id
+        and bs.nord = p.nstat
+        and g.id = dea.cli_id
+        and g.dep_id = dea.cli_dep_id
+        and g.typefl =1
+        and bs.code in ('PD_OFF','ACTUAL');
+
+
+ debug_pda('cred line:  '||nMainSID);
+  /* delete from REPAY_LOAN_PDA where (cli_id, cli_dep_id) in
+  (select pda.cli_id, pda.cli_dep_id
+  from
+ REPAY_LOAN_PDA pda, g_cli g
+where g.id = cli_id
+      and g.dep_id = pda.cli_dep_id
+      and g.typefl =1
+      and pda.sid = nMainSID)
+      and sid = nMainSID;*/
+
+ commit;
+ debug_pda('test2:  '||nMainSID);
+ insert into Z_116_CREDACC_PDA
+  select /*+ leading(pda)*/
+         nMainSID,
+         det.acc_id,
+         det.dep_id,
+         det.pk2,
+         det.pk1,
+         credit_val,
+         fromdate,
+         todate,
+         c_PkgDep.fGetName(c_PkgDep.fGetCodeDep(pda.srv_dep_id)) as fil_name,-- pda.srv_dep_id,-- fil_name,
+         T_PkgDeaPrm.fParByCode(pk2, pk1,'L_UZ_UNIQNUM'),
+         loantype,
+         null,
+         pda.srv_dep_id
+    from REPAY_LOAN_PDA pda, ledacc_det det
+   where to_char(pda.loan_id) = det.pk2  and to_char(pda.loan_dep_id)=det.pk1
+     and sgn_id = '2076'
+     and sid = nMainSID;
+     --and getacccode_pda(det.acc_id,det.dep_id) > 0;
+
+
+  delete from Z_116_CREDACC_PDA where Z_116_pkg_CREDACC_PDA.Getacccode_pda(id_acc, dep_id_acc) = 0 and sid = nMainSID;
+  commit;
+ debug_pda('test3:  '||nMainSID);
+
+   -- сначала те, по которым есть проводки
+   insert into z_116_credacc_pda_Itog
+    select /*+ leading(cr) index(cr I_Z_116_CREDACC) index(t IE_T_TRNDTL_ACC) */
+            j.tra_id,
+            j.cha_id,
+            j.doper,
+            t.sdok,
+            t.nat_sdok,
+            cr.val_id,
+            cr.id_acc,
+            dep_id_acc,
+            uniqueloan,
+            fil_name,
+            acclabel,
+            srv_dep_id,
+            id_loan,
+            loan_dep_id,
+            loantype,
+            g_pkgaccbln.fGetAccCode(dep_id_acc,id_acc,0),
+            null,
+            nMainSID
+
+       from z_116_credacc_pda cr, t_trndtl t, t_operjrn j
+      where cr.id_acc = t.acc_id
+            and cr.dep_id_acc = t.dep_id
+            and t.incomfl=0
+            and t.doper between pFromDate and pToDate
+            and j.tra_id = t.id
+            and Z_116_pkg_CREDACC_PDA.Z_116_Check_Attr_code(tra_id,cha_id)
+           in ('105202', '105204', '105206', '105208')
+           and cr.SID = nMainSID;
+  -- и по которым нет
+  debug_pda('test31:  '||nMainSID);
+
+  insert into z_116_credacc_pda_Itog
+  select null,
+         null,
+         null,
+         0,
+         null,
+         null,
+         null,
+         null,
+         uniqueloan,
+         fil_name,
+         acclabel,
+         srv_dep_id,
+         id_loan,
+         loan_dep_id,
+         loantype,
+         g_pkgaccbln.fGetAccCode(dep_id_acc,id_acc,0),
+         null,
+         nMainSID
+    from z_116_credacc_pda
+ where
+    (id_loan,loan_dep_id) not in
+   (select   /*+ leading(cr) index(cr I_Z_116_CREDACC) index(t IE_T_TRNDTL_ACC) */ cr.id_loan,cr.loan_dep_id
+           /* j.tra_id,
+            j.cha_id,
+            j.doper,
+            t.sdok,
+            t.nat_sdok,
+            cr.val_id,
+            cr.id_acc,
+            dep_id_acc,
+            uniqueloan,
+            fil_name,
+            acclabel,
+            srv_dep_id,
+            id_loan,
+            loan_dep_id,
+            loantype,
+            g_pkgaccbln.fGetAccCode(dep_id_acc,id_acc,0),
+            null,
+            9
+*/
+       from z_116_credacc_pda cr, t_trndtl t, t_operjrn j
+      where cr.id_acc = t.acc_id
+            and cr.dep_id_acc = t.dep_id
+            and t.incomfl=0
+            and t.doper between  pFromDate and pToDate
+            and j.tra_id = t.id
+            and Z_116_pkg_CREDACC_PDA.Z_116_Check_Attr_code(tra_id,cha_id)
+           in ('105202', '105204', '105206', '105208'));
+
+ debug_pda('test4:  '||nMainSID);
+
+  commit;
+
+end Z_116_PRC_REPAYMENTCREDIT_PDA;
+]]>
+    </LOB_FIELD>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC_DET"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_LDEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="REPAY_LOAN_PDA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNDTL"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_CREDACC_PDA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_CREDACC_PDA_ITOG"/>
+    </PRCDPNENT>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDEP"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGACCBLN"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKG_CREDACC_PDA"/>
+    </PRCDPNPKG>
+    <PRCDPNPRC>
+      <LINK:PRC 
+        REF_NAME="DEBUG_PDA"/>
+    </PRCDPNPRC>
+  </PRC>
+</DDC>

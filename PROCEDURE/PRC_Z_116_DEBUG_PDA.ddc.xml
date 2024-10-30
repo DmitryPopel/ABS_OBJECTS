@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PRC" 
+  KEY="Z_116_DEBUG_PDA" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="7AA472D224D4A4868C760F377C13519C">
+  <PRC 
+    NAME="Z_116_DEBUG_PDA">
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace procedure COLVIR.Z_116_DEBUG_PDA (pMes in clob)
+    as
+ nNpp number;
+    pragma AUTONOMOUS_TRANSACTION;
+  begin
+      begin
+        insert into Z_116_for_debug_pda
+          (txt)
+        values
+          (pMes);
+        commit;
+      exception
+        when others then
+          rollback;
+      end;
+
+end Z_116_DEBUG_PDA;
+]]>
+    </LOB_FIELD>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_FOR_DEBUG_PDA"/>
+    </PRCDPNENT>
+  </PRC>
+</DDC>

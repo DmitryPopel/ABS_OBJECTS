@@ -1,0 +1,439 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGCONVZOOMRAD_PDA" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="DAF34ED5817E7081A91B30019E90279E">
+  <PKG 
+    NAME="Z_116_PKGCONVZOOMRAD_PDA">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGCONVZOOMRAD_PDA is
+/**
+* Методы API по устройствам для партнеров
+*
+* @author Попель ДА
+* @author Бондаренко Анатолий
+* @version 2.1
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+/**
+* <br/><i>Появилась в 1.0</i>
+* @param pInput  JSON с входными параметрами - дата и массив счетов
+* @param pOutput JSON с выходными парамтерами - список конверсий онлайн конверсий в Zoomrad
+*/
+
+procedure Z_116_getConversion(pInput  in clob,
+                                pOutput out Clob);
+
+
+procedure Z_116_CheckCountConv(pInput  in clob,
+                                pOutput out Clob);
+
+/** Выгрузка конвертаций валют по устройствам (банкоматам)
+* <br/><i>Появилась в 2.0</i>
+* @param pInput  JSON с входными параметрами
+* @param pOutput JSON с выходными парамтерами - список конвертаций по банкоматам
+*/
+procedure pGetDevConversion(pInput  in clob,
+                            pOutput out Clob);
+
+end Z_116_PKGCONVZOOMRAD_PDA;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGCONVZOOMRAD_PDA is
+
+  -- создание CLOB-а с JSON-ом об ошибке
+function fErr(pErrCode in integer, pMess in varchar2, pArgs in vargs default vargs(null)) return CLOB
+is
+  ObjTmp  JSON_OBJECT_T;
+  ObjR    JSON_OBJECT_T;
+begin
+  ObjTmp := new JSON_OBJECT_T;
+  ObjTmp.put('code', pErrCode);
+  ObjTmp.put('message', LocalFrmt(pMess||dbms_utility.format_error_backtrace, pArgs,'PKG', 'Z_116_PKGCONVZOOMRAD_PDA'));
+  ObjR := new JSON_OBJECT_T;
+  ObjR.put('error', ObjTmp);
+  t_log.debug('Z_116_PKGCONVZOOMRAD_PDA.fErr, ошибка: %0:s', vargs(ObjR.To_String), 'PKG', 'Z_116_PKGCONVZOOMRAD_PDA');
+  return ObjR.To_Clob;
+end fErr;
+
+
+procedure Z_116_getConversion (pInput  in clob,
+                               pOutput out Clob) is
+  oObj      JSON_OBJECT_T;
+  addInfo   JSON_ARRAY_T;
+  attr      JSON_OBJECT_T;
+  vAccCode  varchar2(30);
+  vDate     date;
+  ObjTmp    JSON_OBJECT_T;
+  lArr      JSON_ARRAY_T;
+  l_acc     t_acc_116 := t_acc_116();
+begin
+  Z_116_PKGCONNECT.pOpen();
+  oObj := JSON_OBJECT_T.parse(pInput);
+  -- Следим с предыдущей по текщей опер.день
+  vDate := C_PKGDATE.fPrev(dOp => p_operday, iNum => 1);
+  addInfo := oObj.get_Array('accounts');
+  if addInfo is not null then
+    for i IN 0 .. addInfo.get_size - 1
+    loop
+      attr := TREAT(addInfo.get(i) as JSON_OBJECT_T);
+      vAccCode := attr.get_String('code');
+      l_acc.extend;
+      l_acc(i+1) := vAccCode;
+    end loop;
+  end if;
+  -- Удаляем данные за старые опер.дни
+  delete from Z_116_ConvZoomrad_pda t where t.dval < vDate;
+  -- Вставляем новые данные
+  insert into Z_116_ConvZoomrad_pda(Id,
+                                    Dep_Id,
+                                    Dval,
+                                    Vid_Oper,
+                                    Incomfl,
+                                    Amount_In,
+                                    Amount_Out,
+                                    Val_Code_In,
+                                    Val_Code_Out,
+                                    Usr_Code,
+                                    Account_In,
+                                    Account_Out,
+                                    Prop)
+  With Conv as (
+    select --+ ordered
+          t_pkgval.fGetAlterCode(db.val_id) as val_code_in,
+          adb.code as account_in,
+          (select d.amount from G_UNNORDDTL d where db.id=d.id and db.dep_id = d.dep_id and d.nord != db.nord) as amount_out,
+          (select t_pkgval.fGetAlterCode(d.val_id) from G_UNNORDDTL d where db.id=d.id and db.dep_id = d.dep_id and d.nord != db.nord) as val_code_out,
+          (select G_PKGACCBLN.fGetAccCode(accdep_id,acc_id,0) from G_UNNORDDTL d where db.id=d.id and db.dep_id = d.dep_id and d.nord != db.nord) as account_out,
+          db.nord,
+          db.id,
+          db.dep_id,
+          db.val_id,
+          db.vid_oper,
+          c.dval,
+          decode(substr(adb.code, 6, 3), '000', '1', '0') as incomfl  -- 1 покупка валюты/0 - продажа валюты
+     from table(l_acc) t, g_accbln adb, G_UNNORD c, G_UNNORDDTL db
+    where adb.dep_id = db.accdep_id
+      and adb.id = db.acc_id
+      and db.DEP_ID = c.DEP_ID
+      and db.ID = c.ID
+      and t.column_value = adb.code
+      and c.dop >= vDate
+      and not exists(select id,dep_id from Z_116_ConvZoomrad_pda z where z.dep_id = db.dep_id and z.id = db.id))
+   select c.id,
+          c.dep_id,
+          c.dval,
+          c.vid_oper,
+          c.incomfl,
+          (select amount * 100 from G_UNNORDDTL g where g.id = C.id and g.dep_id = C.dep_id and amount != amount_out) as amount_in,
+          c.amount_out * 100 as amount_out,
+          c.val_code_in,
+          c.val_code_out,
+         (select code from C_USR where id = o.tus_id) as Usr_Code,
+          account_in,
+          account_out,
+          null as Prop
+     from Conv c, T_BOP_STAT s, T_PROCESS p, T_PROCMEM m, T_ORD o
+    where c.DEP_ID = m.DEP_ID
+      and c.ID = m.ORD_ID
+      and m.MAINFL = '1'
+      and p.ID = m.ID
+      and s.ID=p.BOP_ID
+      and s.NORD = p.NSTAT
+      and o.DEP_ID = c.DEP_ID
+      and o.ID = c.ID
+      and s.code = 'FINISH';
+  lArr := new JSON_ARRAY_T;
+  for rec in (select * from Z_116_ConvZoomrad_pda where prop is null)
+  loop
+    update Z_116_ConvZoomrad_pda set prop = 1 where id = rec.id;
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('id', rec.id);
+    ObjTmp.put('dep_id', rec.id);
+    ObjTmp.put('dval', rec.dval);
+    ObjTmp.put('vid_oper', rec.vid_oper);
+    ObjTmp.put('incomfl', rec.incomfl);
+    ObjTmp.put('amount_in', rec.amount_in);
+    ObjTmp.put('amount_out', rec.amount_out);
+    ObjTmp.put('account_in', rec.account_in);
+    ObjTmp.put('account_out', rec.account_out);
+    ObjTmp.put('val_code_in', rec.val_code_in);
+    ObjTmp.put('val_code_out', rec.val_code_out);
+    ObjTmp.put('usr_code', rec.usr_code);
+
+    lArr.append(ObjTmp);
+  end loop;
+  ObjTmp := new JSON_OBJECT_T;
+  ObjTmp.put('info', lArr);
+  pOutput := ObjTmp.To_Clob;
+exception
+  when others then
+    Z_116_debug_pda(sqlerrm);
+    pOutput := Z_116_PKGCONVZOOMRAD_PDA.fErr(sqlcode, 'Ошибка!  %0:s: %1:s', vargs(vaccCode, substr(sqlerrm,1,2000)));
+end Z_116_getConversion;
+
+
+procedure Z_116_CheckCountConv(pInput  in clob,
+                               pOutput out Clob) is
+
+  oObj     JSON_OBJECT_T;
+  addInfo  JSON_ARRAY_T;
+  attr     JSON_OBJECT_T;
+  vAccCode varchar2(30);
+  vDate    date;
+  ObjTmp   JSON_OBJECT_T;
+  lArr     JSON_ARRAY_T;
+  l_acc    t_acc_116 := t_acc_116();
+  -- проверяем кол-во конверсионных операций на дату (с закрытым опер днем)
+begin
+
+  Z_116_PKGCONNECT.pOpen();
+
+   oObj := JSON_OBJECT_T.parse(pInput);
+   vDate := to_date(oObj.get_String('date'), 'dd.mm.yyyy');
+
+   if p_operday != vDate then
+     -- опер день за эту дату не открыт!
+     raise_application_error(-20000,'операционный день на дату ' || vDate || ' не открыт!');
+   end if;
+
+   addInfo := oObj.get_Array('accounts');
+
+  if addInfo is not null then
+    for i IN 0 .. addInfo.get_size - 1
+     loop
+       attr := TREAT(addInfo.get(i) as JSON_OBJECT_T);
+       vAccCode := attr.get_String('code');
+       l_acc.extend;
+       l_acc(i+1) := vAccCode;
+     end loop;
+  end if;
+
+  lArr := new JSON_ARRAY_T;
+  for rec in
+    (select count(1) as nnum,
+           account_in
+    from Z_116_ConvZoomrad_pda z, table(l_acc) t
+   where z.dval = vDate
+     and t.column_value = z.account_in
+     --and prop = 1 -- выгруженные (пока выгружаем все)
+   group by z.account_in)
+  loop
+   ObjTmp := new JSON_OBJECT_T;
+   ObjTmp.put('account', rec.account_in);
+   ObjTmp.put('count', rec.nnum);
+   lArr.append(ObjTmp);
+  end loop;
+
+  ObjTmp := new JSON_OBJECT_T;
+  ObjTmp.put('infoCount', lArr);
+  pOutput := ObjTmp.To_Clob;
+exception
+  when others then
+   pOutput := Z_116_PKGCONVZOOMRAD_PDA.fErr(sqlcode, 'Ошибка  %0:s: %1:s', vargs(substr(sqlerrm,1,2000)));
+end Z_116_CheckCountConv;
+
+--Выгрузка конвертаций валют по устройствам (банкоматам)
+procedure pGetDevConversion(pInput  in clob,
+                            pOutput out Clob) is
+
+  ObjIn      JSON_OBJECT_T;
+  dDate     date;
+  ObjTmp    JSON_OBJECT_T;
+  lArr      JSON_ARRAY_T;
+  idOprBuy$ T_OPRCHR_STD.ID%type := t_pkgoprchr.fCode2Id('12041T');
+  --idOprS$   T_OPRCHR_STD.ID%type;
+  cTermId   T_PROCDET.CVALUE%type;
+  cFeruzId  T_DEAPRM.LPARVALUE%type;
+
+  function fGetAtr(idProc in T_OPERJRN.ID%type, cAtrCode in T_PROCDET.CODE%type) return T_PROCDET.CVALUE%type as
+    cRes T_PROCDET.CVALUE%type;
+  begin
+    select
+        od.cvalue into cRes
+      from T_PROCDET od
+      where od.ID = idProc
+        and od.code = cAtrCode;
+    return cRes;
+  exception
+    when no_data_found then
+      return null;
+  end;
+
+begin
+  Z_116_PKGCONNECT.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  dDate := to_date(ObjIn.get_String('date'), 'dd.mm.yyyy');
+
+  lArr := new JSON_ARRAY_T;
+
+  for rec in (with bp as (select id from T_BOP_DSCR_STD where code in ('TR_12042T', 'TR_12041T'))
+             Select /*+ index_desc (frst FK_T_OPERJRN_DOPER) */
+                     frst.id
+                   , frst.doper
+                   --, frst.execdt
+                   --, frst.val_id
+                   , frst.cha_id
+               from
+               T_OPERJRN frst , bp
+               where frst.NJRN = 1
+                 and frst.BOP_ID = bp.id
+                 and frst.DOPER = dDate
+                 ) loop
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('id', rec.id);
+    ObjTmp.put('dval', rec.doper);
+    ObjTmp.put('incomfl', dbase.IIF(rec.cha_id = idOprBuy$, '1', '0'));
+    ObjTmp.put('amount', to_number(fGetAtr(rec.id, dbase.IIF(rec.cha_id = idOprBuy$, 'OBMVOT_SUM_BUY','OBMVOT_SUMVALSELL'))));
+    ObjTmp.put('valCode', t_pkgval.fGetAlterCode( to_number(fGetAtr(rec.id,dbase.IIF(rec.cha_id = idOprBuy$,'OBMVOT_VALBUY','OBMVOT_VAL_SELL'))))) ;
+    begin
+      cTermId := fGetAtr(rec.id, 'OBMVOT_TERM_ID');
+      select T_PKGDEAPRM.fParByCode(d.ID, d.DEP_ID, 'ID4FERUZ')
+             into cFeruzId
+        from N_SPRDEV d
+             where d.PROCCODE = cTermId;
+    exception
+      when others then
+        pOutput := Z_116_PKGCONVZOOMRAD_PDA.fErr(sqlcode, 'Ошибка определения идентификатор FERUZ для устройства  %0:s: %1:s', vargs(cTermId, substr(sqlerrm,1,2000)));
+        return;
+    end;
+    ObjTmp.put('identity', cFeruzId);
+    lArr.append(ObjTmp);
+  end loop;
+
+  ObjTmp := new JSON_OBJECT_T;
+  ObjTmp.put('info', lArr);
+  pOutput := ObjTmp.To_Clob;
+
+exception
+  when others then
+    pOutput := Z_116_PKGCONVZOOMRAD_PDA.fErr(sqlcode, 'Ошибка выгрузки конвертаций для FERUZ: %0:s', vargs(substr(sqlerrm,1,2000)));
+
+end pGetDevConversion;
+
+end Z_116_PKGCONVZOOMRAD_PDA;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_USR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_UNNORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_UNNORDDTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_SPRDEV"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_DSCR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPRM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPRCHR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCDET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_CONVZOOMRAD_PDA"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_IDDEP"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_LOCID"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDATE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="DBASE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGACCBLN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGOPRCHR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPRC>
+      <LINK:PRC 
+        REF_NAME="Z_116_DEBUG_PDA"/>
+    </PKGDPNPRC>
+    <PKGDPNTYP>
+      <LINK:TYP 
+        REF_NAME="T_ACC_116"/>
+    </PKGDPNTYP>
+  </PKG>
+</DDC>

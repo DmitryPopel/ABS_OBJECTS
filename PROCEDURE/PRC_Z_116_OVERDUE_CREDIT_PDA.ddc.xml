@@ -1,0 +1,629 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PRC" 
+  KEY="Z_116_OVERDUE_CREDIT_PDA" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="AD1DF0F54BF217B90658E99A4E71D112">
+  <PRC 
+    NAME="Z_116_OVERDUE_CREDIT_PDA">
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace procedure COLVIR.Z_116_OVERDUE_CREDIT_PDA (dDate date, BNK_CODE varchar2,pDepId varchar2, p_include number, pWMovement varchar2)
+as
+  nMainSID number:= sys_context('USERENV','SID');
+  nSum number;
+  nCount number;
+  c_limit   CONSTANT PLS_INTEGER DEFAULT 3500;
+
+  type Z_116_TOverdue is record(
+    loan_id  number,
+    dep_id number,
+    id number,
+    rnk date);
+
+  TYPE OverDue_LIST IS TABLE OF Z_116_TOverdue;
+  l_ids OverDue_LIST;
+
+  cursor cAllLoans is
+   with dea as
+  (select /*+ materialize*/
+   loan_id, dep_id as dep_id_loan
+    from Z_116_OVERDUE_CREDT_PDA z
+   where rest != 0
+      or restpercent != 0),
+  T2 as
+  (select /*+ leading(dea j) index(j FK_OPERJRN_BASIS) materialize parallel(8)*/
+   d.loan_id, j.dep_id, j.id, j.ord_id, j.doper
+    from dea d
+    join t_operjrn j
+      on j.dep_id = d.dep_id_loan
+     and j.ord_id = d.loan_id
+    join t_oprchr_std op
+      on op.id = j.cha_id
+   where op.code in ('105204',
+                     '105304',
+                     '105506',
+                     '105202',
+                     '1040001',
+                     '105402',
+                     '10801002',
+                     '105321',
+                     '105404',
+                     '105406',
+                     '105604',
+                     '105206',
+                     '105306',
+                     '105504',
+                     '105502',
+                     '105508',
+                     '1012660'))
+  ,T3 as (
+  select /*+ parallel(8) */
+       t2.*,
+       max(doper) over(partition by ord_id) as rnk,
+       row_number() over(partition by ord_id order by ord_id) dd
+   from T2)
+  select loan_id,dep_id,id,rnk from T3 where dd = 1;
+
+begin
+  --удалить свои
+  delete from Z_116_OVERDUE_CREDT_PDA where SID = nMainSID;
+  --удалить не существующие
+  delete from Z_116_OVERDUE_CREDT_PDA where SID not in (SELECT t.SID FROM v$session t);
+  commit;
+
+  --удалить свои
+  delete from Z_116_OVERDUE_CRED_PDA_Itog where SID = nMainSID;
+  --удалить не существующие
+  delete from Z_116_OVERDUE_CRED_PDA_Itog where SID not in (SELECT t.SID FROM v$session t);
+  commit;
+
+  if p_include = '1' then  -- включаем РЦКУ
+    if pDepId = '2980' then
+
+     insert /*+ parallel(8)*/ into Z_116_OVERDUE_CREDT_PDA
+     (filial, loan_id,dep_id, cli_id,cli_dep_id,credittype, val_id, rest, restPercent,restOverdue, includeRSKU, FilialinReport,parentdep,filiallabel,SID)
+
+ with dea as
+     --Кредиты
+     (select /*+ materialize*/ ld.id,
+             ld.dep_id,
+             td.cli_id,
+             td.cli_dep_id,
+             o.val_id
+        from l_dea ld, t_dea td, t_ord o
+       where ld.dep_id = td.dep_id
+         and ld.id = td.id
+         and o.dep_id = td.dep_id
+         and o.id = td.id
+    union all
+    --Кредитные линии
+      select /*+ materialize*/ ld.id,
+             ld.dep_id,
+             td.cli_id,
+             td.cli_dep_id,
+             o.val_id
+        from l_ldea ld, t_dea td, t_ord o
+       where ld.dep_id = td.dep_id
+         and ld.id = td.id
+         and o.dep_id = td.dep_id
+         and o.id = td.id
+         and nvl(Z_116_L_PKGRPT_L_UZ_LN00_003.fParByCodePRL(td.ID,td.DEP_ID,'LL_TECHOVER'),0) = 0
+      )
+      ,dea2 as
+      (select /*+ leading(dea) */  dea.id as loanid,
+             dea.dep_id as loan_dep_id,
+             dea.cli_id,
+             dea.cli_dep_id,
+             dea.val_id
+       from dea, t_process p, t_procmem m, t_bop_stat bs
+        where p.id = m.id
+          and m.dep_id = dea.dep_id
+          and m.ord_id = dea.id
+          and m.mainfl = '1'
+          and bs.id = p.bop_id
+          and bs.nord = p.nstat
+          and bs.code = 'ACTUAL')
+        ,Res as
+        (select
+           loanid,
+           val_id,
+           loan_dep_id,
+           cli_id,
+           cli_dep_id,
+           G_PKGCLI.fGetJURFLCli(cli_dep_id,cli_id) as credittype,
+           t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_BAL',val_id,dDate) + t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_EXP_PD',val_id,dDate) as rest,
+           --t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_BAL',val_id,dDate) + t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_EXP_PD',val_id,dDate) as restPercent,
+           t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_EXP_PD',val_id,dDate) as restOverdue
+
+
+           from dea2 )
+
+      select /*+ parallel(8)*/ loan_dep_id,
+             loanid,
+             loan_dep_id,
+             cli_id,
+             cli_dep_id,
+             credittype,
+             val_id,
+             rest,
+             rest,
+             restOverdue,
+             1,
+             '2980',
+             decode(C_PKGDEP.fGetIdHiDep(loan_dep_id,0,1),null,loan_dep_id,C_PKGDEP.fGetIdHiDep(loan_dep_id,0,1)),
+             C_pkgDep.fGetNameDep(decode(C_PKGDEP.fGetIdHiDep(loan_dep_id,0,1),null,loan_dep_id,C_PKGDEP.fGetIdHiDep(loan_dep_id,0,1))) as filiallabel,
+             nMainSID
+   from Res;
+
+     else
+
+     insert /*+ parallel(8)*/ into Z_116_OVERDUE_CREDT_PDA
+     (filial, loan_id,dep_id, cli_id,cli_dep_id,credittype, val_id, rest, restPercent,restOverdue, includeRSKU, FilialinReport,parentdep,filiallabel,SID)
+
+  with dea as
+     --Кредиты
+     (select /*+ materialize*/ ld.id,
+             ld.dep_id,
+             td.cli_id,
+             td.cli_dep_id,
+             o.val_id
+        from l_dea ld, t_dea td, t_ord o
+       where ld.dep_id = td.dep_id
+         and ld.id = td.id
+         and o.dep_id = td.dep_id
+         and o.id = td.id
+         and ld.dep_id in (select id from c_dep_std
+            start with id = pDepId
+           connect by prior id=id_hi)
+    union all
+    --Кредитные линии
+      select /*+ materialize*/ ld.id,
+             ld.dep_id,
+             td.cli_id,
+             td.cli_dep_id,
+             o.val_id
+        from l_ldea ld, t_dea td, t_ord o
+       where ld.dep_id = td.dep_id
+         and ld.id = td.id
+         and o.dep_id = td.dep_id
+         and o.id = td.id
+         and ld.dep_id in (select id from c_dep_std
+            start with id = pDepId
+           connect by prior id=id_hi)
+        and nvl(Z_116_L_PKGRPT_L_UZ_LN00_003.fParByCodePRL(td.ID,td.DEP_ID,'LL_TECHOVER'),0) = 0
+      )
+      ,dea2 as
+      (select dea.id as loanid,
+              dea.dep_id as loan_dep_id,
+              dea.cli_id,
+              dea.cli_dep_id,
+              dea.val_id
+         from dea, t_process p, t_procmem m, t_bop_stat bs
+        where p.id = m.id
+          and m.dep_id = dea.dep_id
+          and m.ord_id = dea.id
+          and m.mainfl = '1'
+          and bs.id = p.bop_id
+          and bs.nord = p.nstat
+          and bs.code = 'ACTUAL')
+        ,Res as
+        (select
+           loanid,
+           val_id,
+           loan_dep_id,
+           cli_id,
+           cli_dep_id,
+           G_PKGCLI.fGetJURFLCli(cli_dep_id,cli_id) as credittype,
+           t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_BAL',val_id,dDate) + t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_EXP_PD',val_id,dDate) as rest,
+          -- t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_BAL',val_id,dDate) + t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_EXP_PD',val_id,dDate) as restPercent,
+           t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_EXP_PD',val_id,dDate) as restOverdue
+            from dea2 )
+
+      select /*+ parallel(8)*/loan_dep_id,
+             loanid,
+             loan_dep_id,
+             cli_id,
+             cli_dep_id,
+             credittype,
+             val_id,
+             rest,
+             rest,
+             restOverdue,
+             1,
+             '2980',
+             decode(C_PKGDEP.fGetIdHiDep(loan_dep_id,0,1),null,loan_dep_id,C_PKGDEP.fGetIdHiDep(loan_dep_id,0,1)),
+             C_pkgDep.fGetNameDep(decode(C_PKGDEP.fGetIdHiDep(loan_dep_id,0,1),null,loan_dep_id,C_PKGDEP.fGetIdHiDep(loan_dep_id,0,1))) as filiallabel,
+             nMainSID
+   from Res;
+
+     end if;
+
+    else -- РЦКУ не включаем
+      if pDepId = '2980' then
+     -- здесь Голова без РЦКУ
+
+    insert /*+ parallel(8)*/ into Z_116_OVERDUE_CREDT_PDA
+     (filial, loan_id,dep_id, cli_id,cli_dep_id,credittype, val_id, rest, restPercent, restOverdue, includeRSKU, FilialinReport,parentdep,filiallabel,SID)
+
+   with dea as
+     --Кредиты
+     (select /*+ materialize*/ ld.id,
+             ld.dep_id,
+             td.cli_id,
+             td.cli_dep_id,
+             o.val_id
+        from l_dea ld, t_dea td, t_ord o
+       where ld.dep_id = td.dep_id
+         and ld.id = td.id
+         and o.dep_id = td.dep_id and o.id = td.id
+         and ld.dep_id in (2980,2056,3001,3007,3012,3018,3024,3032,3038,3044,3049,3054,2056,2247,2995,3060,6372)
+    union all
+    --Кредитные линии
+      select /*+ materialize*/ ld.id,
+             ld.dep_id,
+             td.cli_id,
+             td.cli_dep_id,
+             o.val_id
+        from l_ldea ld, t_dea td, t_ord o
+       where ld.dep_id = td.dep_id
+         and ld.id = td.id
+         and o.dep_id = td.dep_id
+         and o.id = td.id
+         and ld.dep_id in (2980,2056,3001,3007,3012,3018,3024,3032,3038,3044,3049,3054,2056,2247,2995,3060,6372)
+         and nvl(Z_116_L_PKGRPT_L_UZ_LN00_003.fParByCodePRL(td.ID,td.DEP_ID,'LL_TECHOVER'),0) = 0
+      )
+      ,dea2 as
+      (select dea.id as loanid,
+              dea.dep_id as loan_dep_id,
+              dea.cli_id,
+              dea.cli_dep_id,
+              dea.val_id
+         from dea, t_process p, t_procmem m, t_bop_stat bs
+        where p.id = m.id
+          and m.dep_id = dea.dep_id
+          and m.ord_id = dea.id
+          and m.mainfl = '1'
+          and bs.id = p.bop_id
+          and bs.nord = p.nstat
+          and bs.code = 'ACTUAL')
+        ,Res as
+        (select
+           loanid,
+           val_id,
+           loan_dep_id,
+           cli_id,
+           cli_dep_id,
+           G_PKGCLI.fGetJURFLCli(cli_dep_id,cli_id) as credittype,
+           t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_BAL',val_id,dDate) + t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_EXP_PD',val_id,dDate) as rest,
+           --t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_BAL',val_id,dDate) + t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_EXP_PD',val_id,dDate) as restPercent,
+           t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_EXP_PD',val_id,dDate) as restOverdue
+            from dea2 )
+
+      select /*+ parallel(8)*/loan_dep_id,
+             loanid,
+             loan_dep_id,
+             cli_id,
+             cli_dep_id,
+             credittype,
+             val_id,
+             rest,
+             rest,
+             restOverdue,
+             1,
+             '2980',
+             decode(C_PKGDEP.fGetIdHiDep(loan_dep_id,0,1),null,loan_dep_id,C_PKGDEP.fGetIdHiDep(loan_dep_id,0,1)),
+             C_pkgDep.fGetNameDep(decode(C_PKGDEP.fGetIdHiDep(loan_dep_id,0,1),null,loan_dep_id,C_PKGDEP.fGetIdHiDep(loan_dep_id,0,1))) as filiallabel,
+             nMainSID
+   from Res;
+
+         --  10576 относится к Голове
+    --update Z_116_OVERDUE_CREDT_PDA set parentdep = 2980 where parentdep = 2056;
+
+   else
+
+    insert /*+ parallel(8)*/ into Z_116_OVERDUE_CREDT_PDA
+     (filial, loan_id,dep_id, cli_id,cli_dep_id,credittype, val_id, rest, restPercent, restOverdue, includeRSKU, FilialinReport,parentdep,filiallabel,SID)
+
+    with dea as
+     --Кредиты
+     (select /*+ materialize*/
+             ld.id,
+             ld.dep_id,
+             td.cli_id,
+             td.cli_dep_id,
+             o.val_id
+        from l_dea ld, t_dea td, t_ord o
+       where ld.dep_id = td.dep_id
+         and ld.id = td.id
+         and o.dep_id = td.dep_id
+         and o.id = td.id
+         and ld.dep_id = pDepId
+    union all
+    --Кредитные линии
+      select /*+ materialize*/ ld.id,
+             ld.dep_id,
+             td.cli_id,
+             td.cli_dep_id,
+             o.val_id
+        from l_ldea ld, t_dea td, t_ord o
+       where ld.dep_id = td.dep_id
+         and ld.id = td.id
+         and o.dep_id = td.dep_id
+         and o.id = td.id
+         and ld.dep_id = pDepId
+         and nvl(Z_116_L_PKGRPT_L_UZ_LN00_003.fParByCodePRL(td.ID,td.DEP_ID,'LL_TECHOVER'),0) = 0
+      )
+      ,dea2 as
+      (select /*+ leading(dea) */  dea.id as loanid,
+             dea.dep_id as loan_dep_id,
+             dea.cli_id,
+             dea.cli_dep_id,
+             dea.val_id
+       from dea, t_process p, t_procmem m, t_bop_stat bs
+        where p.id = m.id
+        and m.dep_id = dea.dep_id and m.ord_id = dea.id and m.mainfl = '1'
+
+        and bs.id = p.bop_id
+        and bs.nord = p.nstat
+        and bs.code = 'ACTUAL')
+        ,Res as
+        (select
+           loanid,
+           val_id,
+           loan_dep_id,
+           cli_id,
+           cli_dep_id,
+           G_PKGCLI.fGetJURFLCli(cli_dep_id,cli_id) as credittype,
+           t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_BAL',val_id,dDate) +  t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_EXP_PD',val_id,dDate) as rest,
+          -- t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_BAL',val_id,dDate) +  t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_EXP_PD',val_id,dDate) as restPercent,
+           t_pkgdeaacc.fDeaAccBal(loan_dep_id,loanid,'CR_EXP_PD',val_id,dDate) as restOverdue
+           from dea2 )
+
+      select /*+ parallel(8)*/loan_dep_id,
+             loanid,
+             loan_dep_id,
+             cli_id,
+             cli_dep_id,
+             credittype,
+             val_id,
+             rest,
+             rest,
+             restOverdue,
+             1,
+             '2980',
+             decode(C_PKGDEP.fGetIdHiDep(loan_dep_id,0,1),null,loan_dep_id,C_PKGDEP.fGetIdHiDep(loan_dep_id,0,1)),
+             C_pkgDep.fGetNameDep(decode(C_PKGDEP.fGetIdHiDep(loan_dep_id,0,1),null,loan_dep_id,C_PKGDEP.fGetIdHiDep(loan_dep_id,0,1))) as filiallabel,
+             nMainSID
+   from Res;
+
+   end if;
+    end if;
+
+ commit;
+ -- return;
+  -- для параметра
+
+
+open cAllLoans;
+  loop
+      FETCH cAllLoans BULK COLLECT INTO l_ids LIMIT c_limit;
+    EXIT WHEN l_ids.COUNT = 0;
+   FORALL i IN 1..l_ids.COUNT
+      update /*+ index(I_Z_116_OVERDUE)*/ Z_116_OVERDUE_CREDT_PDA set dmaxdate = l_ids(i).rnk where loan_id = l_ids(i).loan_id and SID = nMainSID;
+    commit;
+  end loop;
+close cAllLoans;
+
+-----------------------
+
+
+  --  10576 относится к Голове
+  update Z_116_OVERDUE_CREDT_PDA set parentdep = 2980 where parentdep = 2056 and SID = nMainSID;
+
+
+-- сконвертнем в сумы
+
+  update Z_116_OVERDUE_CREDT_PDA
+    set rest  = round(T_PkgVal.fCrossRateX(rest, val_id, p_Natval, T_PkgVal.fGetRatDscIdByCode('RAT_CB_UZ'),dDate),2),
+        restpercent = round(T_PkgVal.fCrossRateX(rest, val_id, p_Natval, T_PkgVal.fGetRatDscIdByCode('RAT_CB_UZ'),dDate),2),
+        restoverdue = round(T_PkgVal.fCrossRateX(restoverdue, val_id, p_Natval, T_PkgVal.fGetRatDscIdByCode('RAT_CB_UZ'),dDate),2)
+  where val_id != p_Natval and SID = nMainSID;
+
+
+  insert into Z_116_OVERDUE_CRED_PDA_Itog(filialname,parentdep,SID)
+   select  c_PkgDep.fGetNAME(c_PkgDep.fGetCodeDep(PARENTDEP)),parentdep,nMainSID
+    from Z_116_OVERDUE_CREDT_PDA where parentdep != '2056' group by /*filiallabel,*/parentdep;
+  ---------------------- шаг 2
+
+  -- ****************************** 1
+for rec in
+  (select * from Z_116_OVERDUE_CRED_PDA_Itog where sid = nMainSID)
+loop
+  nsum   := 0;
+  ncount := 0;
+  select sum(rest), count(*) into nsum, ncount from Z_116_OVERDUE_CREDT_PDA where rest != 0 and dDate - dmaxdate >= nvl(pWMovement,0) and parentdep = rec.parentdep and SID = nMainSID;
+  update Z_116_OVERDUE_CRED_PDA_Itog set restall=nsum, restcountallrest=ncount where  parentdep = rec.parentdep and sid = nMainSID;
+
+  nsum   := 0;
+  ncount := 0;
+--select sum(restpercent),count(*) into nsum,ncount from Z_116_OVERDUE_CREDT_PDA where restpercent !=0 and parentdep = rec.parentdep;
+--update Z_116_OVERDUE_CRED_PDA_Itog set restpercentall=nsum, restcountallpercent=ncount where  parentdep = rec.parentdep;
+  select sum(restpercent),count(*) into nsum,ncount from Z_116_OVERDUE_CREDT_PDA where restpercent !=0 and dDate - dmaxdate >= nvl(pWMovement,0) and parentdep = rec.parentdep and SID = nMainSID;
+  update Z_116_OVERDUE_CRED_PDA_Itog set restpercentall=nsum, restcountallpercent=ncount where  parentdep = rec.parentdep and sid = nMainSID;
+
+  nsum   := 0;
+  ncount := 0;
+
+  select sum(restoverdue), count(*) into nsum,ncount from Z_116_OVERDUE_CREDT_PDA where restoverdue !=0 and dDate - dmaxdate >= nvl(pWMovement,0) and parentdep = rec.parentdep and sid = nMainSID;
+  update Z_116_OVERDUE_CRED_PDA_Itog set restoverdueall = nsum, restcountalloverdue = ncount where  parentdep = rec.parentdep and sid = nMainSID;
+
+--******************************** 2    Юридик шахсларга миллий валютада ажратилган кредитлар қолдиғи
+  nsum   := 0;
+  ncount := 0;
+
+  select sum(rest),count(*) into nsum,ncount from Z_116_OVERDUE_CREDT_PDA where rest !=0 and credittype = 1 and val_id=55 and dDate - dmaxdate >= nvl(pWMovement,0)  and parentdep = rec.parentdep and SID = nMainSID;
+  update Z_116_OVERDUE_CRED_PDA_Itog set jurrestall_NQ=nsum, JurrestCountAllRest_NQ=ncount where  parentdep = rec.parentdep and sid = nMainSID;
+
+  nsum   := 0;
+  ncount := 0;
+
+  select sum(restpercent),count(*) into nsum, ncount from Z_116_OVERDUE_CREDT_PDA where restpercent !=0 and credittype = 1 and val_id=55 and dDate - dmaxdate >= nvl(pWMovement,0) and parentdep = rec.parentdep and sid = nMainSID;
+  update Z_116_OVERDUE_CRED_PDA_Itog set JurrestpercentAll_NQ = nsum, JurrestCountAllpercent_NQ=ncount where  parentdep = rec.parentdep and sid = nMainSID;
+
+  nsum   := 0;
+  ncount := 0;
+
+  select sum(restoverdue),count(*) into nsum, ncount from Z_116_OVERDUE_CREDT_PDA where restoverdue !=0 and credittype = 1 and val_id=55 and dDate - dmaxdate >= nvl(pWMovement,0) and parentdep = rec.parentdep and sid = nMainSID;
+  update Z_116_OVERDUE_CRED_PDA_Itog set JurrestoverdueAll_NQ = nsum, JurrestCountAllOverdue_NQ = ncount where  parentdep = rec.parentdep and sid = nMainSID;
+
+
+  -- ******************************* 3  Юридик шахсларга хорижий валютада ажратилган  кредитлар  қолдиғи
+-- юр лица валюта валюта
+
+  nsum   := 0;
+  ncount := 0;
+  select sum(rest),count(*) into nsum, ncount from Z_116_OVERDUE_CREDT_PDA where rest !=0 and credittype = 1 and val_id !=55 and dDate - dmaxdate >= nvl(pWMovement,0) and parentdep = rec.parentdep and sid = nMainSID;
+  update Z_116_OVERDUE_CRED_PDA_Itog set JurRestAll_VAL = nsum, JurrestCountAllRest_VAL = ncount where  parentdep = rec.parentdep and sid = nMainSID;
+
+  nsum  := 0;
+  ncount := 0;
+
+  select sum(restpercent),count(*) into nsum, ncount from Z_116_OVERDUE_CREDT_PDA where restpercent !=0 and credittype = 1 and val_id != 55 and dDate - dmaxdate >= nvl(pWMovement,0) and parentdep = rec.parentdep and sid = nMainSID;
+  update Z_116_OVERDUE_CRED_PDA_Itog set JurrestpercentAll_VAL=nsum, jurrestcountallpercent_val=ncount where  parentdep = rec.parentdep and sid = nMainSID;
+
+  nsum  := 0;
+  ncount := 0;
+
+  select sum(restoverdue),count(*) into nsum, ncount from Z_116_OVERDUE_CREDT_PDA where restoverdue !=0 and credittype = 1 and val_id != 55 and dDate - dmaxdate >= nvl(pWMovement,0) and parentdep = rec.parentdep and sid = nMainSID;
+  update Z_116_OVERDUE_CRED_PDA_Itog set JurrestoverdueAll_VAL = nsum, jurrestcountalloverdue_val = ncount where parentdep = rec.parentdep and sid = nMainSID;
+
+  --  ******************************** 4  Жисмоний шахсларга ажратилган кредитлар қолдиғи
+  -- физ лица
+
+  nsum   := 0;
+  ncount := 0;
+
+  select sum(rest),count(*) into nsum, ncount from Z_116_OVERDUE_CREDT_PDA where rest !=0 and credittype = 0 /*and val_id=55*/ and dDate - dmaxdate >= nvl(pWMovement,0) and parentdep = rec.parentdep and sid = nMainSID;
+  update Z_116_OVERDUE_CRED_PDA_Itog set RestAll_phys = nsum, restCountAllRest_phys = ncount where parentdep = rec.parentdep and SID = nMainSID;
+
+  nsum   := 0;
+  ncount := 0;
+
+  select sum(restpercent), count(*) into nsum,ncount from Z_116_OVERDUE_CREDT_PDA where restpercent != 0 and credittype = 0 /*and val_id=55*/ and dDate - dmaxdate >= nvl(pWMovement,0) and parentdep = rec.parentdep and sid = nMainSID;
+  update Z_116_OVERDUE_CRED_PDA_Itog set restpercentAll_phys = nsum, restCountAllpercent_phys = ncount where  parentdep = rec.parentdep and sid = nMainSID;
+
+  nsum   := 0;
+  ncount := 0;
+
+  select sum(restoverdue), count(*) into nsum,ncount from Z_116_OVERDUE_CREDT_PDA where restoverdue != 0 and credittype = 0 /*and val_id=55*/ and dDate - dmaxdate >= nvl(pWMovement,0) and parentdep = rec.parentdep and sid = nMainSID;
+  update Z_116_OVERDUE_CRED_PDA_Itog set restoverdueAll_phys = nsum, restCountAlloverdue_phys = ncount where  parentdep = rec.parentdep and sid = nMainSID;
+
+end loop;
+  commit;
+
+-- посчитаем пропорции
+
+  update Z_116_OVERDUE_CRED_PDA_Itog
+    set proportionall = restpercentall/restall,
+       jurproportionall_nq = jurrestpercentall_nq/jurrestall_nq,
+       jurproportionall_val = jurrestpercentall_val/jurrestall_val,
+       proportionall_phys = restpercentall_phys/restall_phys,
+       restall = restall / 1000000,
+       restpercentall = restpercentall / 1000000,
+       restoverdueall = restoverdueall/ 1000000,
+       jurrestall_nq = jurrestall_nq / 1000000,
+       jurrestpercentall_nq = jurrestpercentall_nq / 1000000,
+       JurrestoverdueAll_NQ = JurrestoverdueAll_NQ / 1000000,
+       jurrestall_val = jurrestall_val/ 1000000,
+       jurrestpercentall_val = jurrestpercentall_val / 1000000,
+       JurrestoverdueAll_VAL = JurrestoverdueAll_VAL / 1000000,
+       restall_phys = restall_phys / 1000000,
+       restpercentall_phys = restpercentall_phys / 1000000,
+       restoverdueAll_phys = restoverdueAll_phys / 1000000
+       where sid = nMainSID;
+
+
+end Z_116_OVERDUE_CREDIT_PDA;
+]]>
+    </LOB_FIELD>
+    <PRCDPNBN>
+      <LINK:BSN 
+        REF_NAME="T_ANLACC"/>
+    </PRCDPNBN>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_LDEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPRCHR"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_OVERDUE_CREDT_PDA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_OVERDUE_CRED_PDA_ITOG"/>
+    </PRCDPNENT>
+    <PRCDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_NATVAL"/>
+    </PRCDPNFNC>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDEP"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAACC"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_L_PKGRPT_L_UZ_LN00_003"/>
+    </PRCDPNPKG>
+  </PRC>
+</DDC>

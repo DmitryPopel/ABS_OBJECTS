@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_EXTERNAL_REQUEST" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="6C4A68519598D7436D5CF8A5FF6792BB">
+  <PKG 
+    NAME="Z_116_PKG_EXTERNAL_REQUEST">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_EXTERNAL_REQUEST is
+  /**
+  * Пакет для логирования обращений во внешние сервисы
+  *
+  * @author Самадов Сирож
+  * @version 1.0
+  * @headcom
+  *
+  * Copyright (c) 2023 By Aloqabank. All Rights Reserved.
+  */
+
+  /** Сохранение лога
+  */
+  procedure pSaveLog(sState    varchar2,
+                     sOrigin   varchar2,
+                     sService  varchar2,
+                     sUsername varchar2 := p_codeus,
+                     sPinfl    varchar2 := null,
+                     nDepId    number := null,
+                     nLoanId   number := null,
+                     nAppId    number := null,
+                     sRequest  clob := null,
+                     sResponse clob := null);
+end Z_116_PKG_EXTERNAL_REQUEST;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_EXTERNAL_REQUEST is
+  /** Сохранение лога
+  */
+  procedure pSaveLog(sState    varchar2,
+                     sOrigin   varchar2,
+                     sService  varchar2,
+                     sUsername varchar2 := p_codeus,
+                     sPinfl    varchar2 := null,
+                     nDepId    number := null,
+                     nLoanId   number := null,
+                     nAppId    number := null,
+                     sRequest  clob := null,
+                     sResponse clob := null) is
+    pragma autonomous_transaction;
+  begin
+    insert into Z_116_EXTERNAL_REQUEST
+      (STATE,
+       ORIGIN,
+       SERVICE,
+       USERNAME,
+       PINFL,
+       DEP_ID,
+       APP_ID,
+       LOAN_ID,
+       REQUEST,
+       RESPONSE)
+    values
+      (sState,
+       sOrigin,
+       sService,
+       sUsername,
+       sPinfl,
+       nDepId,
+       nAppId,
+       nLoanId,
+       sRequest,
+       sResponse);
+    commit;
+  end;
+
+end Z_116_PKG_EXTERNAL_REQUEST;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_EXTERNAL_REQUEST"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_CODEUS"/>
+    </PKGDPNFNC>
+  </PKG>
+</DDC>

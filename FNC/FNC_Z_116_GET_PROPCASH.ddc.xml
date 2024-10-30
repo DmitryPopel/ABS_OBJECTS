@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="FNC" 
+  KEY="Z_116_GET_PROPCASH" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="1658B181B74997547F3D43A8CFDC858C">
+  <FNC 
+    NAME="Z_116_GET_PROPCASH">
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace function COLVIR.Z_116_GET_PROPCASH (pID number,pLongname varchar2) return number
+as
+  vParentID   number;
+  vResult     varchar2(100);
+  vCashCount  number;
+begin
+
+  if instr(pLongname,'касса') = 0 then
+    return null;
+  end if;
+
+  begin
+  select parent_id into vParentID from t_procinh where child_id = pID;
+  exception
+    when others then
+      vParentID := null; --dbms_output.put_line('exception');
+  end;
+
+  if vParentID is not null then
+   begin
+     select bs_dom.DName(decode(op.INFL, '1', 'M_TRFPAYOUTTYPE', 'M_TRFRCVTYPE'), op.RCVTYPE)
+     into vResult
+     from t_procmem m, M_ORDPAY op
+    where m.id = vParentID
+      and m.ord_id = op.id
+      and m.dep_id = op.dep_id;
+
+     if vResult = 'Наличными' then
+       return 0;
+     elsif vResult = 'Списать с карты' then
+       return 1;
+     end if;
+
+   exception
+     when others then
+    return 1;
+   end;
+  else
+   -- если кассовые документы, то считаем, что это cash
+   select count(1)
+   into vCashCount
+     from t_procmem m, S_ORDCASH oc
+    where m.id = pID
+      and m.ord_id = oc.id
+      and m.dep_id = oc.dep_id;
+
+    if vCashCount > 0 then
+      return 0;
+    end if;
+  end if;
+
+    return 1;
+
+
+end Z_116_GET_PROPCASH;
+]]>
+    </LOB_FIELD>
+    <FNCDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_DOM"/>
+    </FNCDPNBSN>
+    <FNCDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_ORDPAY"/>
+    </FNCDPNENT>
+    <FNCDPNENT>
+      <LINK:ENT 
+        REF_NAME="S_ORDCASH"/>
+    </FNCDPNENT>
+    <FNCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCINH"/>
+    </FNCDPNENT>
+    <FNCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </FNCDPNENT>
+  </FNC>
+</DDC>

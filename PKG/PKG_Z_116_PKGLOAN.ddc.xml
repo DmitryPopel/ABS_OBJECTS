@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGLOAN" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="246B08090ADA57D2096D3F15C9B8A115">
+  <PKG 
+    NAME="Z_116_PKGLOAN">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGLOAN as
+/**
+* Кастомизированные функции и процедуры для работы с кредитными договорами
+*
+* @author Каюмов Денис
+* @version 1.0
+* @headcom
+*
+* Copyright (c) 2023 By Aloqabank. All Rights Reserved.
+*/
+--Функция проверки наличия залогового обеспечения нужного типа
+function fChkEnsTypeExist(dea in GL_ANL.RANLKEY, ensType in integer) return integer;
+function fChkEnsTypeExist(depDea in integer, idDea in integer, ensType in integer) return integer;
+end Z_116_PKGLOAN;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGLOAN is
+--Функция проверки наличия на договоре залогового обеспечения нужного типа.
+function fChkEnsTypeExist(depDea in integer, idDea in integer, ensType in integer) return integer as
+  nCnt integer;
+begin
+  select count(1) into nCnt from mv_deamortg m
+  where m.id = idDea
+  and m.dep_id = depDea
+  and m.ens_knd_code = ensType
+  and m.amount is not null;
+  return nvl(nCnt,0);
+end fChkEnsTypeExist;
+function fChkEnsTypeExist(dea in GL_ANL.RANLKEY, ensType in integer) return integer as
+begin
+    return fChkEnsTypeExist(to_number(dea.PK1), to_number(dea.PK2), ensType);
+end;
+end Z_116_PKGLOAN;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="MV_DEAMORTG"/>
+    </PKGDPNENT>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="GL_ANL"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

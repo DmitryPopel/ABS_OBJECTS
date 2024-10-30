@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGMIB" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="D156E9915123F4CE2C0E72736497BBF4">
+  <PKG 
+    NAME="Z_116_PKGMIB">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGMIB is
+/**
+* Пакет для кастомизированных проверок должников по запросам MIB
+*
+* @author Анатолий Бондаренко
+* @version 1.0
+* @headcom
+*
+*/
+
+  /** Процедура обработки загруженных данных от MIB
+  * <br/><i>С версии 1.0</i>
+  */
+  procedure pCHK4MIB;
+
+end Z_116_PKGMIB;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGMIB is
+
+  --Процедура обработки загруженных данных от MIB
+  procedure pCHK4MIB is
+    nIdn_PINFL         G_IDNDSC_STD.ID%type := G_PKGIDN.fId('IDN_PRS_UZ');
+    nIdn_INNFL         G_IDNDSC_STD.ID%type := G_PKGIDN.fId('IDN_FIZ_UZ');
+    nIdn_INNJur        G_IDNDSC_STD.ID%type := G_PKGIDN.fId('IDN_JUR_UZ');
+  begin
+    -- сначала очистим итоговую таблицу
+    delete from Z_116_DATA_FOR_MIB_CHECK;
+
+    -- найдем совпадения по документам клиентов:
+    for c in (select m.mib_num, m.fio_debtor, m.birdate_as_string, m.birdate, m.pass_full, m.pinfl, m.inn, m.address
+                 , c.code as abs_cli_code
+                 , c.dep_id, c.id
+                 , h.longname as abs_fio
+                 , h.passser as abs_passser, h.passnum as abs_passnum
+                 , G_PKGCLIIDN.fCliIdn(pDEP_ID => c.dep_id, pID => c.id, pIDN_ID => nIdn_PINFL) as ABS_PINFL
+                 , G_PKGCLIIDN.fCliIdn(pDEP_ID => c.dep_id, pID => c.id, pIDN_ID =>nIdn_INNFL) as ABS_INNFL
+                 , G_PKGCLIIDN.fCliIdn(pDEP_ID => c.dep_id, pID => c.id, pIDN_ID =>nIdn_INNJur) as ABS_INNJL
+                 from Z_116_DATA_MIB_RAW m, G_CLI c, G_CLIHST h
+                   where c.dep_id = h.dep_id and c.id = h.id and p_operday between h.fromdate and h.todate and h.arcfl = 0
+                     and (
+                           (m.passser = h.passser and m.passnum = h.passnum and decode(trim(m.passser),'*',null,trim(m.passser)) is not null and m.passnum is not null)
+                            or (m.pinfl = G_PKGCLIIDN.fCliIdn(pDEP_ID => c.dep_id, pID => c.id, pIDN_ID => nIdn_PINFL) and decode(trim(m.pinfl),'*',null,m.pinfl) is not null)
+                         --and nvl(decode(trim(m.pinfl),'*',null,m.pinfl),'-12') <> '11111111111111'  -- отбросим какие то тестовые или некорректно мигрированные данные
+                         )
+              union
+              select m.mib_num, m.fio_debtor, m.birdate_as_string, m.birdate, m.pass_full, m.pinfl, m.inn, m.address
+                   , c.code as abs_cli_code
+                   , c.dep_id, c.id
+                   , h.longname as abs_fio
+                   , h.passser as abs_passser, h.passnum as abs_passnum
+                   , G_PKGCLIIDN.fCliIdn(pDEP_ID => c.dep_id, pID => c.id, pIDN_ID => nIdn_PINFL) as ABS_PINFL
+                   , G_PKGCLIIDN.fCliIdn(pDEP_ID => c.dep_id, pID => c.id, pIDN_ID =>nIdn_INNFL) as ABS_INNFL
+                   , G_PKGCLIIDN.fCliIdn(pDEP_ID => c.dep_id, pID => c.id, pIDN_ID =>nIdn_INNJur) as ABS_INNJL
+                   from Z_116_DATA_MIB_RAW m, G_CLI c, G_CLIHST h
+                     where c.dep_id = h.dep_id and c.id = h.id and p_operday between h.fromdate and h.todate and h.arcfl = 0
+                       and  ( ( m.inn = G_PKGCLIIDN.fCliIdn(pDEP_ID => c.dep_id, pID => c.id, pIDN_ID =>nIdn_INNFL)
+                                  or m.inn = G_PKGCLIIDN.fCliIdn(pDEP_ID => c.dep_id, pID => c.id, pIDN_ID =>nIdn_INNJur))
+                                and decode(trim(m.inn),'*',null,m.inn) is not null
+                                )
+    ) loop
+      insert into Z_116_DATA_FOR_MIB_CHECK (mib_num,
+                                            fio_debtor,
+                                            birdate_as_string,
+                                            birdate,
+                                            pass_full,
+                                            pinfl,
+                                            INN_MIB,
+                                            address,
+                                            cli_dep_id,
+                                            cli_id,
+                                            abs_cli_code,
+                                            abs_fio,
+                                            passser,
+                                            passnum,
+                                            abs_pinfl,
+                                            abs_innfl,
+                                            abs_innjur,
+                                            dea_type,
+                                            acc_dep_id,
+                                            acc_id,
+                                            acc_code,
+                                            acc_bal,
+                                            acc_val_code)
+                                              -- проверим счета РКО
+                                             (select c.mib_num , c.fio_debtor, c.birdate_as_string, c.birdate, c.pass_full, c.pinfl, c.inn, c.address
+                                                     , c.dep_id, c.id, c.abs_cli_code, c.abs_fio, c.abs_passser, c.abs_passnum
+                                                     , c.ABS_PINFL, c.ABS_INNFL, c.ABS_INNJL
+                                                     , t_pkgprocess.fGetBopNameByMainOrd(t.dep_id, t.id) as Dea_type
+                                                     , d.acc_dep_id, d.acc_id  , b.code
+                                                     , t_pkgaccbal.fAbs(d.acc_dep_id, d.acc_id ,idVal => ac.val_id)
+                                                     , v.CODE
+                                                     from t_dea t, S_DEAACC d  , g_accbln b , t_acc ac, t_val v
+                                                       where t.cli_dep_id = c.dep_id and t.cli_id = c.id
+                                                         and t.dep_id = d.dep_id and t.id = d.id
+                                                         and d.acc_dep_id = b.dep_id and d.acc_id = b.id
+                                                         and b.dep_id = ac.dep_id and b.id = ac.id
+                                                         and nvl(ac.val_id, p_natval) = v.ID
+                                              union all
+                                              -- проверим депозитные счета
+                                              select c.mib_num , c.fio_debtor, c.birdate_as_string, c.birdate, c.pass_full, c.pinfl, c.inn, c.address
+                                                     , c.dep_id, c.id, c.abs_cli_code, c.abs_fio, c.abs_passser, c.abs_passnum
+                                                     , c.ABS_PINFL, c.ABS_INNFL, c.ABS_INNJL
+                                                     , t_pkgprocess.fGetBopNameByMainOrd(t.dep_id, t.id) as Dea_type
+                                                     , d.acc_dep_id, d.acc_id  , b.code
+                                                     , t_pkgaccbal.fAbs(d.acc_dep_id, d.acc_id ,idVal => ac.val_id)
+                                                     , v.CODE
+                                                     from t_dea t, D_DEA d  , g_accbln b , t_acc ac, t_val v
+                                                       where t.cli_dep_id = c.dep_id and t.cli_id = c.id
+                                                         and t.dep_id = d.dep_id and t.id = d.id
+                                                         and d.acc_dep_id = b.dep_id and d.acc_id = b.id
+                                                         and b.dep_id = ac.dep_id and b.id = ac.id
+                                                         and nvl(ac.val_id, p_natval) = v.ID);
+
+
+    end loop;
+    -- очистим таблицу источник за собой, для возможности загрузки новых файлов
+    delete from Z_116_DATA_MIB_RAW;
+
+  end pCHK4MIB;
+
+end Z_116_PKGMIB;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="D_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_IDNDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="S_DEAACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_VAL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_DATA_FOR_MIB_CHECK"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_DATA_MIB_RAW"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_NATVAL"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCBAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGPROCESS"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

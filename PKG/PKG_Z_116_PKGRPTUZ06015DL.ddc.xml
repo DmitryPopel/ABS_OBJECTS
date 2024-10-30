@@ -1,0 +1,413 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGRPTUZ06015DL" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="0B25B4EB762A847F4091FDC19A4DF34D">
+  <PKG 
+    NAME="Z_116_PKGRPTUZ06015DL">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGRPTUZ06015DL is
+/**
+* Пакет для методов работы с витриной u_rptuz06015dl
+*
+* @author Бондаренко Анатолий
+* @version 2.3
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+  /** Заполнение витрины данными извне АБС
+  * <br/><i>С версии 1.0</i>
+  * @param pInput данные для добавления в витрину
+  * @param pOutput выходные параметры - результат работы метода
+  */
+  procedure pAddData06015(pInput  in  Clob,
+                          pOutput out Clob);
+
+  /** Определение кода фин. института по коду банка
+  * <br/><i>С версии 2.0</i>
+  * @param pBranch код банка
+  * @return код фининститута
+  */
+  function fGetFinInst(pBranch in G_BNK.CODE%type) return P_FININST.CODE%type;
+
+end Z_116_PKGRPTUZ06015DL;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGRPTUZ06015DL is
+  -- константы
+  с3Kcode varchar2(30) := '42714'; -- Код системы денежных переводов для KoronaPAY
+
+  function fGetFinInst(pBranch in G_BNK.CODE%type) return P_FININST.CODE%type as
+    pFinInst P_FININST.CODE%type;
+  begin
+    select f.CODE
+        into pFinInst
+        from G_BNK b, G_BNKHST bh, P_FININST f
+       where b.code = pBranch
+         and b.id = bh.ID
+         and p_operday between bh.FROMDATE and bh.TODATE
+         and bh.FIN_ID = f.ID;
+    return pFinInst;
+  exception
+    when no_data_found then
+      return null;
+  end fGetFinInst;
+
+
+  -- Заполнение витрины данными извне АБС
+  procedure pAddData06015(pInput  in  Clob,
+                          pOutput out Clob) is
+    ObjIn                JSON_OBJECT_T;
+    ObjRes               JSON_OBJECT_T;
+    nDepId               U_RPTUZ06015DL.DEP_ID%type;
+    nId                  U_RPTUZ06015DL.ID%type;
+    dRep                 date;
+    dt                   date;
+    cCliCode             G_CLI.CODE%type;
+    nCliDepId            G_CLI.DEP_ID%type;
+    nCliId               G_CLI.ID%type;
+    cDepCode             C_DEP_STD.CODE%type;
+    cVrtBal              G_CLIADDATR.VALUE%type;
+    cJurFl               G_CLI.Jurfl%type;
+    cIncomeFl            U_RPTUZ06015DL.Income_Fl%type;
+    cAccCode             G_ACCBLN.CODE%type;
+    nAccDepId            G_ACCBLN.DEP_ID%type;
+    nAccId               G_ACCBLN.ID%type;
+    cPayType             char(1);
+    cStateOut            U_RPTUZ06015DL.gr3%type;
+    cStateIn             U_RPTUZ06015DL.gr4%type;
+    cBankRn              G_CLIREFVAL.VALUE%type;
+    nSum                 number(18,2);
+    cValCode             U_RPTUZ06015DL.gr7%type;
+    cPname1              G_CLIHST.Pname1%type;
+    cPname2              G_CLIHST.Pname2%type;
+    cPname3              G_CLIHST.Pname3%type;
+    cResidFl             U_RPTUZ06015DL.gr12%type;
+    cPassTypId           U_RPTUZ06015DL.GR13%type;
+    cPassOrg             G_CLIHST.Passorg%type;
+    cPassSer             G_CLIHST.Passser%type;
+    cPassN               G_CLIHST.PASSNUM%type;
+    dPassD               G_CLIHST.PASSDAT%type;
+    dBir                 G_CLI.birdate%type;
+    cBir                 U_RPTUZ06015DL.GR18%type;
+    iIDN_PINFL_ID        G_CLIIDN.ID%type := G_PKGIDN.fId('IDN_PRS_UZ');
+    cNameOut             U_RPTUZ06015DL.GR21%type;
+    cBirDOut             U_RPTUZ06015DL.GR22%type;
+    cBirAdrOut           U_RPTUZ06015DL.GR23%type;
+    cBankCodeIn          U_RPTUZ06015DL.gr24%type;
+    cCardNoIn            U_RPTUZ06015DL.gr25%type;
+    dPayFactIn           U_RPTUZ06015DL.gr26%type;
+    cBirthAddress        U_RPTUZ06015DL.gr19%type;
+    cPinfl               U_RPTUZ06015DL.gr20%type;
+    bInsert              boolean := false;
+    сFinInst             P_FININST.CODE%type;
+
+  begin
+    Z_116_PKGCONNECT.pOpen();
+
+    ObjIn := JSON_OBJECT_T.parse(pInput);
+    dRep :=  to_date(ObjIn.get_String('dRep'), 'yyyy-mm-dd'); -- дата отчета
+    dt :=  to_date(ObjIn.get_String('dOut'), 'yyyy-mm-dd');    -- дата перевода
+    cCliCode := ObjIn.get_String('clientId');
+    cIncomeFl := ObjIn.get_String('incomeFl');
+
+    if ObjIn.has('id') and ObjIn.has('depId') then
+      nDepId := ObjIn.get_Number('depId');
+      nId := ObjIn.get_Number('id');
+    else
+      nDepId := 0;
+      nId := z_116_AddData06015_seq.Nextval;
+      bInsert := true;
+    end if;
+
+    -- сбор инфы для первичного заполнения
+    -- соберем информацию по получателю
+    if cCliCode is not null then
+      begin
+        select c.dep_id, c.id, c.jurfl, ch.pname1, ch.pname2, ch.pname3, decode(ch.residfl, 1, 1, 2),
+               coalesce((select c1.CODE from G_IDENTDOCDSC_STD t1, G_IDENTALTCOD c1
+                                        where t1.ID = c1.ID and c1.PASSCLS = 'NIBBD' and t1.ID = ch.passtyp_id),
+                        U_PKGRPTUZ03009DL.fGetCliattr(c.dep_id, c.id,11,dRep)),
+               ch.passorg, ch.passser, ch.passnum, ch.passdat, c.birdate
+               into nCliDepId, nCliId, cJurFl, cPname1, cPname2, cPname3, cResidFl, cPassTypId, cPassOrg, cPassSer, cPassN, dPassD, dBir
+          from G_CLI c, G_CLIHST ch
+          where c.code = cCliCode
+            and c.dep_id = ch.dep_id and c.id = ch.id and dRep between ch.fromdate and ch.todate;
+
+        cBirthAddress := nvl(G_PKGADDRESS.fCliAdr(nCliDepId,nCliId,GCLIADR_BIRTH), 'УЗБЕКИСТАН');
+        cPinfl := coalesce(G_PKGCLIIDN.fCliIDN(nCliDepId, nCliId, iIDN_PINFL_ID), ObjIn.get_String('pinfl'));
+      exception
+        when no_data_found then
+          pOutput := Z_116_ELOAN_UTILS.fErr(sqlcode, 'Не найден клиент с кодом: %0:s', vargs(cCliCode));
+          return;
+        when others then
+          pOutput := Z_116_ELOAN_UTILS.fErr(sqlcode, 'Ошибка подготовки информации по клиенту %1:s: %0:s', vargs(substr(sqlerrm,1,2000),cCliCode));
+          return;
+      end;
+    else  -- значит все данные по получателю берем из входных данных
+      cJurFl := nvl(ObjIn.get_String('jurFl'),'0');  -- по-умолчанию считаем, что грузим ФЛ
+      cPname1 := ObjIn.get_String('lastName');
+      cPname2 := ObjIn.get_String('firstName');
+      cPname3 := ObjIn.get_String('patronymic');
+      cResidFl := ObjIn.get_String('residFl');
+      cPassTypId := ObjIn.get_String('docType');
+      cPassOrg := ObjIn.get_String('docOrg');
+      cPassSer := ObjIn.get_String('docSer');
+      cPassN := ObjIn.get_String('docNumber');
+      dPassD := to_date(ObjIn.get_String('docDate'), 'yyyy-mm-dd');
+      dBir := to_date(ObjIn.get_String('birthDate'), 'yyyy-mm-dd');
+      cBirthAddress := ObjIn.get_String('birthAddress');
+      cPinfl := ObjIn.get_String('pinfl');
+    end if; -- cCliCode is not null
+
+    if dBir is not null then
+      cBir := to_char(dBir,'yyyymmdd');  -- gr18
+    end if;
+
+    cDepCode := ObjIn.get_String('department');
+    begin
+      select G_PKGCLIADDATR.fAttrValue(c1.DEP_ID,c1.ID, dRep,'VRTBALDEP') into cVrtBal
+        from G_CLI c1, C_DEP d1 where c1.DEPCRD_ID = d1.ID
+        and d1.CODE = cDepCode;
+    exception
+      when NO_DATA_FOUND then
+        cVrtBal := null;
+    end;
+
+    cAccCode := ObjIn.get_String('account');
+    if cAccCode is not null then
+      begin
+        g_pkgaccbln.pGetIdDepIdAcc(cAccCode, nAccDepId, nAccId, iRaise => 1);
+      exception
+        when others then
+          pOutput := Z_116_ELOAN_UTILS.fErr(sqlcode, 'Ошибка поиска транзитного счета %1:s: %0:s', vargs(substr(sqlerrm,1,2000),cAccCode));
+          return;
+      end;
+    end if;
+
+    -- Код вида перевода: "3" - полученные и зачисленные на карту через СДБО
+    cPayType := '3';
+
+    cStateOut := ObjIn.get_String('stateCodeOut');
+    cStateIn  := ObjIn.get_String('stateCodeIn');
+
+    select g1.VALUE into cBankRn
+      from U_UNIREF_STD u1, G_CLIREFVAL g1, G_CLI c1, C_DEP_STD d1
+        where u1.CODE||'' = 'UZ_RN'
+          and u1.ID = g1.REF_ID and c1.DEP_ID = g1.DEP_ID and c1.ID = g1.ID
+          and c1.DEPCRD_ID = d1.ID
+          and d1.CODE = cDepCode
+          and dRep between g1.FROMDATE and nvl(g1.TODATE,P_MAXDATE) and g1.ARCFL = 0;
+
+    nSum := ObjIn.get_Number('amount');
+    cValCode := ObjIn.get_String('valCode');
+    cValCode := dbase.iif(cValCode = '860', '000', cValCode); -- нац валюта должна идти как 000, а не как 860
+    cNameOut := ObjIn.get_String('cliOut');
+    --cBirDOut := ObjIn.get_String('birDateOut');
+    cBirDOut := to_char(to_date(ObjIn.get_String('birDateOut'), 'yyyy-mm-dd'), 'yyyymmdd');
+    cBirAdrOut := ObjIn.get_String('birAddressOut');
+    cBankCodeIn := ObjIn.get_String('bankCodeIn');
+    cCardNoIn := ObjIn.get_String('cardNumberIn');
+    dPayFactIn := to_date(ObjIn.get_String('dIn'), 'yyyy-mm-dd');
+
+    -- код фининститута для gr24
+    сFinInst := fGetFinInst(cBankCodeIn);
+
+    -- если имя получателя пусто, а фамилия нет - возьмем концовку от нее - бывает ФИО слитно приходит
+    if cPname2 is null and cPname1 is not null then
+      cPname2 :=  substr(cPname1, greatest(-6, -length(cPname1))); -- последние 6 символов или всю фамилию
+    end if;
+
+    ObjRes := new JSON_OBJECT_T;
+    --записываем в таблицу U_RPTUZ06015DL данные
+    if bInsert then
+      -- -- -- --
+      insert into U_RPTUZ06015DL
+      (
+        DTO,
+        DEP_ID,
+        ID,
+        CLIDEP_ID,
+        CLI_ID,
+        CLI_CODE,
+        ACC_DEP_ID,
+        ACC_ID,
+        ACC_CODE,
+        VRTBALDEP,
+        DEP_USL,
+        JUR_FL,
+        TYPE_FL,
+        INCOME_FL,
+        GR1,
+        GR2,
+        GR3,
+        GR4,
+        GR5,
+        GR6,
+        GR7,
+        GR8,
+        GR9,
+        GR10,
+        GR11,
+        GR12,
+        GR13,
+        GR14,
+        GR15,
+        GR16,
+        GR17,
+        GR18,
+        GR19,
+        GR20,
+        --GR20INPS,
+        GR21,
+        GR22,
+        GR23,
+        GR24,
+        GR25,
+        GR26
+      ) values (
+        dRep, nDepId, nId, nCliDepId, nCliId, cCliCode,
+        nAccDepId, nAccId, cAccCode, --  !!!! тут счет, вероятно, транзитный: 19934/29834/... - в зависиости от направления перевода/СДП и т.д.
+        cVrtBal, cDepCode, cJurFl, '1', -- TYPE_FL = 1 - значит это СДП (Золотая корона)
+        cIncomeFl, с3Kcode, cPayType, cStateOut, cStateIn, cBankRn, nSum, cValCode, dt, cPname1, cPname2, cPname3, cResidFl,
+        cPassTypId, cPassSer, cPassN, cPassOrg, dPassD, cBir, cBirthAddress,
+        cPinfl, cNameOut, cBirDOut, cBirAdrOut,
+        сFinInst, cCardNoIn, dPayFactIn);
+      -- -- -- --
+      ObjRes.put('depId', nDepId);
+      ObjRes.put('id', nId);
+    else
+      --------- TODO: update U_RPTUZ06015DL - список полей для апдейта ???
+      update U_RPTUZ06015DL set DTO = dRep where DEP_ID = nDepId and ID = nId;
+    end if;
+
+    ObjRes.put('result', 'OK');
+
+    pOutput := ObjRes.To_Clob;
+
+  exception
+      when others then
+        pOutput := Z_116_ELOAN_UTILS.fErr(sqlcode, 'Ошибка добавления данных ЗК в витрину 06015: %0:s', vargs(substr(sqlerrm,1,2000)));
+  end pAddData06015;
+
+end Z_116_PKGRPTUZ06015DL;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_BNK"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_BNKHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIADDATR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIIDN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIREFVAL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_IDENTALTCOD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_IDENTDOCDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="P_FININST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_RPTUZ06015DL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UNIREF"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_MAXDATE"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="DBASE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGACCBLN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGADDRESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIADDATR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="U_PKGRPTUZ03009DL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_ELOAN_UTILS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNSEQ>
+      <LINK:SEQ 
+        REF_NAME="Z_116_ADDDATA06015_SEQ"/>
+    </PKGDPNSEQ>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="G_CLIADR_TYPE"/>
+    </PKGDPNDOM>
+  </PKG>
+</DDC>

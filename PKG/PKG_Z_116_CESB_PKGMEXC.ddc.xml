@@ -1,0 +1,570 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_CESB_PKGMEXC" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="93B296B030F39C9AEAB2F1C20C05B811">
+  <PKG 
+    NAME="Z_116_CESB_PKGMEXC">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_CESB_PKGMEXC is
+
+/**
+* Доработанный пакет CESB_PKGMEXC с поддержкой получения курса нескольких групп касс
+*
+* @author Быстров Владимир
+* @author Бондаренко Анатолий
+* @version 1.2
+* @headcom
+*
+* Copyright (c) 2024 By AloqaBank. All Rights Reserved.
+*/
+
+/** Возвращает список курсов валют
+* <br/><i>Появилась в 1.0</i>
+* @param B Клиентский базовый объект Base
+* @param S Клиентский сервисный объект Service
+* @result Объект JSON список курсов валют
+*/
+function fGetExchRates ( B in out CESB_BASE.BParam , S in out CESB_BASE.SParam  ) return CESB_BASE.SParam ;
+
+end Z_116_CESB_PKGMEXC;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_CESB_PKGMEXC is
+
+sPkgName constant varchar2(64) := $$PLSQL_UNIT;
+
+procedure pSaveResponceText(
+  pID       in T_UNIMSGJRN.ID%TYPE,
+  pAnswer   in CESB_BASE.SParam)
+is
+begin
+  if pID is not null then
+    CESB_PKGUNIMSG.pSaveRespText(
+      pID => pID,
+      pAnswer => pAnswer,
+      pStatus => fMSG_STAT_PROCESS,
+      pAttrCode => 'RESP$TEXT',
+      pAttrName => Localize('Текст ответа', 'PKG', sPkgName));
+  end if;
+end;
+
+procedure pSaveResponceErr(
+  pID       in T_UNIMSGJRN.ID%TYPE,
+  pAnswer   in CESB_BASE.SParam)
+is
+begin
+  if pID is not null then
+    CESB_PKGUNIMSG.pSaveRespText(
+      pID => pID,
+      pAnswer => pAnswer,
+      pStatus => fMSG_STAT_ERROR,
+      pAttrCode =>'RESP$TEXT',
+      pAttrName => Localize('Текст ответа', 'PKG', sPkgName));
+  end if;
+end;
+
+procedure pSaveRequestByRequestID(
+  B          in CESB_BASE.BParam,
+  S          in CESB_BASE.SParam,
+  pFrmt      in T_UNIMSGJRN.FRMT%TYPE,
+  pRefer     in T_UNIMSGJRN.REFER%TYPE,
+  pID        in out T_UNIMSGJRN.ID%TYPE)
+is
+  iRCV_ADR_ID         C_IMEADR.ID%type;
+  iSND_ADR_ID         C_IMEADR.ID%type;
+  cRCV_ADR            C_IMEADR.NAME%type := 'PP_COLVIR';
+  cSND_ADR            C_IMEADR.NAME%type := 'AMOBILE';
+  cUZ_AMOBILE         C_IMEFRMTYP.CODE%type :='UZ_AMOBILE';
+  iUZ_AMOBILE_TYPE_ID C_IMEFRMTYP.ID%type;
+begin
+  if pRefer is not null then
+      select ID into iUZ_AMOBILE_TYPE_ID from C_IMEFRMTYP where CODE = cUZ_AMOBILE;
+      select ID into iRCV_ADR_ID from C_IMEADR where NAME = cRCV_ADR;
+      select ID into iSND_ADR_ID from C_IMEADR where NAME = cSND_ADR;
+      CESB_PKGUNIMSG.pProcessRequest(
+       B => B,
+       S => S,
+       pFtypId => iUZ_AMOBILE_TYPE_ID,
+       pFrmt => pFrmt,
+       pStatus => fMSG_STAT_RECEIVE,
+       pSndAddrId => iSND_ADR_ID,
+       pRcvAddrId => iRCV_ADR_ID,
+       pRefer => pRefer,
+       pID => pID);
+  else
+    pID := null;
+  end if;
+end;
+
+function fStrToTable (sStr varchar2) return C_VARCHAR_TBL
+ as
+  sStrList    C_VARCHAR_TBL:=C_VARCHAR_TBL() ;
+  tStr varchar2 (4000):=sStr|| ',';
+begin
+  while tStr is not null
+    loop
+      sStrList.EXTEND;
+      sStrList(sStrList.COUNT) := substr(tStr, 1, instr(tStr, ',', 1) - 1);
+      tStr := substr(tStr, instr(tStr, ',', 1) + 1);
+  end loop;
+  return sStrList;
+end;
+
+-- Функция удаляет номера из текста ошибки
+function fClearError
+  ( pErrMsg in varchar2
+  ) return varchar2
+as
+begin
+  return(regexp_replace(pErrMsg, '(ORA-[[:digit:]]{5,}:[[:space:]]{1,})', ''));
+end;
+
+procedure RaiseCESBError(pID in T_UNIMSGJRN.ID%TYPE, ORACode int, Code int, Text varchar2, Description varchar2, HReason varchar2 default null,
+  HRecommendation varchar2 default null, LValue int default 0) is
+begin
+ pSaveResponceErr(pID, to_clob(Code ||' '||Text  ||' '|| Description ));
+ CESB_BASE.RaiseCESBError(ORACode => ORACode, Code => Code, Text => Text, Description => Description,
+    HReason => HReason, HRecommendation => HRecommendation, LValue => LValue);
+end;
+
+-- Создание и исполнение расчетного документа
+--GET /IBPayment/ExchRates currency.getExchRates
+function fGetExchRatesByGr ( iJrnID  T_UNIMSGJRN.ID%TYPE,
+                             pValCode   varchar2,
+                             pTimestamp Timestamp,
+                             pCurGroup  varchar2 ) return JSON_OBJECT_T is
+  sValCode         varchar2(30);
+  dDateTime        Date;
+  dTimestamp       Timestamp;
+  lObj             JSON_OBJECT_T;
+  lRates           CESB_BASE.SParam;
+  tRate            varchar2(50);
+  grRate           integer;
+  sListVal         varchar2(250);
+  wrong_rate_type  exception;
+  wrong_list_val   exception;
+  wrong_no_data    exception;
+  wrong_no_data_cb exception;
+
+  valList          C_VARCHAR_TBL;
+  valListTest      C_VARCHAR_TBL;
+  dWorkDateTime    Date;
+  j number;
+  i pls_integer := 0;
+
+begin
+
+  tRate := pCurGroup;
+
+  begin
+    grRate:=M_PKGEXCRATE.fGetGrId(tRate);
+  exception when others then
+    if S_PKGCSFNC.fIsEnvError(SQLERRM) = 1 then -- сброс пакетов
+      Raise; -- не обрабатываем ошибку
+    end if;
+    raise wrong_rate_type;
+  end;
+
+  sValCode := pValCode;
+  if sValCode='ALL' then
+    sListVal := c_pkgDecTbl.fDecisionList(sTblAlias => 'Z_116_P2P_BY_GR_ALLVAL'
+                                        , sNameList => 'cashGroup'
+                                        , sValueList => pCurGroup
+                                        , nRunRaise => 0);
+    if sListVal is null then
+      raise wrong_list_val;
+    end if;
+  end if;
+  if sValCode='ALL' then
+    valList:=fStrToTable(sListVal);
+  else
+    valList:=fStrToTable(sValCode);
+  end if;
+  valListTest:=valList;
+
+  dTimestamp := pTimestamp;
+  dDateTime := dTimestamp;
+
+  dWorkDateTime := c_pkgDate.fPrev(dDateTime);  -- Ближайший рабочий день (назад)
+  -- Если вызов в выходной день
+  if dDateTime != dWorkDateTime then
+    if coalesce(C_PKGPRM.fGetValPrm('MMDEXC_CESB_UL_WEEKEND'), 0) = 0 then
+      --учитывать курсы за выходные, а если хотя бы один из них не задан или нулевой, то берем курс в последний рабочий день
+      begin
+        for rec in (
+          select
+            coalesce(M_PKGEXCRATE.fGetRateV(dDateTime, 1, grRate, t.VAL_ID, '1')*CESB_PKGRKOSERVICE.nMul, 0) as RAT_BUY,
+            coalesce(M_PKGEXCRATE.fGetRateV(dDateTime, 1, grRate, t.VAL_ID, '0')*CESB_PKGRKOSERVICE.nMul, 0) as RAT_SELL
+            from TV_VALRAT t
+           where t.VALBAS_ID = P_NATVAL
+             and t.VAL_CODE  in (select COLUMN_VALUE from table(valList))
+             and t.VRA_ID = t_pkgval.fGetRatDscIdByCode(t_pkgval.fgetdscvrttypdefcode)
+             and t.FROMDATE = trim(dWorkDateTime)
+                   )
+        loop
+          if rec.RAT_BUY = 0 or rec.RAT_SELL = 0 then
+            i := 1;
+          end if;
+        end loop;
+        if  i = 1 then
+          -- в случае если какй то курс не задан или нулевой за выходные меняем дату на последний рабочий день
+          dDateTime := dWorkDateTime;
+        end if;
+      exception
+        when others then
+          -- в случае ошибок чтения курсов за выходные меняем дату на последний рабочий день
+          dDateTime := dWorkDateTime;
+      end;
+    else
+      -- если системный параметр MMDEXC_CESB_UL_WEEKEND = 1, то не учитывать курсы за выходные - сразу смотреть курс в последний рабочий день
+      dDateTime := dWorkDateTime;
+    end if;
+  end if;
+
+  for rec in (
+    select * FROM TV_VALRAT t WHERE t.FROMDATE=trim(dWorkDateTime)
+    and t.VRA_ID = t_pkgval.fGetRatDscIdByCode(t_pkgval.fgetdscvrttypdefcode)
+  ) loop
+    if valListTest.count>0 then
+      j := valListTest.FIRST;
+      while j <= valListTest.LAST loop
+        if  valListTest(j)=rec.VAL_CODE then
+            valListTest.DELETE(j);
+        end if;
+        j := valListTest.NEXT(j);
+      end loop;
+    end if;
+  end loop;
+  sValCode:='';
+  if valListTest.count>0 then
+    for j in valListTest.FIRST .. valListTest.LAST loop
+      sValCode:=sValCode||valListTest(j)||',';
+    end loop;
+    raise wrong_no_data_cb;
+  end if;
+  for j in valList.FIRST .. valList.LAST loop
+    sValCode:=sValCode||valList(j)||',';
+  end loop;
+
+  begin
+
+    select
+      json_arrayagg(
+        json_object(
+         'char_codes'      value VAL_CODE,
+         'cb_rates'        value RATE,
+         'base_currencies' value VAL_ALTERCODE,
+         'currency_names'  value VAL_LONGNAME,
+         'buying_rates'    value RAT_BUY,
+         'selling_rates'   value RAT_SELL
+        )) into lRates
+      from (
+            select t.VAL_CODE ,t.RATE*CESB_PKGRKOSERVICE.nMul as RATE , t.VAL_ALTERCODE, t.VAL_LONGNAME,
+            M_PKGEXCRATE.fGetRateV(dDateTime, 1, grRate, t.VAL_ID, '1')*CESB_PKGRKOSERVICE.nMul as RAT_BUY,
+            M_PKGEXCRATE.fGetRateV(dDateTime, 1, grRate, t.VAL_ID, '0')*CESB_PKGRKOSERVICE.nMul as RAT_SELL
+            from TV_VALRAT t
+               where t.VALBAS_ID = p_natval
+                 and t.VAL_CODE  in (select COLUMN_VALUE from table(valList))
+                 and t.VRA_ID = t_pkgval.fGetRatDscIdByCode(t_pkgval.fgetdscvrttypdefcode)
+                 and t.FROMDATE = trim(dWorkDateTime)
+            );
+
+  exception when others then
+    lObj := CESB_BASE.CreateJSONObject();
+    lObj.put('group_code', pCurGroup);
+    lObj.put('currency', CESB_BASE.CreateJSONObject());
+    return lObj; -- возвращаем пустой элемент когда нет курса, для группы
+  end;
+
+  lObj := CESB_BASE.CreateJSONObject();
+  begin
+    lObj.put('group_code', pCurGroup);
+    lObj.put('currency', json_array_t.parse(lRates));
+  exception when OTHERS then
+    if S_PKGCSFNC.fIsEnvError(SQLERRM) = 1 then -- сброс пакетов
+      Raise; -- не обрабатываем ошибку
+    end if;
+    raise wrong_no_data;
+  end;
+  /* CESB_BASE.FinalizeSParam(ObjS =>lObj, S => lRates); */
+  /*  */
+  return lObj;
+  exception
+    when wrong_list_val then
+      RaiseCESBError(iJrnID,
+       ORACode => -20000,
+       Code => 10801,
+       Text => Localize('Не настроен список валют.',  'PKG', sPkgName),
+       Description => Localize('Не настроен список валют.',  'PKG', sPkgName),
+       HReason => 'Z_116_CESB_PKGMEXC.fGetExchRatesByGr',
+       HRecommendation => null, LValue => 0);
+    when wrong_rate_type then
+      RaiseCESBError(iJrnID,
+      ORACode => -20000,
+      Code => 10802,
+      Text => Localize('Не найден тип курса валют.', 'PKG', sPkgName),
+      Description =>  LocalFrmt('Не найден тип обменного курса валют (%0:s).',vargs(tRate), 'PKG', sPkgName),
+      HReason => 'Z_116_CESB_PKGMEXC.fGetExchRatesByGr',
+      HRecommendation => null, LValue => 0);
+    when no_data_found or wrong_no_data then
+      RaiseCESBError(iJrnID, ORACode => -20000, Code => 10803,
+      Text =>  Localize('Не найден курс валюты.', 'PKG', sPkgName),
+      Description =>  LocalFrmt('Не найден курс обмена для валюты %0:s на дату %1:s ', vargs(sValCode, to_char(trim(dDateTime))), 'PKG', sPkgName),
+      HReason => 'Z_116_CESB_PKGMEXC.fGetExchRatesByGr',
+      HRecommendation => null, LValue => 0);
+    when wrong_no_data_cb then
+      RaiseCESBError(iJrnID, ORACode => -20000, Code => 10804,
+      Text =>  Localize('Не найден курс валюты.', 'PKG', sPkgName),
+      Description =>  LocalFrmt('Не найден %0:s для валюты %1:s на дату %2:s ',
+        vargs(t_pkgval.fGetRatDscName(t_pkgval.fGetRatDscIdByCode(t_pkgval.fgetdscvrttypdefcode)), sValCode, to_char(trim(dDateTime))), 'PKG', sPkgName),
+      HReason => 'Z_116_CESB_PKGMEXC.fGetExchRatesByGr',
+      HRecommendation => null, LValue => 0);
+    when OTHERS then
+      if S_PKGCSFNC.fIsEnvError(SQLERRM) = 1 then -- сброс пакетов
+        Raise; -- не обрабатываем ошибку
+      end if;
+      RaiseCESBError(iJrnID, ORACode => -20000, Code => 10800,
+      Text =>  Localize('Ошибка обработки запроса. ' ||fClearError(SQLERRM), 'PKG', sPkgName),
+      Description => dbms_utility.format_error_backtrace, HReason => 'Z_116_CESB_PKGMEXC.fGetExchRatesByGr',
+      HRecommendation => null, LValue => 0);
+end fGetExchRatesByGr;
+
+function fGetExchRates(B in out CESB_BASE.BParam,
+                       S in out CESB_BASE.SParam) return CESB_BASE.SParam is
+  jObjS            JSON_OBJECT_T;
+  jObjB            JSON_OBJECT_T;
+  sValCode         varchar2(30);
+  dTimestamp       Timestamp;
+  sSerCode varchar2(30);
+  sGrCode  varchar2(30);
+  sListGr  varchar2(500);
+  grList   C_VARCHAR_TBL;
+
+  grIter number;
+
+  not_found_ser_code exception;
+  wrong_list_group  exception;
+  wrong_request_id  exception;
+  validate_error    exception;
+
+  sRefer           varchar2(50);
+  iJrnID           T_UNIMSGJRN.ID%TYPE;
+
+  sSErrRet        CESB_BASE.SParam; -- Перечень ошибок при их наличии в строковом формате
+  ljErrorRet      JSON_OBJECT_T := JSON_OBJECT_T(); -- Перечень ошибок в JSON объекте при их наличии
+  sDocStatus      varchar2(30); -- Результат выполнения валидации
+  sDocStatusName  varchar2(250); -- Описание результата выполенной валидации
+  sChannel        varchar2(30) := 'IBP'; -- По умолчанию IBP (IBPayment)
+
+  lArrTmp JSON_ARRAY_T;
+  ObjTmp  JSON_OBJECT_T;
+
+  resTmp  JSON_OBJECT_T;
+  resp CESB_BASE.SParam;
+
+begin
+  Z_116_PKGCONNECT.pOpen();
+  -- читаем параметр S
+  CESB_BASE.InitializeSParam(S, jObjS);
+  -- читаем параметр B
+  if B is not null then
+    CESB_BASE.InitializeBParam(B, jObjB);
+    sChannel := jObjB.get_String('channel');
+  end if;
+  sRefer := jObjS.get_String('request_id');
+  -- Референс документа
+  sSErrRet := S;
+  if CESB_PKGRKOSERVICE.fValidate(S => sSErrRet,
+                                  ljErrorRet     => ljErrorRet,
+                                  --sDocStatus     => sDocStatus,
+                                  --sDocStatusName => sDocStatusName,
+                                  sChannel       => sChannel,
+                                  sKey           => 'IBPAYMENT_EXCHRATES') = 0 then
+    pSaveRequestByRequestID(B => B, S => S, pFrmt =>'IBPAYMENT_EXCHRATES', pRefer => sRefer, pID => iJrnID);
+    raise validate_error;
+  end if;
+
+  if CESB_PKGRKOSERVICE.fCheckRequestID(sRefer)>0 then
+    raise wrong_request_id;
+  end if;
+  pSaveRequestByRequestID(B => B, S => S, pFrmt =>'IBPAYMENT_EXCHRATES', pRefer => sRefer, pID => iJrnID);
+
+  sSerCode := jObjS.get_String('servis_code');
+
+  if sSerCode is null then
+    raise not_found_ser_code;
+  end if;
+
+  sGrCode := jObjS.get_String('group_code');
+
+  sListGr := c_pkgDecTbl.fDecisionList(sTblAlias => 'Z_116_P2P_SER_AVB_GRP'
+                                        , sNameList => 'servisCode'
+                                        , sValueList => sSerCode
+                                        , nRunRaise => 0);
+  if sListGr is null then
+    raise wrong_list_group;
+  end if;
+
+
+  if upper(sGrCode) != 'ALL' and instr(sListGr, upper(sGrCode)) = 0 then
+    raise wrong_list_group;
+  end if;
+
+
+  if upper(sGrCode) = 'ALL' then
+    grList := fStrToTable(sListGr);
+  else
+    grList := fStrToTable(sGrCode);
+  end if;
+
+  sValCode:=nvl(jObjS.get_String('currency_code'),'ALL');
+  dTimestamp:=nvl(jObjS.get_Timestamp('cross_date'),P_OPERDAY);
+
+  resTmp := new JSON_OBJECT_T;
+
+  resTmp.put('servis_code', sSerCode);
+
+  lArrTmp := new JSON_ARRAY_T;
+
+  /* Вызов функции fGetExchRatesByGr для каждой группы */
+  for grIter in grList.FIRST .. grList.LAST loop
+
+    ObjTmp := fGetExchRatesByGr(iJrnID, sValCode, dTimestamp, grList(grIter));
+
+    lArrTmp.append(ObjTmp);
+  end loop;
+
+  resTmp.put('group',lArrTmp);
+
+  CESB_BASE.FinalizeSParam(ObjS =>resTmp, S => resp);
+  pSaveResponceText(iJrnID,resp);
+
+  return resp;
+
+  exception
+    when not_found_ser_code then
+      RaiseCESBError(iJrnID,
+       ORACode => -20001,
+       Code => 10800,
+       Text => Localize('Не передан сервис (servis_code).',  'PKG', sPkgName),
+       Description => Localize('Не передан сервис (servis_code).',  'PKG', sPkgName),
+       HReason => 'Z_116_CESB_PKGMEXC.fGetExchRates',
+       HRecommendation => null, LValue => 0);
+    when wrong_list_group then
+      RaiseCESBError(iJrnID,
+       ORACode => -20001,
+       Code => 10801,
+       Text => Localize('Не настроен список групп обменных курсов.',  'PKG', sPkgName),
+       Description => Localize('Не настроен список групп обменных курсов.',  'PKG', sPkgName),
+       HReason => 'Z_116_CESB_PKGMEXC.fGetExchRates',
+       HRecommendation => null, LValue => 0);
+    when wrong_request_id then
+      RaiseCESBError(iJrnID, ORACode => -20001, Code => 10810,
+      Text => Localize('Запрос уже существует.', 'PKG', sPkgName),
+      Description => LocalFrmt('Запрос c request_id %0:s уже существует.', vargs(sRefer), 'PKG', sPkgName),
+      HReason => 'Z_116_CESB_PKGMEXC.fGetExchRates',
+      HRecommendation => null, LValue => 0);
+    when validate_error then
+      RaiseCESBError(iJrnID, ORACode => -20001, Code => 10811,
+      Text =>  Localize('Ошибка валидации полей. ' ||sSErrRet, 'PKG', $$PLSQL_UNIT),
+      Description => dbms_utility.format_error_backtrace, HReason => 'Z_116_CESB_PKGMEXC.fGetExchRates',
+      HRecommendation => null, LValue => 0);
+
+end fGetExchRates;
+
+end Z_116_CESB_PKGMEXC;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_IMEADR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_IMEFRMTYP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="TV_VALRAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_RATDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_UNIMSGJRN"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_IDDEP"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_LOCID"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_NATVAL"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="CESB_BASE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="CESB_PKGRKOSERVICE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="CESB_PKGUNIMSG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDATE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDECTBL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="M_PKGEXCRATE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="S_PKGCSFNC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNTYP>
+      <LINK:TYP 
+        REF_NAME="C_VARCHAR_TBL"/>
+    </PKGDPNTYP>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="T_MSG_STATUS"/>
+    </PKGDPNDOM>
+  </PKG>
+</DDC>

@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_CREDACC_PDA" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="0E0EC97F997687F49BF18569FF4E01B1">
+  <PKG 
+    NAME="Z_116_PKG_CREDACC_PDA">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_CREDACC_PDA as
+
+  function Z_116_Check_Attr_code(pTraiD in number, pcHaID number) return varchar2;
+
+
+  function Getacccode_pda(pAcc_id in number,pDep_id number) return number;
+
+
+  function fGetRCKUDep(pDepId in C_DEP_STD.ID%type) return C_DEP_STD.code%type deterministic;
+
+
+
+end Z_116_PKG_CREDACC_PDA;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_CREDACC_PDA as
+
+  function Z_116_Check_Attr_code(pTraiD in number, pcHaID number) return varchar2 as
+   sCode varchar2(200);
+  begin
+  select distinct T_PkgOprChr.fCode(nvl(ope_id, pcHaID))
+    into sCode
+    from T_TRNATR
+   where id = pTraiD;
+
+return sCode;
+
+exception
+  when others then return null;
+end;
+
+  function Getacccode_pda(pAcc_id in number,pDep_id number) return number as
+   vCount number;
+  begin
+  select count(1)
+    into vCount
+   from (select B.code
+          from CHARTLINK L,
+               T_ACCHART B,
+               (select id, CODE
+                  from LEDACC_STD
+                connect by prior ID_HI = ID
+                 start with ID = (select CHA_ID
+                                    from G_ACCBLN
+                                   where DEP_ID = pDep_id
+                                     and ID = pAcc_id)) C
+         where L.CH_ID = C.ID
+           and B.ID = L.BCH_ID
+           and b.code in ('03101',
+                          '03102',
+                          '03124',
+                          '0318801',
+                          '0318802',
+                          '0318803',
+                          '0319901',
+                          '0318805',
+                          '031991')
+        union
+        select B.CODE
+          from G_ACCLNK L, T_ACCHART B
+         where L.CHA_ID = B.ID
+           and L.DEP_ID = pDep_id
+           and L.ACC_ID = pAcc_id
+           and b.code in ('03101',
+                          '03102',
+                          '03124',
+                          '0318801',
+                          '0318802',
+                          '0318803',
+                          '0319901',
+                          '0318805',
+                          '031991'));
+  return vCount;
+
+end;
+  function fGetRCKUDep(pDepId in C_DEP_STD.ID%type) return C_DEP_STD.code%type deterministic as
+    nDepCode C_DEP_STD.code%type;
+  begin
+    select x.code
+      into nDepCode
+      from (select t.code
+              from C_DEP_STD t
+             where t.NLEVEL = 1
+               and t.ID_HI = 2980
+            connect by prior t.ID_HI = t.ID
+             start with t.ID = pDepId
+             order by level) x
+     where rownum = 1;
+    return nDepCode;
+  exception
+    when NO_DATA_FOUND then
+      return pDepId;
+  end fGetRCKUDep;
+
+
+
+end Z_116_PKG_CREDACC_PDA;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="CHARTLINK"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCLNK"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ACCHART"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNATR"/>
+    </PKGDPNENT>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGOPRCHR"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

@@ -1,0 +1,915 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGSTUDCRD" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="417D460776DFD50E00EA76D3D571E660">
+  <PKG 
+    NAME="Z_116_PKGSTUDCRD">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGSTUDCRD is
+/**
+* Пакет для методов по студенческим картам
+*
+* @author Анатолий Бондаренко
+* @version 5.0
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+  /** Функция создания карточного договора в рамках зарплатного договора
+  * передается один из параметров pSalDeaCode и pSalDeaCliCode, если не переданы оба, то ЗП договор определяется по ВУЗу студента (pUniver)
+  * <br/><i>С версии 1.0</i>
+  * @param pCliCode  код клиента/студента
+  * @param pSalDeaCode  номер (код) зарплатного договора
+  * @param pSalDeaCliCode  код клиента зарплатного договора
+  * @param pDclCode  код продукта для выпуска карт в рамках зарплатного договора (по-умолчанию студенческие карты)
+  * @param pStudId  идентификатор студента (талаба_ид)
+  * @param pUniver  код университета (для поиска ЗП договора)
+  * @param pCardIDN CardIDN созданной карты
+  * @param p_Err     код ошибки
+  * @return 1 - успешно, 0 - не успешно
+  */
+  function fCreateSO(
+    pCliCode             in  varchar2,
+    pSalDeaCode          in  varchar2 default null,
+    pSalDeaCliCode       in  varchar2 default null,
+    pDclCode             in  varchar2 default null,
+    pStudId              in  varchar2 default null,
+    pUniver              in  varchar2 default null,
+    pCardIDN             out varchar2,
+    p_Err                out varchar2
+  ) return integer;
+
+  /** Функция создания карточного договора в рамках зарплатного договора
+  * <br/><i>С версии 1.0</i>
+  * @param B клиентский базовый объект Base (B): {"Cli": {"Channel":"XXX"}, "QCTX": {"ID": "XXX"}, ...}, где Cli.Channel - канал поступления запроса, QCTX.ID - идентификатор запроса
+  * @param S клиентский сервисный объект Service (S): {"cliCode":"XXX",...}
+  * @return JSON-объект c результатом, идентификатором карты и, опциаонально, сообщением об ошибке
+  */
+  function fCreate(B in CESB_BASE.BParam, S in CESB_BASE.SParam) return CESB_BASE.SParam;
+
+  /** Получение информации по карте и карт счету
+  * <br/><i>С версии 1.0</i>
+  * @param B клиентский базовый объект Base (B): {"Cli": {"Channel":"XXX"}, "QCTX": {"ID": "XXX"}, ...}, где Cli.Channel - канал поступления запроса, QCTX.ID - идентификатор запроса
+  * @param S клиентский сервисный объект Service (S): {"cardIdn":"XXX"}
+  * @return JSON-объект c результатом: номер карты, ее состоние и , опциаонально, сообщением об ошибке открытия в ПЦ + нмоер карт счета, его состояние и , опциаонально, сообщением об ошибке открытия счета
+  */
+  function fInfo(B in CESB_BASE.BParam, S in CESB_BASE.SParam) return CESB_BASE.SParam;
+
+  /** Обновление региона и района регистрации по справочнику через МВД
+  * <br/><i>С версии 2.0</i>
+  * @param B клиентский базовый объект Base (B): {"Cli": {"Channel":"XXX"}, "QCTX": {"ID": "XXX"}, ...}, где Cli.Channel - канал поступления запроса, QCTX.ID - идентификатор запроса
+  * @param S клиентский сервисный объект Service (S): {"cliCode":"XXX"}
+  * @return JSON-объект c результатом: результат выполенния операции (1 - выполнили, 0 - не выполняли, операция не доступна,  -1 - упали по ошибке) и, опционально, сообщением об ошибке
+  */
+  function fUpdAdr(B in CESB_BASE.BParam, S in CESB_BASE.SParam) return CESB_BASE.SParam;
+
+  /** Перевыпуск карты
+  * <br/><i>С версии 3.0</i>
+  * @param pCardIDN CardIDN перевыпускаемой карты
+  * @param pNewCardIDN CardIDN новой карты
+  * @param p_Err     код ошибки
+  * @return 1 - успешно, 0 - не успешно
+  */
+  function fReissueSO(
+    pCardIDN             in  varchar2,
+    pNewCardIDN          out varchar2,
+    p_Err                out varchar2
+  ) return integer;
+
+  /** Получение информации о студенте/собственнике по карте
+  * <br/><i>С версии 4.0</i>
+  * @param B клиентский базовый объект Base (B): {"Cli": {"Channel":"XXX"}, "QCTX": {"ID": "XXX"}, ...}, где Cli.Channel - канал поступления запроса, QCTX.ID - идентификатор запроса
+  * @param S клиентский сервисный объект Service (S): {"cardIdn":"XXX"}
+  * @return JSON-объект c результатом: инфомация по владельцу карты
+  */
+  function fStudInfo(B in CESB_BASE.BParam, S in CESB_BASE.SParam) return CESB_BASE.SParam;
+
+  /** Получение информации о движениях по карте
+  * <br/><i>С версии 5.0</i>
+  * @param B клиентский базовый объект Base (B): {"Cli": {"Channel":"XXX"}, "QCTX": {"ID": "XXX"}, ...}, где Cli.Channel - канал поступления запроса, QCTX.ID - идентификатор запроса
+  * @param S клиентский сервисный объект Service (S): {"cardIdn":"XXX", 'dOper":"yyyy-mm-dd"}
+  * @return JSON-объект c результатом: инфомация по владельцу карты
+  */
+  function fSOMovInfo(B in CESB_BASE.BParam, S in CESB_BASE.SParam) return CESB_BASE.SParam;
+
+end Z_116_PKGSTUDCRD;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGSTUDCRD is
+
+  iIDN_PINFL_ID   constant G_CLIIDN.ID%TYPE := G_PKGIDN.fId('IDN_PRS_UZ');
+
+ --Логирование полученных запросов и сформированных ответов
+  procedure pSaveLog(pIdLog       in out number,
+                     pCli         in varchar2 default null,
+                     pCardIdnL    in varchar2 default null,
+                     pErrTxt      in varchar2 default null
+                         )
+  is
+    pragma autonomous_transaction;
+  begin
+    if pIdLog is null then
+      insert into Z_116_STUDCARDLOG (REQDATE, Cli_code) values(sysdate, pCli)
+      returning id into pIdLog;
+    else
+      update Z_116_STUDCARDLOG l
+         set l.retdate = sysdate,
+             l.cardIdn = pCardIdnL,
+             l.errtxt = pErrTxt
+       where l.id = pIdLog;
+    end if;
+    commit;
+  end;
+
+  -- Функция создания карточного договора в рамках зарплатного договора
+  function fCreateSO(
+    pCliCode             in  varchar2,
+    pSalDeaCode          in  varchar2 default null,
+    pSalDeaCliCode       in  varchar2 default null,
+    pDclCode             in  varchar2 default null,
+    pStudId              in  varchar2 default null,
+    pUniver              in  varchar2 default null,
+    pCardIDN             out varchar2,
+    p_Err                out varchar2
+  ) return integer is
+
+    nCliDepId         G_CLI.DEP_ID%type;
+    nCliId            G_CLI.ID%type;
+    nSalDeaDepId      PP_SALDEA.DEP_ID%type;
+    nSalDeaId         PP_SALDEA.ID%type;
+    cSalDeaCode       T_ORD.CODE%type;
+    cParIn            varchar2(4000) := '';
+    cParOut           varchar2(4000) := '';
+    AtrLst            C_PkgDecTbl.tNamedAttrList;
+    --cUniver           varchar2(500);
+    cCrdDclId         T_DEACLS_STD.ID%type;
+    cValCode          T_VAL.CODE%type;
+    nCrdDepId         T_DEA.DEP_ID%type;
+    nCrdId            T_DEA.ID%type;
+    lstTbl            C_PKGSTR.TPrmTBlLst;
+    nLogId            Z_116_STUDCARDLOG.ID%type;
+
+    procedure pErr(pMess in varchar2, pArgs in vargs default vargs(null)) is
+    begin
+      p_Err := Format(Localize(pMess, 'PKG', 'Z_116_PKGSTUDCRD'), pArgs);
+      pSaveLog(nLogId, pErrTxt => substr(p_Err,1,4000));
+      t_log.debug('Z_116_PKGSTUDCRD.fCreateSO, ошибка: %0:s', vargs(p_Err), 'PKG', 'Z_116_PKGSTUDCRD');
+    end;
+
+  begin
+    pSaveLog(nLogId, pCliCode);
+    -- найдем клиента, для которого открывается договор
+    begin
+      g_pkgcli.pGetCliId(pCliCode, nCliDepID, nCliID, bExcept => true);
+    exception
+      when OTHERS then
+        pErr('Ошибка поиска клиента с кодом: %0:s', vargs(pCliCode));
+        return 0;
+    end;
+    -- найдем зарплатный договор
+    begin
+      -- по коду клиента ЗП договора
+      if pSalDeaCliCode is not null then
+        PP_PKGSALDEA.pGetSalIdByOrgCode(pSalDeaCliCode, nSalDeaDepId, nSalDeaId, true);
+      end if;
+      -- по номеру зарплатного договора
+      if nSalDeaId is null and pSalDeaCode is not null then
+        PP_PKGSALDEA.pGetSalIdByCode(pSalDeaCode, nSalDeaDepId, nSalDeaId, true);
+      end if;
+      -- по ВУЗу клиента
+      if nSalDeaId is null then
+        C_PkgDecTbl.pAddName(AtrLst, 'UNIVER_NAME', pUniver);
+        cSalDeaCode := C_PkgDecTbl.fDecision('Z_116_STUD_SALDEA', AtrLst,UseInternalCache => false);
+        if cSalDeaCode is null then
+          pErr('Ошибка поиска зарплатного договора по таблице решений Z_116_STUD_SALDEA, выполните настройку ТР для ВУЗа %0:s', vargs(pUniver));
+          return 0;
+        end if;
+        PP_PKGSALDEA.pGetSalIdByCode(cSalDeaCode, nSalDeaDepId, nSalDeaId, true);
+      end if;
+    exception
+      when OTHERS then
+        pErr('Ошибка поиска зарплатного договора: %0:s', vargs(sqlerrm));
+        return 0;
+    end;
+
+    -- создание карточки в рамках зарплатного договора
+    if T_PkgRunOprUtl.fOprAvailable(nSalDeaDepId, nSalDeaId, 'CRDOPEN_DO') > 1 then
+      begin
+        cParIn := 'CLI_CODE=>'||pCliCode;
+        if pDclCode is not null then
+          cParIn := cParIn||',DCL_CODE=>'||pDclCode;
+        else
+          cCrdDclId := PP_BSSALDEA.fGetCrdDclId(nSalDeaDepId, nSalDeaId, null /*205*/);  --------  !!!!!!!!!!!! тут 3 параметр тестовый
+          cParIn := cParIn||',DCL_CODE=>'||T_PKGDEA.fDclCode(cCrdDclId);
+        end if;
+        cParIn := cParIn||',VAL_CODE=>'||T_PKGVAL.fGetCode(PP_BSSALDEA.fGetDeaValId(nSalDeaDepId, nSalDeaId));
+        T_PKGRUNOPRUTL.pRunOperation(nSalDeaDepId, nSalDeaId, 'CRDOPEN_DO', sInOperParams => cParIn, sOutOperParams => cParOut);
+        t_log.debug('Z_116_PKGSTUDCRD.fCreateSO: выходные параметры операции CRDOPEN_DO = %0:s', vargs(cParOut), 'PKG', 'Z_116_PKGSTUDCRD');
+
+        C_PKGSTR.ParsePar2(sstr => cParOut, prmtbllst => lstTbl);
+        nCrdDepId := to_number(C_PKGSTR.fGetPrmVal(lstTbl, 'CRD_DEP_ID'));
+        nCrdId := to_number(C_PKGSTR.fGetPrmVal(lstTbl, 'CRD_ID'));
+        select c.cardidn into pCardIDN from N_CRD c where c.dep_id = nCrdDepId and c.id = nCrdId;
+        pSaveLog(nLogId, pCardIdnL => pCardIDN);
+      exception
+        when others then
+          pErr('Ошибка открытия карточного договора в рамках зарплатного договора %0:s: %1:s', vargs(t_fGetOrdCode(nSalDeaDepId, nSalDeaId),sqlerrm));
+          return 0;
+      end;
+    else
+      pErr('Внутренняя ошибка: не доступна операция "Открыть карточный договор" по зарплатному договору %0:s', vargs(t_fGetOrdCode(nSalDeaDepId, nSalDeaId)));
+      return 0;
+    end if;
+
+    -- установка talaba id на карточку
+    if pStudId is not null then
+      T_PKGDEAPRM.pSetPrm(nCrdId, nCrdDepId, 'Z_116_TALABAID', pStudId);
+    else
+      t_log.debug('Z_116_PKGSTUDCRD.fCreateSO: Z_116_TALABAID is null', sType => 'PKG',sCode =>  'Z_116_PKGSTUDCRD');
+    end if;
+
+    return 1;
+  end fCreateSO;
+
+  -- Функция создания карточного договора в рамках зарплатного договора
+  function fCreate(B in CESB_BASE.BParam, S in CESB_BASE.SParam) return CESB_BASE.SParam is
+    jObjS            JSON_OBJECT_T;
+    jObj             JSON_OBJECT_T;
+    nRes             pls_integer;
+    cCliCode         G_CLI.CODE%type;
+    cSalDeaCode      T_ORD.CODE%type;
+    cSalDeaCliCode   G_CLI.CODE%type;
+    cDclCode         T_DEACLS_STD.CODE%type;
+    cStudId          varchar2(30);  -- talaba id
+    cUniver          varchar2(500);  -- код университета
+    сCardIDN         N_CRD.Cardidn%type;
+    cErrMsg          varchar2(4000);
+  begin
+    -- обработка входных параметров
+    CESB_BASE.InitializeSParam(S, jObjS);
+    cCliCode := jObjS.get_String('cliCode');
+    cSalDeaCode := jObjS.get_String('salDea');
+    cSalDeaCliCode := jObjS.get_String('salDeaCliCode');
+    cDclCode := jObjS.get_String('dclCode');
+    cStudId := jObjS.get_String('studId');
+    cUniver := jObjS.get_String('univer');
+
+    nRes := fCreateSO(pCliCode => cCliCode
+                     ,pSalDeaCode => cSalDeaCode
+                     ,pSalDeaCliCode => cSalDeaCliCode
+                     ,pDclCode => cDclCode
+                     ,pStudId => cStudId
+                     ,pUniver => cUniver
+                     ,pCardIDN => сCardIDN
+                     ,p_Err => cErrMsg
+                     );
+    -- формируем ответ
+    jObj := new JSON_OBJECT_T;
+    jObj.put('result', nRes);
+    jObj.put('cardIdn', сCardIDN);
+    jObj.put('errMsg', cErrMsg);
+    return jObj.To_Clob;
+  end fCreate;
+
+  -- Получение информации по карте и карт счету
+  function fInfo(B in CESB_BASE.BParam, S in CESB_BASE.SParam) return CESB_BASE.SParam is
+    jObjS            JSON_OBJECT_T;
+    jRes             JSON_OBJECT_T;
+    сCardIDN         N_CRD.Cardidn%type;
+    cCrdStat         T_BOP_STAT.LONGNAME%type;
+    cCrdStatCode     T_BOP_STAT.CODE%type;
+    cCrdCode         N_CRD.Cardcode%type;
+    ncrd_dep_id      N_CRD.DEP_ID%type;
+    ncrd_id          N_CRD.ID%type;
+    ncrdProcId       T_PROCESS.ID%type;
+    cCrdErr          varchar2(2000) := '';
+    cAccStat         T_BOP_STAT.LONGNAME%type;
+    cAccStatCode     T_BOP_STAT.CODE%type;
+    cAccCode         G_ACCBLN.Code%type;
+    nacc_dep_id      G_ACCBLN.DEP_ID%type;
+    nacc_id          G_ACCBLN.ID%type;
+    cAccErr          varchar2(32000) := '';
+    cErrMsg          varchar2(4000) := '';
+    nMsgId           N_CRDMSG.ID%type;
+    dExp             date;
+  begin
+    -- обработка входных параметров
+    CESB_BASE.InitializeSParam(S, jObjS);
+    сCardIDN := jObjS.get_String('cardIdn');
+    jRes := new JSON_OBJECT_T;
+
+    select t_pkgprocess.fGetStatNameByMainOrd(c.dep_id, c.id) as crd_stat
+         , t_pkgprocess.fGetStatCodeByMainOrd(c.dep_id, c.id) as crd_stat_code
+         , N_PKGPCIDSS.fGetMaskCardCode(c.cardcode)
+         , c.dep_id as crd_dep_id
+         , c.id as crd_id
+         , t_pkgprocess.fGetIdByMainOrd(c.dep_id, c.id) as crd_proc_id
+         , t_pkgprocess.fGetStatNameByMainOrd(b.dep_id, b.ord_id) as acc_stat
+         , t_pkgprocess.fGetStatCodeByMainOrd(b.dep_id, b.ord_id) as acc_stat_code
+         , b.code as acccode
+         , b.dep_id as acc_dep_id
+         , b.id as acc_id
+         , c.expiredt
+        into cCrdStat, cCrdStatCode, cCrdCode, ncrd_dep_id, ncrd_id, ncrdProcId,
+             cAccStat, cAccStatCode, cAccCode, nacc_dep_id, nacc_id, dExp
+        from N_CRD c, G_ACCBLN b, S_DEAACC da
+        where c.cardidn = сCardIDN
+          and c.deaacc_dep_id = da.dep_id and c.deaacc_id = da.id
+          and da.acc_dep_id = b.dep_id and da.acc_id = b.id;
+
+     if dExp is not null then
+       jRes.put('expireDate', to_char(dExp,'mm/yyyy'));
+     else
+       jRes.put_null('expireDate');
+     end  if;
+     jRes.put('crdStat', cCrdStat);
+     jRes.put('crdCode', cCrdCode);
+     jRes.put('accStat', cAccStat);
+     jRes.put('accCode', cAccCode);
+     -- проверим ошибки по карте
+     if cCrdStatCode <> 'APPL_OK' then
+       begin
+         select max(m.ID) into nMsgId from N_CRDMSG m , N_CRDMSGTYPE_STD t
+                                 where m.proc_id = ncrdProcId and m.typ_id = t.id and t.code||'' = 'RELEASE';
+         select substr(ERR_TXT, instr(ERR_TXT, ':')+1,2000) into cCrdErr from N_CRDINDTL
+              where ID = N_PKGCRDMSG.fGetAnswDtlIDByMsg(nMsgId, 1);
+         if cCrdErr is null then
+           select substr(r.ERR_DSCR,1,2000) into cCrdErr
+              from N_CRDMSG m, N_CRDINDTL d, N_CRDINRSP r
+             where d.FILE_ID = m.ANSW_ID
+               and r.ID = d.ID
+               and m.ID = nMsgId;
+         end if;
+       exception
+         when no_data_found then
+           cCrdErr := '';
+       end;
+     end if;
+     jRes.put('crdErr', cCrdErr);
+     -- проверим ошибки по картсчету
+     if cAccStatCode <> 'OPENED' then
+       begin
+         select t_pkgunimsj.fGetAtr(max(j2.msg_id),'CBS_RESULT')||t_pkgunimsj.fGetAtr(max(j2.msg_id),'CBS_ANSWER') into cAccErr from G_CLINIBBDJRN j2, G_ACCBLN b2
+           where j2.ACCDEP_ID = b2.DEP_ID and j2.ACC_ID = b2.ID and b2.dep_id = nacc_dep_id and b2.id = nacc_id;
+       exception
+         when no_data_found then
+           cAccErr := '';
+       end;
+     end if;
+     jRes.put('accErr', cAccErr);
+     jRes.put('errMsg', cErrMsg);
+
+     return jRes.To_Clob;
+   exception
+     when no_data_found then
+       t_log.debug('Z_116_PKGSTUDCRD.fInfo. Карта %0:s не найдена.', vargs(сCardIDN), 'PKG', 'Z_116_PKGSTUDCRD');
+       cErrMsg := substr(Format(Localize('Карта %0:s не найдена.', 'PKG', 'Z_116_PKGSTUDCRD'), vargs(сCardIDN)),1,4000);
+       jRes.put('errMsg', cErrMsg);
+       return jRes.To_Clob;
+     when others then
+       t_log.debug('Z_116_PKGSTUDCRD.fInfo. Ошибка: %0:s', vargs(substr(sqlerrm, 1, 500)), 'PKG', 'Z_116_PKGSTUDCRD');
+       cErrMsg := substr(Format(Localize('Ошибка получения информации по карте: %0:s', 'PKG', 'Z_116_PKGSTUDCRD'),  vargs(substr(sqlerrm, 1, 2000))),1,4000);
+       jRes.put('errMsg', cErrMsg);
+       return jRes.To_Clob;
+  end fInfo;
+
+  -- Обновление региона и района регистрации по справочнику через МВД
+  procedure pUpdAdr(cCliCode in  G_CLI.CODE%type
+                   ,Res      out number
+                   ,ErrCode out varchar2
+                   ,ErrMsg  out varchar2) is
+    pParIn       varchar2(32000) := '';
+    pParOut       varchar2(32000) := '';
+    i            pls_integer := 0;
+    nDepId       G_CLI.DEP_ID%type;
+    nId          G_CLI.ID%type;
+    nOrdId       G_CLI.ORD_ID%type;
+    nProcId      T_PROCESS.ID%type;
+    nBopId       T_PROCESS.BOP_ID%type;
+    nSt          T_PROCESS.NSTAT%type;
+  begin
+    select c.dep_id, c.id, c.ord_id into nDepId, nId, nOrdId
+      from G_CLI c where c.code = cCliCode;
+
+    G_PKGCLINIBBD.pGetCliProc(nDepId, nId, 1, nProcId,nBopId,nSt);
+
+    Res := t_pkgrunoprutl.fRunOperation(nProcId, 'EGOV_ADRPIN', pParIn, pParOut);
+
+  exception
+    when others then
+      ErrCode := sqlcode;
+      ErrMsg  := substr(sqlerrm, 1, 2000);
+      t_log.debug('Z_116_PKGSTUDCRD.pUpdAdr. Ошибка: %0:s', vargs(substr(sqlerrm, 1, 500)), 'PKG', 'Z_116_PKGSTUDCRD');
+
+  end pUpdAdr;
+
+  -- Функция создания карточного договора в рамках зарплатного договора
+  function fUpdAdr(B in CESB_BASE.BParam, S in CESB_BASE.SParam) return CESB_BASE.SParam is
+    jObjS            JSON_OBJECT_T;
+    jObj             JSON_OBJECT_T;
+    nRes             pls_integer;
+    cCliCode         G_CLI.CODE%type;
+    cErrMsg          varchar2(4000);
+    cErrCode         varchar2(4000);
+  begin
+    -- обработка входных параметров
+    CESB_BASE.InitializeSParam(S, jObjS);
+    cCliCode := jObjS.get_String('cliCode');
+
+
+    pUpdAdr(cCliCode
+           ,nRes
+           ,cErrCode
+           ,cErrMsg);
+    -- формируем ответ
+    jObj := new JSON_OBJECT_T;
+    jObj.put('result', dbase.IIF(cErrCode is not null, -1, nRes));
+    jObj.put('errMsg', substr(cErrCode||':'||cErrCode, 1, 2000));
+    return jObj.To_Clob;
+  end fUpdAdr;
+
+  -- Функция перевыпуска карты
+  function fReissueSO(
+    pCardIDN             in  varchar2,
+    pNewCardIDN          out varchar2,
+    p_Err                out varchar2
+  ) return integer is
+    nCrdDepId         N_CRD.DEP_ID%type;
+    nCrdId            N_CRD.ID%type;
+    cDeaState         T_BOP_STAT_STD.CODE%type;
+    cParIn            varchar2(4000) := '';
+    cParOut           varchar2(4000) := '';
+    lstTbl            C_PKGSTR.TPrmTBlLst;
+    nNewDepId         N_CRD.DEP_ID%type;
+    nNewId            N_CRD.ID%type;
+  begin
+
+    select c.dep_id, c.id
+      into nCrdDepId, nCrdId
+      from N_CRD c
+        where c.cardidn = pCardIDN;
+
+    cDeaState := T_PkgProcess.fGetStatCodeByMainOrd(nCrdDepId, nCrdId);
+
+    -- блокировка перевыпускаемой карты
+    begin
+      cParIn := 'BLOCKREASON=>1,BLOCKREASON_DSCR=>Перевыпуск,VERIFY_TYPE=>2';  -- блокируем по документу как украденную
+      if T_PkgRunOprUtl.fOprAvailable(nCrdDepId, nCrdId, 'LOCK') > 1 then
+        T_PKGRUNOPRUTL.pRunOperation(nCrdDepId, nCrdId, 'LOCK', sInOperParams => cParIn, sOutOperParams => cParOut);
+        t_log.debug('Z_116_PKGSTUDCRD.fReissueSO: выходные параметры операции LOCK = %0:s', vargs(cParOut), 'PKG', 'Z_116_PKGSTUDCRD');
+      elsif T_PkgRunOprUtl.fOprAvailable(nCrdDepId, nCrdId, 'LOCK1') > 1 then
+        T_PKGRUNOPRUTL.pRunOperation(nCrdDepId, nCrdId, 'LOCK1', sInOperParams => cParIn, sOutOperParams => cParOut);
+        t_log.debug('Z_116_PKGSTUDCRD.fReissueSO: выходные параметры операции LOCK1 = %0:s', vargs(cParOut), 'PKG', 'Z_116_PKGSTUDCRD');
+      elsif T_PkgRunOprUtl.fOprAvailable(nCrdDepId, nCrdId, 'LOCK2') > 1 then
+        T_PKGRUNOPRUTL.pRunOperation(nCrdDepId, nCrdId, 'LOCK2', sInOperParams => cParIn, sOutOperParams => cParOut);
+        t_log.debug('Z_116_PKGSTUDCRD.fReissueSO: выходные параметры операции LOCK2 = %0:s', vargs(cParOut), 'PKG', 'Z_116_PKGSTUDCRD');
+      else
+        t_log.debug('Z_116_PKGSTUDCRD.fReissueSO. Карту %0:s (состояние: %1:s) не удалось заблокировать.', vargs(pCardIDN, cDeaState), 'PKG', 'Z_116_PKGSTUDCRD');
+        p_Err := Localfrmt('Карту %0:s в состоянии %1:s не удалось заблокировать.', vargs(pCardIDN, cDeaState), 'PKG', 'Z_116_PKGSTUDCRD');
+        return 0;
+      end if;
+    exception
+      when OTHERS then
+        p_Err := Localfrmt('При блокировке карты %0:s произошла ошибка: %1:s', vargs(pCardIDN, sqlerrm||dbms_utility.format_error_backtrace), 'PKG', 'Z_116_PKGSTUDCRD');
+        return 0;
+    end; -- карту заблокировали
+
+    -- перевыпуск с новым номером
+    cParIn := 'REISSUE_REASON=>b';
+    if T_PkgRunOprUtl.fOprAvailable(nCrdDepId, nCrdId, 'REISSUE_DO') > 1 then
+      begin
+        T_PKGRUNOPRUTL.pRunOperation(nCrdDepId, nCrdId, 'REISSUE_DO', sInOperParams => cParIn, sOutOperParams => cParOut);
+        t_log.debug('Z_116_PKGSTUDCRD.fReissueSO: выходные параметры операции REISSUE_DO = %0:s', vargs(cParOut), 'PKG', 'Z_116_PKGSTUDCRD');
+        C_PKGSTR.ParsePar2(sstr => cParOut, prmtbllst => lstTbl);
+        nNewDepId := to_number(C_PKGSTR.fGetPrmVal(lstTbl, 'REISSUE_DEP_ID'));
+        nNewId := to_number(C_PKGSTR.fGetPrmVal(lstTbl, 'REISSUE_ID'));
+        if nNewDepId is null or nNewId is null then
+          p_Err := Localfrmt('При перевыпуске с новым номером не удалось определить идентификаторы новой карты: %0:s, %1:s', vargs(nNewDepId, nNewId), 'PKG', 'Z_116_PKGSTUDCRD');
+          return 0;
+        end if;
+      exception
+        when OTHERS then
+          p_Err := Localfrmt('При перевыпуске с новым номером карты %0:s произошла ошибка: %1:s', vargs(pCardIDN, substr(sqlerrm, 2000)), 'PKG', 'Z_116_PKGSTUDCRD');
+          return 0;
+      end;
+      -- отправка заявлений по новой карте
+      if T_PkgRunOprUtl.fOprAvailable(nNewDepId, nNewId, 'SNDAPPL_DO') > 1 then
+        begin
+          T_PkgRunOprUtl.pRunOprByMainOrd(nNewDepId, nNewId, 'SNDAPPL_DO');
+        exception
+          when others then
+            p_Err := Localfrmt('При отправке заявлений по новой карте произошла ошибка: %0:s', vargs(substr(sqlerrm, 2000)), 'PKG', 'Z_116_PKGSTUDCRD');
+            return 0;
+        end;
+      else
+        p_Err := Localfrmt('По новой карте (%0:s, %1:s) не доступна операция отправки заявлений', vargs(nNewDepId, nNewId), 'PKG', 'Z_116_PKGSTUDCRD');
+        return 0;
+      end if;
+    else
+      t_log.debug('Z_116_PKGSTUDCRD.fReissueSO. Не доступна операция перевыпуска с новым номером по карте %0:s', vargs(pCardIDN), 'PKG', 'Z_116_PKGSTUDCRD');
+      p_Err := Localfrmt('Не доступна операция перевыпуска с новым номером по карте %0:s', vargs(pCardIDN), 'PKG', 'Z_116_PKGSTUDCRD');
+      return 0;
+    end if;
+
+    -- всё отработало, вернем cardidn новой карты
+    select c.cardidn
+      into pNewCardIDN
+      from N_CRD c
+        where c.dep_id = nNewDepId and c.id  = nNewId;
+    return 1;
+
+  exception
+    when others then
+      p_Err := Localfrmt('Ошибка перевыпуска карты %0:s: %1:s', vargs(pCardIDN, substr(sqlerrm, 2000)), 'PKG', 'Z_116_PKGSTUDCRD');
+      return 0;
+
+  end fReissueSO;
+
+  -- Получение информации о студенте/собственнике по карте
+  function fStudInfo(B in CESB_BASE.BParam, S in CESB_BASE.SParam) return CESB_BASE.SParam is
+    jObjS            JSON_OBJECT_T;
+    jRes             JSON_OBJECT_T;
+    jObjTmp          JSON_OBJECT_T;
+    сCardIDN         N_CRD.Cardidn%type;
+    nCliDepId        G_CLI.DEP_ID%type;
+    nCliId           G_CLI.ID%type;
+    cCliCode         G_CLI.CODE%type;
+    cCard4char       number(4);
+    cErrMsg          varchar2(4000) := '';
+    cPlname1         G_CLIHST.PLNAME1%type;
+    cPlname2         G_CLIHST.PLNAME2%type;
+    dBirdate         date;
+    cSex             G_CLIHST.Psex%type;
+    nDclId           T_DEA.DCL_ID%type;
+    cBlockFl         N_CRD.Blockfl%type;
+
+  begin
+    -- обработка входных параметров
+    CESB_BASE.InitializeSParam(S, jObjS);
+    сCardIDN := jObjS.get_String('cardIdn');
+
+    jObjTmp := new JSON_OBJECT_T;
+    jRes := new JSON_OBJECT_T;
+
+    begin
+      select to_number(substr(c.cardcode, -4, 4)), gh.PLNAME1, gh.PLNAME2, g.dep_id, g.id, g.code, g.birdate, gh.psex, t.dcl_id, c.blockfl
+        into cCard4char, cPlname1, cPlname2, nCliDepId, nCliId, cCliCode, dBirdate, cSex, nDclId, cBlockFl
+        from N_CRD c, T_DEA t, G_CLI g, G_CLIHST gh
+          where c.cardidn = сCardIDN
+            and c.dep_id = t.dep_id and c.id = t.id
+            and t.cli_dep_id = g.dep_id and t.cli_id = g.id
+            and g.dep_id = gh.dep_id and g.id = gh.id and sysdate between gh.fromdate and gh.todate;
+    exception
+      when no_data_found then
+        t_log.debug('Z_116_PKGSTUDCRD.fStudInfo. Карта %0:s не найдена.', vargs(сCardIDN), 'PKG', 'Z_116_PKGSTUDCRD');
+        cErrMsg := substr(Format(Localize('Карта %0:s не найдена.', 'PKG', 'Z_116_PKGSTUDCRD'), vargs(сCardIDN)),1,4000);
+        jRes.put('errMsg', cErrMsg);
+        return jRes.To_Clob;
+      when others then
+        t_log.debug('Z_116_PKGSTUDCRD.fStudInfo. Ошибка: %0:s', vargs(substr(sqlerrm, 1, 500)), 'PKG', 'Z_116_PKGSTUDCRD');
+        cErrMsg := substr(Format(Localize('Ошибка получения информации о клиенте по карте: %0:s', 'PKG', 'Z_116_PKGSTUDCRD'),  vargs(substr(sqlerrm, 1, 2000))),1,4000);
+        jRes.put('errMsg', cErrMsg);
+        return jRes.To_Clob;
+    end;
+    jObjTmp.put('cardNumber',cCard4char);
+    jObjTmp.put('englishName',cPlname2);
+    jObjTmp.put('englishSurname',cPlname1);
+    jObjTmp.put('mobilePhone', coalesce(G_PKGCLICONT.fGetCliPhone(nCliDepId, nCliId), G_PKGCLICONT.fGetCliPhone(nCliDepId, nCliId, '0')));
+    jObjTmp.put('birthday',dBirdate);
+    jObjTmp.put('sex',cSex);
+    jObjTmp.put('personalCode', G_PKGCLIIDN.fCliIDN(nCliDepId, nCliId, iIDN_PINFL_ID));
+    jObjTmp.put('cardId',сCardIDN);
+    jObjTmp.put('productId',t_pkgdea.fDclName(nDclId));
+    jObjTmp.put('cardIsClosed',to_number(cBlockFl));
+
+    jRes.put('client', jObjTmp);
+    jRes.put_null('errMsg');
+
+    return jRes.To_Clob;
+
+    exception
+      when others then
+        t_log.debug('Z_116_PKGSTUDCRD.fStudInfo. Ошибка получения данных о клиенте: %0:s', vargs(substr(sqlerrm, 1, 500)), 'PKG', 'Z_116_PKGSTUDCRD');
+        cErrMsg := substr(Format(Localize('Ошибка получения данных о клиенте по карте: %0:s', 'PKG', 'Z_116_PKGSTUDCRD'),  vargs(substr(sqlerrm, 1, 2000))),1,4000);
+        jRes.put('errMsg', cErrMsg);
+        return jRes.To_Clob;
+  end fStudInfo;
+
+  -- Получение информации о движениях по карте
+  function fSOMovInfo(B in CESB_BASE.BParam, S in CESB_BASE.SParam) return CESB_BASE.SParam
+  is
+    jObjS            JSON_OBJECT_T;
+    jRes             JSON_OBJECT_T;
+    jObjTmp          JSON_OBJECT_T;
+    jObjTmp2         JSON_OBJECT_T;
+    lArr             JSON_ARRAY_T;
+    сCardIDN         N_CRD.Cardidn%type;
+    dOp              date;
+    nCard4char       number(4);
+    cDclCode         T_DEACLS_STD.CODE%type;
+    nCliDepId        G_CLI.DEP_ID%type;
+    nCliId           G_CLI.ID%type;
+    cErrMsg          varchar2(4000) := '';
+    cPhone           G_CLICONT.CONT%type;
+    nacc_dep_id      G_ACCBLN.DEP_ID%type;
+    nacc_id          G_ACCBLN.ID%type;
+    nSign            pls_integer;
+  begin
+    -- обработка входных параметров
+    CESB_BASE.InitializeSParam(S, jObjS);
+    сCardIDN := jObjS.get_String('cardIdn');
+    dOp := to_date(jObjS.get_String('dOper'),'yyyy-mm-dd');
+
+    jRes := new JSON_OBJECT_T;
+
+    begin
+      select to_number(substr(c.cardcode, -4, 4)), tc.code, t.cli_dep_id, t.cli_id, da.acc_dep_id, da.acc_id
+        into nCard4char, cDclCode, nCliDepId, nCliId, nacc_dep_id, nacc_id
+        from N_CRD c, T_DEA t, T_DEACLS_STD tc, S_DEAACC da
+          where c.cardidn = сCardIDN
+            and c.dep_id = t.dep_id and c.id = t.id
+            and t.dcl_id = tc.id
+            and c.deaacc_dep_id = da.dep_id and c.deaacc_id = da.id;
+
+    exception
+      when no_data_found then
+        t_log.debug('Z_116_PKGSTUDCRD.fSOMovInfo. Карта %0:s не найдена.', vargs(сCardIDN), 'PKG', 'Z_116_PKGSTUDCRD');
+        cErrMsg := substr(Format(Localize('Карта %0:s не найдена.', 'PKG', 'Z_116_PKGSTUDCRD'), vargs(сCardIDN)),1,4000);
+        jRes.put('errMsg', cErrMsg);
+        return jRes.To_Clob;
+      when others then
+        t_log.debug('Z_116_PKGSTUDCRD.fSOMovInfo. Ошибка получения информации по карте: %0:s', vargs(substr(sqlerrm, 1, 500)), 'PKG', 'Z_116_PKGSTUDCRD');
+        cErrMsg := substr(Format(Localize('Ошибка получения информации по карте: %0:s', 'PKG', 'Z_116_PKGSTUDCRD'),  vargs(substr(sqlerrm, 1, 2000))),1,4000);
+        jRes.put('errMsg', cErrMsg);
+        return jRes.To_Clob;
+    end;
+
+    cPhone := coalesce(G_PKGCLICONT.fGetCliPhone(nCliDepId, nCliId), G_PKGCLICONT.fGetCliPhone(nCliDepId, nCliId, '0'));
+
+    -- инфа по транзакциям
+    lArr := new JSON_ARRAY_T;
+    for trn in (
+      select t.id /* td.id */as id, t.trn_date, td.doper, t.merch_num , t.merch_name, t.term_id, t.mcc_code, t.trn_val, t.trn_sum, t.trnacc_sum, --  td.sdok ???
+             t.acc_val, nvl(td.nat_sdok, td.sdok) as nat_sdok, t.debfl , t.reversfl
+             , t.trn_type -- ??? Тип операции type
+        from N_TRNOPR o , N_CRDINTRN t , T_PROCMEM m1 , T_PROCINH i , T_PROCMEM m2 , T_OPERJRN j, T_TRNDTL td
+         where o.dep_id = m1.dep_id and o.id = m1.ord_id and m1.mainfl = '1'
+           and o.trn_id = t.id and m1.id = i.parent_id
+           and m2.id = i.child_id
+           and t.cardidn = сCardIDN
+           and m2.dep_id = j.dep_id and m2.ord_id = j.ord_id and m2.mainfl = '1' --and j.doper = dOp
+           and j.tra_id = td.id
+           and td.doper+0 = dOp  -- ломаем индекс по дате (он очень большой), чтоб отбирать по счетам
+           and td.dep_id = nacc_dep_id and td.acc_id = nacc_id) loop
+
+      nSign := dbase.iif(trn.debfl = '0', 1, -1);
+      jObjTmp := new JSON_OBJECT_T;
+      jObjTmp.put('operationId', trn.id );
+      jObjTmp.put('cardId',сCardIDN);
+      jObjTmp.put('cardNumber',nCard4char);
+      jObjTmp.put('productId',cDclCode);
+      jObjTmp.put('mobilePhone',cPhone);
+      jObjTmp.put('tranDate',trn.trn_date);
+      jObjTmp.put('procDate', trn.doper);
+      jObjTmp2 := new JSON_OBJECT_T;
+      jObjTmp2.put('code',trn.merch_num);
+      jObjTmp2.put('name',trn.merch_name);
+      jObjTmp.put('merchant',jObjTmp2);
+      jObjTmp.put('terminalId',trn.term_id);
+      jObjTmp.put('mcc',trn.mcc_code);
+      jObjTmp.put('currency',t_pkgval.fGetAlCodeByCode(trn.trn_val));
+      jObjTmp.put('sum', nSign * 100 * trn.trn_sum);  -- все суммы - целые числа (в центах/тиинах)
+      jObjTmp.put('accountSum', nSign * 100 * trn.trnacc_sum);
+      jObjTmp.put('accountCurrency',t_pkgval.fGetAlCodeByCode(trn.acc_val));
+      jObjTmp.put('nationalSum', nSign * 100 * trn.nat_sdok);
+      --jObjTmp.put('type',trn.trn_type);
+      jObjTmp.put_null('type');
+
+      jObjTmp2 := new JSON_OBJECT_T;
+      jObjTmp2.put('operation',jObjTmp);
+
+      lArr.append(jObjTmp2);
+    end loop;
+
+    jRes.put('operations', lArr);
+    jRes.put_null('errMsg');
+    return jRes.To_Clob;
+
+  exception
+    when others then
+      t_log.debug('Z_116_PKGSTUDCRD.fSOMovInfo. Ошибка: %0:s', vargs(substr(sqlerrm, 1, 500)), 'PKG', 'Z_116_PKGSTUDCRD');
+      cErrMsg := substr(Format(Localize('Ошибка при подготовке информации: %0:s', 'PKG', 'Z_116_PKGSTUDCRD'),  vargs(substr(sqlerrm, 1, 2000))),1,4000);
+      jRes.put('errMsg', cErrMsg);
+      return jRes.To_Clob;
+  end fSOMovInfo;
+
+
+end Z_116_PKGSTUDCRD;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="PP_BSSALDEA"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLICONT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIIDN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLINIBBDJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDINDTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDINRSP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDINTRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDMSG"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDMSGTYPE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_TRNOPR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="PP_SALDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="S_DEAACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEACLS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCINH"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNDTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_VAL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_STUDCARDLOG"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_LOCID"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="T_FGETORDCODE"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="CESB_BASE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDECTBL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGSTR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="DBASE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLICONT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLINIBBD"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="N_PKGCRDMSG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="N_PKGPCIDSS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="PP_PKGSALDEA"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEA"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGPROCESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGRUNOPRUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGUNIMSJ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

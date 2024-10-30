@@ -1,0 +1,397 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_CLI_RISK" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="6821B76130427D56CC1113966B71140F">
+  <PKG 
+    NAME="Z_116_PKG_CLI_RISK">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_CLI_RISK is
+  /**
+  * Пакет Риск клиента
+  *
+  * @author Farziddin Nasriddinov
+  * @author Анатолий Бондаренко
+  * @version 2.0
+  *
+  * Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+  **********************************************************************/
+
+  Procedure Setrisk(Pinput in clob, Poutput out clob);
+
+  Function Getcliacc return Json_Array_t;
+
+  /** Проверка операций контроля клиента
+  * <br><i>появилась в версии 2.0</i>
+  * @param pDepID Идентификатор подразделения
+  * @param pCliID Идентификатор клиента
+  * @param pCritID Идентификатор критерия
+  * @param pTypeFl тип контроля клиента
+  * @param pDays Кол-во дней проверки
+  */
+  procedure pChkCli  ( pDepID  G_CLI.DEP_ID%type
+                     , pCliID  G_CLI.ID%type
+                     , pCritID G_CLIRISKCRIT.ID_CRIT%type
+                     , pTypeFl varchar2 default 'AML_CLI'
+                     , pDays   pls_integer default 365);
+
+  /** Получение идентификатора критерия риска по его коду
+  * <br/><i>С версии 2.0</i>
+  * @param pCode код критерия
+  * @param pRaiseEx признак поднятия исключения
+  * @return идентифиактор критерия риска
+  */
+  function fCritCode2Id(
+    pCode            in  varchar2,
+    pRaiseExFl       in  integer default 0
+  ) return G_RISKCRIT.ID%type;
+
+  /** Справочник критериев риска
+  * <br/><i>Появилась в 2.0</i>
+  * @param pInput ничего не принимается на вход, оставлен для совместимости
+  * @param pOutput  JSON с иерархической структурой криетриев риска
+  */
+  procedure pGetCritRiskList(pInput in clob,
+                             pOutput out Clob);
+
+end Z_116_PKG_CLI_RISK;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_CLI_RISK is
+
+  idEventAML_CLI_SET      Z_116_EVENTDSC.ID%type := Z_116_PKGEVENT.fCode2Id('AML_CLI_SET');
+
+  --------------------------------------------------
+  Procedure Setrisk(Pinput in clob, Poutput out clob) is
+    Vvalrisk constant varchar2(2) := '02';
+
+    Jinput Json_Object_t := Json_Object_t.Parse(Pinput);
+
+    Vcode     varchar2(255) := Jinput.Get_String('code');
+    Vreason   varchar2(255) := Jinput.Get_String('reason');
+    Nid       number;
+    Ndepid    number;
+    Nnord     number;
+    Dfromdate date;
+    Dtodate   date;
+    err_code  varchar2(400);
+    err_msg   varchar2(400);
+
+    Procedure Setresult(vCode number, vError varchar2 := null) is
+      Joutput Json_Object_t := Json_Object_t();
+    begin
+      Joutput.Put('result', vCode);
+
+      if vError is not null then
+        Joutput.Put('error', vError);
+      end if;
+
+      Poutput := Joutput.To_Clob;
+    end;
+
+    Function Getrick(Ndepid number, Nid number) return varchar2 is
+      result varchar2(100);
+    begin
+      select t.Valrisk
+        into result
+        from g_Clivalrisk t
+       where Dep_Id = Ndepid
+         and Id = Nid
+         and p_Operday between t.Fromdate and t.Todate
+         and Rownum = 1;
+
+      return result;
+    exception
+      when others then
+        return '-';
+    end;
+  begin
+    c_Pkgconnect.Popen();
+    Dfromdate := p_Operday;
+
+    begin
+      select Dep_Id, Id into Ndepid, Nid from g_Cli where Code = Vcode;
+    exception
+      when No_Data_Found then
+        Setresult(3);
+        return;
+    end;
+
+    if Getrick(Ndepid, Nid) = Vvalrisk then
+      Setresult(1);
+    else
+      begin
+        begin
+          select nord
+            into Nnord
+            from G_CLIVALRISK
+           where DEP_ID = Ndepid
+             and ID = Nid
+             and fromdate = Dfromdate;
+        exception
+          when no_Data_found then
+            Nnord := null;
+        end;
+
+        g_Pkgextattr.Pupdvalrisk(p_Dep_Id   => Ndepid,
+                                 p_Id       => Nid,
+                                 p_Nord     => Nnord,
+                                 p_Fromdate => Dfromdate,
+                                 p_Todate   => Dtodate,
+                                 p_Valrisk  => Vvalrisk,
+                                 p_Reason   => Vreason);
+
+        Setresult(2);
+
+        commit;
+      exception
+        when others then
+          err_code := SQLCODE;
+          err_msg  := SUBSTR(SQLERRM, 1, 200);
+          Setresult(4, vError => err_code || '. ' || err_msg);
+      end;
+    end if;
+  end;
+
+  Function Getcliacc return Json_Array_t is
+    v_Arr Json_Array_t := Json_Array_t();
+    v_Obj Json_Object_t;
+  begin
+    c_Pkgconnect.Popen();
+    for r in (select *
+                from (select Ah.Dep_Id,
+                             Ah.Id,
+                             a.Code as Acc_Code,
+                             Cli.Code as Cli_Code,
+                             to_char(p_Operday, 'mm.dd.yyyy') as Oper_Day,
+                             g_Pkgacc.Fgetclosedate(a.Id, a.Dep_Id) as Closed_Date
+                        from g_Cli Cli, g_Accblnhst Ah, g_Accbln a
+                       where a.Id = Ah.Id
+                         and a.Dep_Id = Ah.Dep_Id
+                         and p_Operday between Ah.Fromdate and Ah.Todate
+                         and Ah.Clidep_Id = Cli.Dep_Id
+                         and Ah.Cli_Id = Cli.Id
+                         and Ah.Clidep_Id = Cli.Dep_Id
+                         and Ah.Cli_Id = Cli.Id
+                         and Ah.Arcfl = 0
+                         and Substr(a.Code, 1, 5) = '20296') t
+               where t.Closed_Date is null) loop
+      v_Obj := Json_Object_t();
+      v_Obj.Put('acc_code', r.Acc_Code);
+      v_Obj.Put('client_code', r.Cli_Code);
+      v_Obj.Put('oper_day', r.Oper_Day);
+      v_Arr.Append(v_Obj);
+    end loop;
+
+    return v_Arr;
+  end;
+
+  -- Получение идентификатора критерия риска по его коду
+  function fCritCode2Id(
+    pCode            in  varchar2,
+    pRaiseExFl       in  integer default 0
+  ) return G_RISKCRIT.ID%type is
+    nCritId     G_RISKCRIT.ID%type;
+  begin
+
+    select c.id
+      into nCritId
+      from G_RISKCRIT c
+        where c.code = pCode;
+
+    return nCritId;
+
+  exception
+    when others then
+      if pRaiseExFl <> 0 then
+        raise;
+      else
+        return null;
+      end if;
+  end fCritCode2Id;
+
+  -- Получение кода критерия риска по идентификатору
+  function fCritId2Code(
+    pId            in  G_RISKCRIT.ID%type,
+    pRaiseExFl       in  integer default 0
+  ) return G_RISKCRIT.CODE%type is
+    cCritCode     G_RISKCRIT.CODE%type;
+  begin
+
+    select c.Code
+      into cCritCode
+      from G_RISKCRIT c
+        where c.id = pId;
+
+    return cCritCode;
+
+  exception
+    when others then
+      if pRaiseExFl <> 0 then
+        raise;
+      else
+        return null;
+      end if;
+  end fCritId2Code;
+
+  --проверка клиента по событиям AML_CLI_SET
+  function fChkAML_CLI_SET(pDepID  G_CLI.DEP_ID%type
+                         , pCliID  G_CLI.ID%type
+                         , pCritID G_CLIRISKCRIT.ID_CRIT%type
+                         , pDays   pls_integer default 365
+                          ) return pls_integer is
+    iCnt pls_integer;
+    cCliCode G_CLI.CODE%type;
+    cCritCode G_RISKCRIT.CODE%type := fCritId2Code(pCritID);
+  begin
+    cCliCode := g_pkgcli.fGetCliCode(pDepID, pCliID);
+
+    select sign(count(1)) into iCnt
+          from Z_116_EVENTJRN e
+          where e.dsc_id = idEventAML_CLI_SET
+            and e.snd_dt > (p_operday - pDays)
+            and c_pkgstr.GetParamByNameN(e.params,'cliCode') = cCliCode
+            and c_pkgstr.GetParamByNameN(e.params,'criterion') = cCritCode
+            ;
+    return iCnt;
+
+  end fChkAML_CLI_SET;
+
+  -- кастомная проверка по клиенту
+  procedure pChkCli(pDepID  G_CLI.DEP_ID%type
+                  , pCliID  G_CLI.ID%type
+                  , pCritID G_CLIRISKCRIT.ID_CRIT%type
+                  , pTypeFl varchar2 default 'AML_CLI'              -- тип контроля клиента
+                  , pDays   pls_integer default 365) as   -- признак контроля родственников клиента
+    iCnt pls_integer;
+
+  begin
+
+    if pTypeFl='AML_CLI' then
+      iCnt := fChkAML_CLI_SET(pDepID, pCliID, pCritID, pDays);
+    end if;
+    t_log.debug('  === iCnt = '||iCnt);
+    G_PKGCLIRISK.pSaveCrit(pDepID, pCliID, pCritID, iCnt);
+
+  end pChkCli;
+
+  -- Справочник критериев риска
+  procedure pGetCritRiskList(pInput in clob,
+                             pOutput out Clob) is
+    lArr	                  JSON_ARRAY_T;
+    ObjTmp                  JSON_OBJECT_T;
+  begin
+    lArr := new JSON_ARRAY_T;
+
+    for cr in (select t.ID, t.id_hi, t.groupfl, t.nlevel,
+                       t.CODE, t.LONGNAME
+                  from G_RISKCRIT t
+                  where t.LOC_ID=p_locid
+                    and t.arcfl = '0'
+                    connect by id_hi = id
+                    order by CODE
+    ) loop
+      ObjTmp := new JSON_OBJECT_T;
+      ObjTmp.put('id', cr.ID);
+      ObjTmp.put('parentId', cr.ID_HI);
+      ObjTmp.put('groupfl', cr.groupfl);
+      ObjTmp.put('level', cr.nlevel);
+      ObjTmp.put('code', cr.CODE );
+      ObjTmp.put('name', cr.LONGNAME);
+      lArr.append(ObjTmp);
+    end loop;
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('criteries', lArr);
+    pOutput := ObjTmp.To_Clob;
+  exception
+    when others then
+      pOutput := Z_116_ELOAN_UTILS.fErr(sqlcode, 'Ошибка получения справочника критериев риска: %0:s', vargs(substr(sqlerrm,1,2000)));
+  end pGetCritRiskList;
+
+end Z_116_PKG_CLI_RISK;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLNHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIRISKCRIT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIVALRISK"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_RISKCRIT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_EVENTDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_EVENTJRN"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_LOCID"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGSTR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGACC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIRISK"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGEXTATTR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_ELOAN_UTILS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKGEVENT"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PRC" 
+  KEY="Z_116_GETCONTACTBYCARD" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="14C4E87E23B9F0BA4B992B68286CD031">
+  <PRC 
+    NAME="Z_116_GETCONTACTBYCARD">
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace procedure COLVIR.Z_116_GETCONTACTBYCARD (pCode  in varchar2, pCardcode varchar2,
+                               pOutput out Clob) is
+
+  vID      number;
+  vDep_id  number;
+  vMobid   varchar2(50) := 7595;
+begin
+
+  Z_116_PKGCONNECT.pOpen();
+
+
+  select id,dep_id
+    into vID, vDep_id
+    from NV_CRD_LIST
+   where cli_code = pCode
+     and cardcode = pCardcode;
+
+ pOutput := T_PkgDeaPrm.fPar(vID, vDep_id, vMobid);
+
+  exception
+   when others then
+    pOutput := sqlerrm;
+
+end Z_116_GETCONTACTBYCARD;
+]]>
+    </LOB_FIELD>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="NV_CRD_LIST"/>
+    </PRCDPNENT>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKGCONNECT"/>
+    </PRCDPNPKG>
+  </PRC>
+</DDC>

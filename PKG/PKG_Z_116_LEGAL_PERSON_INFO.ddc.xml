@@ -1,0 +1,605 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_LEGAL_PERSON_INFO" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="935D8AF11BF946FF13EDE2628D7E2FDF">
+  <PKG 
+    NAME="Z_116_LEGAL_PERSON_INFO">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_LEGAL_PERSON_INFO is
+
+  -- Author : Farhod Marufjonov
+  -- Version: 1.0
+
+  ----------------------------------------------------------------------------------------------------
+  Procedure Run
+  (
+    From_Date date,
+    to_date   date,
+    Dep_Id    number,
+    Sub       varchar2
+  );
+
+  ----------------------------------------------------------------------------------------------------
+  Procedure Pprocessonechunk
+  (
+    Pchunknum number,
+    Psid      number,
+    Dop       date,
+    Pdatepost in varchar2 default null
+  );
+
+  ----------------------------------------------------------------------------------------------------
+  Procedure Pclean;
+
+end Z_116_LEGAL_PERSON_INFO;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_LEGAL_PERSON_INFO is
+  ----------------------------------------------------------------------------------------------------
+  Procedure Run
+  (
+    From_Date date,
+    to_date   date,
+    Dep_Id    number,
+    Sub       varchar2
+  ) is
+    Idata     z_116_Legal_Persons_Info%rowtype;
+    Dfromdate date;
+    Npro      number;
+    v_Sid     number := to_number(to_char(Systimestamp, 'rrrrmmddhh24missff3'));
+    v_Dep_Id  number := Dep_Id;
+  begin
+    c_Pkgconnect.Popen();
+
+    l_Pkgrpt_Prlutl.Pprepare(Prpt_Code => 'Z_116_LEGAL_PERSONS_INFO_REP',
+                             Prptdate  => p_Operday,
+                             Ppkg_Name => 'z_116_Legal_Person_Info',
+                             Ptbl_Name => 'z_116_Legal_Persons_Info');
+
+    for r in (with Acc as
+                 (select t.*,
+                        Substr(Cli, 1, Instr(Cli, ',') - 1) Cli_Dep_Id,
+                        Substr(Cli, Instr(Cli, ',') + 1) Cli_Id
+                   from (select a.*,
+                                g.Code as Acc_Group_Code,
+                                (select Clidep_Id || ',' || Cli_Id
+                                   from (select Clidep_Id, Cli_Id
+                                           from g_Accblnhst
+                                          where Dep_Id = a.Dep_Id
+                                            and Id = a.Id
+                                            and p_Operday between Fromdate and Todate
+                                         union all
+                                         select to_number(Pk1), to_number(Pk2)
+                                           from Ledacc_Det
+                                          where Dep_Id = a.Dep_Id
+                                            and Acc_Id = a.Id
+                                            and Sgn_Id in (select *
+                                                             from table(Gl_Acc.Fclianllst))
+                                         union all
+                                         select p.Prsdep_Id, p.Prs_Id
+                                           from g_Accmangr m, g_Cliauthprs p
+                                          where m.Dep_Id = a.Dep_Id
+                                            and m.Id = a.Id
+                                            and m.Mngr_Dep_Id = p.Dep_Id
+                                            and m.Mngr_Id = p.Id
+                                            and m.Nord = p.Nord
+                                            and p.Nsign = c_Sign_Owner)
+                                  where Rownum = 1) Cli
+                           from g_Accbln a, g_Accblnhst Ah, t_Accgrp g
+                          where Substr(a.Code, 1, 5) in ('20208', '20294', '20212', '20210', '20218')
+                            and Ah.Aut_Id = g.Id
+                            and a.Id = Ah.Id
+                            and a.Dep_Id = Ah.Dep_Id
+                            and p_Operday between Ah.Fromdate and Ah.Todate
+                            and a.Dreg between From_Date and to_date) t)
+                select g.Dep_Id,
+                       g.Id,
+                       g.Ord_Id,
+                       g.Code Cli_Code,
+                       g.Birdate,
+                       Gh.Longname Cli_Name,
+                       (select Longname
+                          from t_Reg_Std
+                         where Id = Gh.Citiz_Id) Citiz_Name,
+                       Gh.Passser || ' ' || Gh.Passnum Passport,
+                       Gh.Passdat,
+                       Gh.Passfin,
+                       Gh.Passorg,
+                       a.Code Aut_Code,
+                       Dep.Code Aut_Dep_Code,
+                       Gh.Taxcode,
+                       Acc.Code as Acc_Code,
+                       Acc.Dreg,
+                       Acc.Acc_Group_Code,
+                       case
+                         when Substr(Acc.Code, 1, 5) = '20206' then
+                          'Денежные переводы'
+                         when Substr(Acc.Code, 1, 5) in ('20406', '20606') then
+                          'Депозиты'
+                         when Substr(Acc.Code, 1, 5) in ('22616', '22618') then
+                          'Пластиковая карточка'
+                       end as Type_Service,
+                       (select St.Longname
+                          from t_Procmem Pm, t_Process Pr, t_Bop_Stat St
+                         where Pm.Ord_Id = Acc.Ord_Id
+                           and Pm.Dep_Id = Acc.Dep_Id
+                           and Pm.Mainfl = '1'
+                           and Pr.Id = Pm.Id
+                           and St.Id = Pr.Bop_Id
+                           and St.Nord = Pr.Nstat
+                           and Rownum = 1) as State_Name,
+                       /*  (select u_Pkguniref.Flongnamebyrefer(r.Code, v.Value, 0)
+                        from g_Clirefval v, u_Uniref r
+                       where v.Dep_Id = g.Dep_Id
+                         and v.Id = g.Id
+                         and v.Ref_Id = r.Id
+                         and r.Code = 'UZ_OKONH'
+                         and Rownum = 1) Okonh,*/
+                       /* (select u_Pkguniref.Flongnamebyrefer(r.Code, v.Value, 0)
+                        from g_Clirefval v, u_Uniref r
+                       where v.Dep_Id = g.Dep_Id
+                         and v.Id = g.Id
+                         and v.Ref_Id = r.Id
+                         and r.Code = 'UZ_OKOPF'
+                         and Rownum = 1) Okopf,*/
+                       /*(select u_Pkguniref.Flongnamebyrefer(r.Code, v.Value, 0)
+                        from g_Clirefval v, u_Uniref r
+                       where v.Dep_Id = g.Dep_Id
+                         and v.Id = g.Id
+                         and v.Ref_Id = r.Id
+                         and r.Code = 'UZ_OKFS'
+                         and Rownum = 1) ,*/
+                       /* (select u_Pkguniref.Flongnamebyrefer(r.Code, v.Value, 0)
+                        from g_Clirefval v, u_Uniref r
+                       where v.Dep_Id = g.Dep_Id
+                         and v.Id = g.Id
+                         and v.Ref_Id = r.Id
+                         and r.Code = 'UZ_VOGHS'
+                         and Rownum = 1) Voghs,*/
+                       t_Pkgval.Fgetcode(Cap.Val_Id) Cap_Val,
+                       Cap.Amount_Reg Cap_Amount_Reg,
+                       Cap.Amount,
+                       Cap.Amount_Pay,
+                       Cap.Amount_Cash,
+                       Cap.Amount_Core_Funds
+                  from Acc, g_Cli g, g_Clihst Gh, t_Accgrp a, c_Dep Dep, g_Auth_Capital Cap
+                 where g.Id = Acc.Cli_Id
+                   and g.Dep_Id = Acc.Cli_Dep_Id
+                   and g.Typefl = 0
+                   and Gh.Dep_Id = g.Dep_Id
+                   and Gh.Id = g.Id
+                   and p_Operday between Gh.Fromdate and Gh.Todate
+                   and a.Id = Gh.Aut_Id
+                   and a.Dep_Id = Dep.Id
+                   and Cap.Dep_Id(+) = g.Dep_Id
+                   and Cap.Id(+) = g.Id
+                   and p_Operday between Cap.Fromdate(+) and Cap.Todate(+)
+                   and ((Sub = 0 and v_Dep_Id = Dep.Id) or
+                       (Sub = 1 and Dep.Id in (select Id
+                                                  from c_Dep
+                                                 start with Id = v_Dep_Id
+                                                connect by prior Id = Id_Hi))))
+    loop
+      Idata.Dep_Id       := r.Dep_Id;
+      Idata.Id           := r.Id;
+      Idata.Cli_Name     := r.Cli_Name; -- Ф.И.О
+      Idata.Cli_Code     := r.Cli_Code; -- Код клиента
+      Idata.Birdate      := r.Birdate; -- Дата рождения
+      Idata.Adr_Birth    := g_Pkgaddress.Fcliadr(r.Dep_Id, r.Id, Gcliadr_Birth); -- Место рождения
+      Idata.Citiz_Name   := r.Citiz_Name; -- Гражданство
+      Idata.Passport     := r.Passport; -- Серия/номер паспорта
+      Idata.Passdat      := r.Passdat; -- Дата выдачи
+      Idata.Passfin      := r.Passfin; -- Срок действия
+      Idata.Passorg      := r.Passorg; -- Орган выдавший паспорт
+      Idata.Addr_Reg     := g_Pkgaddress.Fcliadr(r.Dep_Id, r.Id, Gcliadr_Reg); -- Постоянное места жителства
+      Idata.Addr_Temp    := g_Pkgaddress.Fcliadr(r.Dep_Id, r.Id, Gcliadr_Temp); -- Временное места жителства
+      Idata.Aut_Dep_Code := r.Aut_Dep_Code; -- Код филиала (РЦКУ)
+      Idata.Aut_Code     := r.Aut_Code; -- РЦКУ/ЦКУ
+      Idata.Taxcode      := Substr(r.Taxcode, 1, 254); -- ИНН
+
+      -- Этих полей занимает много времени, поэтому удалим их
+      Idata.Okonh := null; -- r.Okonh; -- ОКОНХ/ОКЕД
+      Idata.Okopf := null; -- r.Okopf; -- ОПФ
+      Idata.Okfs  := null; -- r.Okfs; -- Форма собственности
+      Idata.Voghs := null; -- r.Voghs; -- Министерство
+
+      Idata.Cap_Val        := r.Cap_Val; -- Валюта
+      Idata.Cap_Amount_Reg := r.Cap_Amount_Reg; -- Зарегистрированный
+      Idata.Cap_Amount_Pay := r.Amount_Pay; -- Сформированный
+
+      if Nvl(r.Amount_Cash, 0) + Nvl(r.Amount_Core_Funds, 0) = 0 then
+        Idata.Cap_Core := '-%/-%';
+      else
+        Npro           := Round(100 * r.Amount_Cash / (r.Amount_Cash + Nvl(r.Amount_Core_Funds, 0)));
+        Idata.Cap_Core := Npro || '%/' || (100 - Npro) || '%'; -- Источники: денежные/основные средства
+      end if;
+
+      begin
+        select t.Dt_To, -- Срок действия
+               Substr(t.Org, 1, 254), -- Регистрирующий орган
+               Substr(t.Regnum, 1, 254), -- Номер регистрации
+               t.Regdt -- Дата регистрации
+          into Idata.Reg_Dt_To, Idata.Reg_Org, Idata.Regnum, Idata.Regdt
+          from (select *
+                  from g_Cliregdoc t
+                 where t.Dep_Id = r.Dep_Id
+                   and t.Id = r.Id
+                 order by t.Nord) t
+         where Rownum = 1;
+      exception
+        when No_Data_Found then
+          Idata.Reg_Dt_To := null; -- Срок действия
+          Idata.Reg_Org   := null; -- Регистрирующий орган
+          Idata.Regnum    := null; -- Номер регистрации
+          Idata.Regdt     := null; -- Дата регистрации
+      end;
+
+      begin
+        select u.Longname, l.Presentdate
+          into Idata.User_First, Idata.Date_First -- Сторудник заполнявший анкету, Дата заполнения анкеты
+          from t_Docdos Ds, t_Doclst l, c_Usr u
+         where Ds.Dep_Id = r.Dep_Id
+           and Ds.Ord_Id = r.Ord_Id
+           and l.Id = Ds.Id
+           and l.Id_Us = u.Id(+)
+         order by l.Presentdate
+         fetch first 1 row only;
+      exception
+        when No_Data_Found then
+          Idata.User_First := null; -- Сторудник заполнявший анкету
+          Idata.Date_First := null; -- Дата заполнения анкеты
+      end;
+
+      begin
+        select u.Longname, l.Presentdate -- Ответственный сотрудник, Дата изменения анкеты
+          into Idata.User_Last, Idata.Date_Last
+          from t_Docdos Ds, t_Doclst l, c_Usr u
+         where Ds.Dep_Id = r.Dep_Id
+           and Ds.Ord_Id = r.Ord_Id
+           and l.Id = Ds.Id
+           and l.Id_Us = u.Id(+)
+         order by l.Presentdate
+         fetch first 1 row only;
+      exception
+        when No_Data_Found then
+          Idata.User_Last := null; -- Ответственный сотрудник
+          Idata.Date_Last := null; -- Дата изменения анкеты
+      end;
+
+      begin
+        select Substr(Bs_Dom.Dname('G_VALRISK', Valrisk, 'N'), 1, 250), Reason, Fromdate
+          into Idata.Valrisk, Idata.Reason_Risk, Dfromdate -- Уровень риска, Причина данногоуровня риска
+          from g_Clivalrisk
+         where Dep_Id = r.Dep_Id
+           and Id = r.Id
+           and p_Operday between Fromdate and Todate
+           and Rownum = 1;
+
+        select Substr(Listagg(Code, ',') Within group(order by Code), 1, 4000),
+               Substr(Listagg(Longname, Chr(10)) Within group(order by Code), 1, 4000)
+          into Idata.Valrisk_Code, Idata.Reason_Names -- Критерий код, Наименование критерия риска
+          from g_Cliriskcrit c, g_Riskcrit t, g_Clivalrisk v
+         where v.Dep_Id = r.Dep_Id
+           and v.Id = r.Id
+           and v.Fromdate = Dfromdate
+           and c.Dep_Id = v.Dep_Id
+           and c.Cli_Id = v.Id
+           and c.Id_Crit = t.Id
+           and v.Fromdate between c.Fromdate and c.Todate
+           and t.Id_Hi is null
+           and c.Valrisk = '02';
+      exception
+        when No_Data_Found then
+          Idata.Valrisk      := null; -- Уровень риска
+          Idata.Reason_Risk  := null; -- Причина данногоуровня риска
+          Idata.Valrisk_Code := null; -- Критерий код
+          Idata.Reason_Names := null; -- Наименование критерия риска
+      end;
+
+      Idata.Boss := null; -- Директор-Дата выдачи-Cерия Номер--Орган выдавший паспорт--Срок действия
+      Idata.Bux  := null; -- Бухгалтер Дата выдачи-Cерия Номер--Орган выдавший паспорт--Срок действия
+
+      for k in (select Substr(Ch.Longname || '--' || Ch.Passdat || '--' || Ch.Passser || Ch.Passnum || '--' ||
+                              Ch.Passorg || '--' || Ch.Passfin,
+                              1,
+                              255) as Txt,
+                       p.Nord,
+                       p.Nsign -- 1, 2
+                  from g_Clihst Ch, g_Cliauthprs p
+                 where p.Dep_Id = Idata.Dep_Id
+                   and p.Id = Idata.Id
+                   and Ch.Id = p.Prs_Id
+                   and Ch.Dep_Id = p.Prsdep_Id
+                   and p_Operday between Ch.Fromdate and Ch.Todate
+                   and p.Nsign in (1, 2))
+      loop
+        if k.Nsign = 1 then
+          Idata.Boss := k.Txt; -- Директор-Дата выдачи-Cерия Номер--Орган выдавший паспорт--Срок действия
+        else
+          Idata.Bux := k.Txt; -- Бухгалтер Дата выдачи-Cерия Номер--Орган выдавший паспорт--Срок действия
+        end if;
+      end loop;
+
+      begin
+        select Listagg(case
+                         when g.Typefl = 1 then
+                          g.Code || ' ' || l.Longname
+                        end,
+                        '/') Within group(order by l.Nord) Fiz_Name,
+               Listagg(case
+                         when g.Typefl != 1 then
+                          l.Longname
+                        end,
+                        '/') Within group(order by l.Nord) Yur_Name,
+               Listagg(case
+                         when g.Typefl = 1 then
+                          (select (select Dig_Code
+                                     from t_Reg_Std
+                                    where Id = Gh.Citiz_Id)
+                             from g_Clihst Gh
+                            where Gh.Dep_Id = g.Dep_Id
+                              and Gh.Id = g.Id
+                              and p_Operday between Gh.Fromdate and Gh.Todate)
+                        end,
+                        '/') Within group(order by l.Nord) Fiz_Citiz,
+               Listagg(l.Partval, '/') Within group(order by Decode(g.Typefl, 1, 1, 2), l.Nord) Partvals
+          into Idata.Adm_Fiz_Name, Idata.Adm_Yur_Name, Idata.Adm_Fiz_Citiz, Idata.Adm_Partvals
+          from g_Cliadmlst l, g_Cli g
+         where l.Dep_Id = r.Dep_Id
+           and l.Id = r.Id
+           and g.Dep_Id = l.Cli_Dep_Id
+           and g.Id = l.Cli_Id
+           and l.Admrole = '01';
+      exception
+        when No_Data_Found then
+          Idata.Adm_Fiz_Name  := null; -- Физический статус ФИО
+          Idata.Adm_Yur_Name  := null; -- Юридический статус Наименование
+          Idata.Adm_Fiz_Citiz := null; -- Гражданство
+          Idata.Adm_Partvals  := null; -- Доля, %
+      end;
+
+      Idata.Type_Service   := r.Type_Service; -- Вид услуги
+      Idata.Acc_Code       := r.Acc_Code; -- Модуль счета
+      Idata.Dreg           := r.Dreg; -- Дата открытия первого банковского счета
+      Idata.State_Name     := r.State_Name; -- Cостояние счета
+      Idata.Acc_Group_Code := r.Acc_Group_Code;
+      Idata.Sid            := v_Sid;
+      Idata.Chunknum       := 0;
+
+      insert into z_116_Legal_Persons_Info
+      values Idata;
+
+      /*for k in (select a.Id,
+                       a.Dep_Id,
+                       a.Code,
+                       a.Dreg,
+                       case
+                         when Substr(a.Code, 1, 5) = '20206' then
+                          'Денежные переводы'
+                         when Substr(a.Code, 1, 5) in ('20406', '20606') then
+                          'Депозиты'
+                         when Substr(a.Code, 1, 5) in ('22616', '22618') then
+                          'Пластиковая карточка'
+                       end Type_Service,
+                       (select St.Longname
+                          from t_Procmem Pm, t_Process Pr, t_Bop_Stat St
+                         where Pm.Ord_Id = a.Ord_Id
+                           and Pm.Dep_Id = a.Dep_Id
+                           and Pm.Mainfl = '1'
+                           and Pr.Id = Pm.Id
+                           and St.Id = Pr.Bop_Id
+                           and St.Nord = Pr.Nstat
+                           and Rownum = 1) State_Name
+                  from g_Accbln a
+                 where (a.Dep_Id, a.Id) = any
+                 (select Dep_Id, Id
+                          from g_Accblnhst
+                         where Clidep_Id = r.Dep_Id
+                           and Cli_Id = r.Id
+                           and p_Operday between Fromdate and Todate
+                        union
+                        select Dep_Id, Acc_Id
+                          from Ledacc_Det
+                         where Sgn_Id in (select *
+                                            from table(Gl_Acc.Fclianllst))
+                           and Pk1 = to_char(r.Dep_Id)
+                           and Pk2 = to_char(r.Id)
+                        union
+                        select m.Dep_Id, m.Id
+                          from g_Accmangr m, g_Cliauthprs p
+                         where p.Prsdep_Id = r.Dep_Id
+                           and p.Prs_Id = r.Id
+                           and m.Mngr_Dep_Id = p.Dep_Id
+                           and m.Mngr_Id = p.Id
+                           and m.Nord = p.Nord
+                           and p.Nsign = c_Sign_Owner)
+                   and Substr(a.Code, 1, 5) in ('20208', '20294', '20212', '20210', '20218')
+                   and a.Dreg between From_Date and to_date)
+      loop
+        Idata.Type_Service := k.Type_Service; -- Вид услуги
+        Idata.Acc_Code     := k.Code; -- Модуль счета
+        Idata.Dreg         := k.Dreg; -- Дата открытия первого банковского счета
+        Idata.State_Name   := k.State_Name; -- Cостояние счета
+        Idata.Sid          := v_Sid;
+        Idata.Chunknum     := 0;
+
+        insert into z_116_Legal_Persons_Info
+        values Idata;
+      end loop;*/
+
+      commit;
+    end loop;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  Procedure Pprocessonechunk
+  (
+    Pchunknum number,
+    Psid      number,
+    Dop       date,
+    Pdatepost in varchar2 default null
+  ) is
+  begin
+    commit;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  Function Fgetoldsessionnum(Snold varchar2) return number is
+    S1 varchar2(100);
+    S2 varchar2(100);
+  begin
+    S1 := Substr(Snold, 1, 8);
+    S2 := Substr(Snold, 9);
+
+    S1 := to_char(to_date(S1, 'rrrrmmdd') - 1, 'rrrrmmdd');
+    return to_number(S1 || S2);
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  Procedure Pclean is
+    Csid varchar2(100) := to_number(to_char(Systimestamp, 'rrrrmmddhh24missff3'));
+  begin
+    delete from z_116_Legal_Persons_Info q
+     where q.Sid <= Csid;
+  end;
+
+end Z_116_LEGAL_PERSON_INFO;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_DOM"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_USR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLNHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCMANGR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_AUTH_CAPITAL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIADMLST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIAUTHPRS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIREGDOC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIRISKCRIT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIVALRISK"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_RISKCRIT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC_DET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ACCGRP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCDOS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCLST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_REG"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_LEGAL_PERSONS_INFO"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="GL_ACC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGADDRESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGRPT_PRLUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PKGDPNPKG>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="G_CLIADR_TYPE"/>
+    </PKGDPNDOM>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="G_CLIPRS_NSIGN"/>
+    </PKGDPNDOM>
+  </PKG>
+</DDC>

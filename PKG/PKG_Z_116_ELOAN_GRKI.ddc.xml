@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_ELOAN_GRKI" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="695F9912993A9E7B3D3C5FDD972724EB">
+  <PKG 
+    NAME="Z_116_ELOAN_GRKI">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_ELOAN_GRKI is
+/**
+* Пакет для реализации методов работы с ГРКИ
+*
+* @author Алешкевич Дмитрий
+* @version 2.0
+* @headcom
+*
+* Copyright (c) 2023 By Aloqabank. All Rights Reserved.
+*/
+
+/** Получение информации о кредитной организации
+* <br/><i>С версии 1.0</i>
+* @param pInput depId заявки
+* @param pOutput Параметры
+*/
+procedure pGetCreditOrgInfo(pInput in Clob,
+                            pOutput out Clob);
+
+/** Получение альтернативного кода документа дла ГРКИ
+* <br/><i>С версии 1.0</i>
+* @param pInput docType тип документа в банке
+* @param pOutput Параметры
+*/
+procedure pGetAltDocType(pInput in Clob,
+                         pOutput out Clob);
+
+
+/** Отправка запроса в ГРКИ
+* <br/><i>С версии 1.0</i>
+* @param pInput Параметры depId, id, request
+* @param pOutput Параметры
+*/
+procedure pSendRequestOnline(pInput in clob,
+                             pOutput out clob);
+
+/** Получение guid заявки
+* <br/><i>С версии 1.0</i>
+* @param pInput Параметры depId, id
+* @param pOutput Параметры
+*/
+procedure pGetClaimGuid(pInput in clob,
+                        pOutput out clob);
+
+end Z_116_ELOAN_GRKI;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_ELOAN_GRKI is
+
+procedure pGetCreditOrgInfo(pInput in clob,
+                            pOutput out clob)
+is
+  jInput JSON_OBJECT_T;
+  jOutput JSON_OBJECT_T;
+  nDepId number;
+  sType varchar2(2);
+  sCode varchar2(30);
+  sOffice varchar(30);
+begin
+  c_pkgconnect.pOpen;
+  jInput := JSON_OBJECT_T.parse(pInput);
+  jOutput := JSON_OBJECT_T();
+  nDepId := jInput.get_number('depId');
+  SELECT
+    '01' "type", -- Код вида кредитной организации
+    c_fprm('GL_MAINDEP') "code", -- Код кредитной организации
+    bnk.code "office" --Код офиса банковских услуг
+  INTO
+    sType,
+    sCode,
+    sOffice
+  FROM C_DEP_STD d,
+    (select b.code from G_BNK b, G_BNKHST bh, G_BNKDSC_STD bd, G_BNK_ADD ba
+     where b.id = bh.ID and p_operday between bh.FROMDATE and bh.TODATE
+       and bh.BAN_ID = bd.id
+       --"Тип Банка" имеет значения: 3 "Транзитивный банк", 10 "Офис банковских услуг"
+       and bd.code in ('3', '10')
+       and b.id = ba.id
+       -- текущий опердень меньше или равен дате деактивации
+       and ba.code = 'DATE_DEACT' and p_operday<=nvl(to_date(ba.Value), p_maxdate)
+    ) bnk
+  where d.ID = nDepId and bnk.code(+) = d.code;
+  jOutput.put('type', nvl(sType, ''));
+  jOutput.put('code', nvl(sCode, ''));
+  jOutput.put('office', nvl(sOffice, ''));
+  pOutput := jOutput.To_Clob();
+end pGetCreditOrgInfo;
+
+procedure pGetAltDocType(pInput in clob,
+                         pOutput out clob)
+is
+  jInput JSON_OBJECT_T;
+  jOutput JSON_OBJECT_T;
+  sDocType varchar2(10);
+  sDocAltType varchar2(10);
+begin
+  c_pkgconnect.pOpen;
+  jInput := JSON_OBJECT_T.parse(pInput);
+  jOutput := JSON_OBJECT_T();
+  sDocType := jInput.get_string('docType');
+  SELECT
+    G_PKGCLIIDENTDOC.fCode2AltCode(sDocType, 'NIBBD')
+  INTO sDocAltType
+  FROM DUAL;
+  jOutput.put('docAltType', sDocAltType);
+  pOutput := jOutput.To_Clob();
+end pGetAltDocType;
+
+procedure pSendRequestOnline(pInput in clob,
+                             pOutput out clob)
+is
+  jInput JSON_OBJECT_T;
+  jOutput JSON_OBJECT_T;
+  jRequest JSON_OBJECT_T;
+  nDepId number;
+  nId number;
+  pSendStatus varchar2(500);
+  pStatus varchar2(500);
+  pErrMsg varchar2(500);
+  sCredBur varchar2(10) := 'GRKI';
+  sTypCode varchar2(50);
+  pClaimGUID L_UNIQNUM.NUMGRKI%type;
+begin
+  c_pkgconnect.pOpen;
+  jInput := JSON_OBJECT_T.parse(pInput);
+  jOutput := JSON_OBJECT_T();
+  nDepId := jInput.get_Number('depId');
+  nId := jInput.get_Number('id');
+  sTypCode := jInput.get_string('method');
+  -- 'saveClaim'
+  -- 'saveClaimReject'
+  jRequest := jInput.get_Object('request');
+
+  L_PKGIENIKI_API.pSendReport(
+    pIdDep   => nDepId,
+    pId      => nId,
+    pCredBur => sCredBur,
+    pTypCode => sTypCode,
+    pUniqnum => null,
+    pRequest => jRequest.To_Clob,
+    pStatus  => pSendStatus,
+    pErrMsg  => pErrMsg
+  );
+
+  if pSendStatus = 'SUCCESS' or pSendStatus = 'SEND' then
+
+    L_PKGIENIKI_API.pGetStatus(
+      pIdDep => nDepId,
+      pId    => nId,
+      pCredBur => sCredBur,
+      pTypCode => sTypCode,
+      pStatus  => pStatus,
+      pErrMsg  => pErrMsg
+    );
+
+    if pStatus = 'CONFIRMED' then
+      SELECT l.NUMGRKI into pClaimGUID FROM L_UNIQNUM l
+      where l.DEP_ID = nDepId and l.ID = nId;
+    end if;
+  end if;
+
+  if pSendStatus is null then
+    jOutput.put_Null('sendStatus');
+  else
+    jOutput.put('sendStatus', pSendStatus);
+  end if;
+
+  if pStatus is null then
+    jOutput.put_Null('status');
+  else
+    jOutput.put('status', pStatus);
+  end if;
+
+  if pErrMsg is null then
+    jOutput.put_Null('error');
+  else
+    jOutput.put('error', pErrMsg);
+  end if;
+
+  if pClaimGUID is null then
+    jOutput.put_Null('claimGuid');
+  else
+    jOutput.put('claimGuid', pClaimGUID);
+  end if;
+  pOutput := jOutput.To_Clob;
+
+end pSendRequestOnline;
+
+procedure pGetClaimGuid(pInput in clob,
+                        pOutput out clob)
+is
+  jInput JSON_OBJECT_T;
+  jOutput JSON_OBJECT_T;
+  nDepId number;
+  nId number;
+  sGuid varchar2(30);
+begin
+  c_pkgconnect.pOpen;
+  jInput := JSON_OBJECT_T.parse(pInput);
+  jOutput := JSON_OBJECT_T();
+  nDepId := jInput.get_Number('depId');
+  nId := jInput.get_Number('id');
+
+  SELECT DISTINCT l.NUMGRKI
+  INTO sGuid
+  FROM L_INFONIKI n, L_UNIQNUM l
+  WHERE n.ORD_DEP_ID = nDepId and n.ORD_ID = nId
+  AND n.ORD_DEP_ID = l.DEP_ID(+) and n.ORD_ID = l.ID(+);
+
+  if sGuid is null then
+    jOutput.put_Null('guid');
+  else
+    jOutput.put('guid', sGuid);
+  end if;
+  pOutput := jOutput.To_Clob();
+
+end pGetClaimGuid;
+
+end Z_116_ELOAN_GRKI;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_BNK"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_BNKDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_BNKHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_BNK_ADD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_INFONIKI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_UNIQNUM"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="C_FPRM"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_MAXDATE"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDENTDOC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGIENIKI_API"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

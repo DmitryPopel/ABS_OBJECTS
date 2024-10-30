@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_STATISTICS" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="8B94569A1B08C28F8373CF19616918CC">
+  <PKG 
+    NAME="Z_116_STATISTICS">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_STATISTICS is
+
+/**
+* Разная статистическая информация для отображения в графане
+*
+* @author Хакимов Муроджон
+* @author Ахмеджанов Сардор
+* @version 2.0
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+
+/**
+* Статистика по взаимодействию со внешними системами (ГРКИ, КАТМ)
+* <br/><i>Появилась в 1.0</i>
+* @param pInput days дни за которые нужно получить данные от текущего дня
+* @param pOutput JSON данные по статистике
+*/
+ PROCEDURE get_process_stats_json(pInput IN CLOB,
+                                  pOutput OUT CLOB);
+
+end Z_116_STATISTICS;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_STATISTICS as
+
+ -- Статистика по взаимодействию со внешними системами (ГРКИ, КАТМ)
+PROCEDURE get_process_stats_json(pInput IN CLOB,
+                                 pOutput OUT CLOB) AS
+  aInput JSON_OBJECT_T;
+  nDays NUMBER;
+BEGIN
+  aInput := JSON_OBJECT_T.parse(pInput);
+  nDays := aInput.get_Number('days');
+  WITH stat as (
+    SELECT /*+ ALL_ROWS*/
+           d.doper,
+           s.CODE
+    FROM l_infoniki i
+    JOIN l_infoniki_dtl d ON d.dep_id = i.dep_id AND d.id = i.id AND d.nord = i.maxnord
+    JOIN L_REQUEST_TYPE_STD rt ON rt.id = i.typ
+    JOIN T_PROCMEM m ON m.DEP_ID = i.DEP_ID AND m.ORD_ID = i.ID AND m.MAINFL = '1'
+    JOIN T_PROCESS p ON p.ID = m.ID
+    JOIN T_BOP_STAT s ON s.ID = p.BOP_ID AND s.NORD+0 = p.NSTAT
+    WHERE d.doper > TRUNC(SYSDATE) - nDays
+    AND   s.CODE IN ('PREPARE', 'PROCESS', 'START', 'WAIT', 'WAIT_RESEND', 'ERROR')
+  ),
+  days as (
+    SELECT TRUNC(SYSDATE) - LEVEL + 1 as on_date
+    FROM dual
+    CONNECT BY LEVEL <= nDays
+  ),
+  stats as (
+    SELECT d.on_date,
+           sum(decode(s.code, 'ERROR', 1, 0)) as "Error",
+           sum(decode(s.code, 'PREPARE', 1, 0))  as "Prepare",
+           sum(decode(s.code, 'PROCESS', 1, 0))  as "Process",
+           sum(decode(s.code, 'START', 1, 0))  as "Start",
+           sum(decode(s.code, 'WAIT', 1, 0))  as "Wait",
+           sum(decode(s.code, 'WAIT_RESEND', 1, 0))  as "Wait_Resend"
+    FROM   days d
+    LEFT JOIN stat s ON s.doper = d.on_date
+    GROUP BY d.on_date
+  )
+  SELECT  JSON_OBJECT('data' IS JSON_ARRAYAGG(
+           JSON_OBJECT(
+             'on_date' VALUE s.on_date,
+             'on_month_day' VALUE to_char(s.on_date, 'DD/MM'),
+             'Error' VALUE s."Error",
+             'Prepare' VALUE s."Prepare",
+             'Process' VALUE s."Process",
+             'Start' VALUE s."Start",
+             'Wait' VALUE s."Wait",
+             'Wait_Resend' VALUE s."Wait_Resend"
+           )
+         ))
+  INTO pOutput
+  FROM stats s;
+END;
+
+end Z_116_STATISTICS;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_INFONIKI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_INFONIKI_DTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REQUEST_TYPE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+  </PKG>
+</DDC>

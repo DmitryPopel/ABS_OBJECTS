@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="FNC" 
+  KEY="Z_116_LEVLOANSCHEDUL" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="D968CF28580AA11F792B85B1F73BE0A8">
+  <FNC 
+    NAME="Z_116_LEVLOANSCHEDUL">
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace function COLVIR.Z_116_LEVLOANSCHEDUL (p_month       varchar2,
+                                                p_loanID      number,
+                                                p_loan_dep_id number,
+                                                p_SchedProp   varchar2,
+                                                p_date_Report date)
+  return number as
+  nAmount number(24, 3);
+begin
+  if p_SchedProp = '1' then
+    select /*+ parallel(8)*/
+     sum(d.amount)
+      into nAmount
+    --to_char(doper,'mm.yyyy') as mont ,doper,dense_rank() over (order by  to_char(doper,'mm.yyyy'))/*to_char(doper,'Month'),to_char(doper,'YY'),doper*/
+      from T_DEASHDPNT d
+     where d.doper >= p_date_Report
+       and to_char(d.doper, 'mm.yyyy') = p_month
+       and d.ord_id = p_loanID
+       and d.dep_id = p_loan_dep_id
+       and exists (select 1
+              from T_ARLCLC c
+             where d.clc_id = c.id
+               and c.ARL_ID = '584')
+       and exists (select /*+ index (PK_TT_POINT)*/
+             1
+              from TT_POINT
+             where id = d.tt_id
+               and NORD = d.TT_NORD);
+    return nvl(nAmount, 0);
+  else
+
+    select /*+ parallel(8)*/
+     sum(d.amount)
+      into nAmount
+    --to_char(doper,'mm.yyyy') as mont ,doper,dense_rank() over (order by  to_char(doper,'mm.yyyy'))/*to_char(doper,'Month'),to_char(doper,'YY'),doper*/
+      from T_DEASHDPNT d
+     where to_char(d.doper, 'mm.yyyy') = p_month
+       and d.ord_id = p_loanID
+       and d.dep_id = p_loan_dep_id
+       and exists (select 1
+              from T_ARLCLC c
+             where d.clc_id = c.id
+               and c.ARL_ID = '584')
+       and exists (select /*+ index (PK_TT_POINT)*/
+             1
+              from TT_POINT
+             where id = d.tt_id
+               and NORD = d.TT_NORD
+               and realdate is null);
+    return nvl(nAmount, 0);
+
+  end if;
+
+end Z_116_LEVLOANSCHEDUL;
+]]>
+    </LOB_FIELD>
+    <FNCDPNENT>
+      <LINK:ENT 
+        REF_NAME="TT_POINT"/>
+    </FNCDPNENT>
+    <FNCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ARLCLC"/>
+    </FNCDPNENT>
+    <FNCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEASHDPNT"/>
+    </FNCDPNENT>
+  </FNC>
+</DDC>

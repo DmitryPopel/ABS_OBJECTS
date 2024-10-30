@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGAGROPL" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="2690047F9B1C36FA023022327780EDEF">
+  <PKG 
+    NAME="Z_116_PKGAGROPL">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGAGROPL is
+/**
+* Внесение изменений картотеку клиента для интеграции с Agroplatforma
+*
+* @author  Попель ДА
+* @version 1.0
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+/** Список устройств партнера
+* <br/><i>Появилась в 1.0</i>
+* @param pInput  JSON с входными параметрами
+* @param pOutput JSON с выходными параметрами
+*/
+procedure pGetClientID(pInput  in clob,
+                     pOutput out Clob);
+
+
+procedure pUpdAttr(pInput  in clob,
+                     pOutput out Clob);
+
+
+end Z_116_PKGAGROPL;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGAGROPL is
+
+procedure pGetClientID(pInput  in clob,
+                     pOutput out Clob)
+is
+  ObjIn              JSON_OBJECT_T;
+  ObjRes             JSON_OBJECT_T;
+  vInn               varchar2(50);
+  vIdCli             number;
+  idCliDep           number;
+  lArr               JSON_ARRAY_T;
+  lArrAcc            JSON_ARRAY_T;
+  ObjTmp             JSON_OBJECT_T;
+  ObjAcc             JSON_OBJECT_T;
+  nStartPosition     pls_integer := 1;
+  nOffset            pls_integer := 100;
+  nTotal             pls_integer;
+begin
+  Z_116_PKGCONNECT.pOpen();
+
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  vInn := ObjIn.get_String('inn');
+
+  -- определить клиента по ИНН
+  vIdCli := G_PKGCLI.fGetCliByRnn(vInn, 2);
+  idCliDep := G_PKGCLI.fGetCliByRnn(vInn, 1);
+
+
+  ObjTmp := new JSON_OBJECT_T;
+  ObjTmp.put('clientId',vIdCli);
+  ObjTmp.put('clientDepid',idCliDep);
+  pOutput := ObjTmp.To_Clob;
+  pOutput := '{"ClientInfo":' || pOutput || '}';
+exception
+  when others then
+    pOutput := Z_116_ELOAN_UTILS.fErr(sqlcode, 'Ошибка поиска Id клиента по ИНН %0:s: %1:s', vargs(vInn, substr(sqlerrm,1,2000)));
+
+end pGetClientID;
+
+procedure pUpdAttr(pInput  in clob,
+                     pOutput out Clob)
+is
+  ObjIn              JSON_OBJECT_T;
+  ObjRes             JSON_OBJECT_T;
+  vInn               varchar2(50);
+  vIdCli             number;
+  idCliDep           number;
+  vagroClientId      varchar2(50);
+  vdialNumber        varchar2(50);
+  vdialDate          date;
+  vfile              clob;
+  vDep_id            number;
+  PP_JRN_ID          G_DBLJRN.ID%TYPE;
+  lArr               JSON_ARRAY_T;
+  lArrAcc            JSON_ARRAY_T;
+  ObjTmp             JSON_OBJECT_T;
+  ObjAcc             JSON_OBJECT_T;
+  nStartPosition     pls_integer := 1;
+  nOffset            pls_integer := 100;
+  nTotal             pls_integer;
+  vfileID            number;
+  vCli_ord           number;
+  vNumAgro           number;
+  cBase64Data        BLOB;
+  nNewDecId          number;
+  pPREAL_NORD        T_DOCLST.NORD%TYPE;
+  p_pID              T_DOCDOS.ID%TYPE;
+  p_PNORD            T_DOCLST.NORD%TYPE;
+  p_pNVER            T_DOCCLIVER.NVER%TYPE;
+  vdocnum            varchar2(250);
+  vFormat            varchar2(50);
+
+begin
+
+  Z_116_PKGCONNECT.pOpen();
+
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+
+  vIdCli := ObjIn.get_Number('clientId');
+  idCliDep := ObjIn.get_Number('clientDepid');
+
+     dbms_output.put_line('11111:'|| vIdCli ||'  '||    idCliDep);
+
+  vagroClientId := ObjIn.get_String('agro_client_id');  --Код клиента на агроплатформе agro_client_id
+  vdialNumber := ObjIn.get_String('dialNumber'); --Номер договора оферты клиента   agro_client_dial_n
+  vdialDate := ObjIn.get_Date('dialDate');  -- Дата закл договора оферты агро agrodate
+  vdocnum   := ObjIn.get_String('docNum');-- номер документа
+  vFormat   := ObjIn.get_String('docFormat'); -- путь
+
+  cBase64Data := Z_116_ELOAN_UTILS.fDecodeFromBase64(ObjIn.get_Clob('file'));
+  if vIdCli is null or idCliDep is null then
+   pOutput := Z_116_ELOAN_UTILS.fErr(sqlcode, 'Ошибка при обновлении атрибутов клиента %0:s: %1:s', vargs(vIdCli, substr(sqlerrm,1,2000)));
+   return;
+  end if;
+
+  -- обновляем атрибуты
+    if vagroClientId is not null then
+      G_PKGDBLCLI.PUPDADDATTR(P_ID => vIdCli, P_DEP_ID => idCliDep, P_FROMDATE => trunc(sysdate), P_ATTR => upper('agro_client_id'), P_VALUE => vagroClientId , P_NEW => 0/*:P_NEW*/, P_REASON => null, P_JRN_ID => PP_JRN_ID);
+    -- dbms_output.put_line('dddd!!!!:'||PP_JRN_ID);
+    end if;
+
+    if vdialNumber is not null then
+      G_PKGDBLCLI.PUPDADDATTR(P_ID => vIdCli, P_DEP_ID => idCliDep, P_FROMDATE => trunc(sysdate), P_ATTR => upper('agro_client_dial_n'), P_VALUE => vdialNumber, P_NEW => 0, P_REASON => null, P_JRN_ID => PP_JRN_ID);
+    end if;
+
+    if vdialDate is not null then
+      G_PKGDBLCLI.PUPDADDATTR(P_ID => vIdCli, P_DEP_ID => idCliDep, P_FROMDATE => trunc(sysdate), P_ATTR => upper('agrodate'), P_VALUE => vdialDate , P_NEW => 0, P_REASON => null, P_JRN_ID => PP_JRN_ID);
+    end if;
+
+    if cBase64Data is not null then
+     --    dbms_output.put_line('****1');
+       select ord_id into vCli_ord from g_cli where id = vIdCli and dep_id = idCliDep;
+       select id into vfileID from T_DOCDOS where ord_id = vCli_ord /*and cli_dep_id = idCliDep*/and ddd_id = '542';
+         p_pID :=  vfileID;
+         p_PNORD := null;
+         p_pNVER := null;
+        T_PKGDOCDOS.pNewDocLst(PID => p_pID, PNORD => p_PNORD, PNVER => p_pNVER, PDOCTYPE => 1984, PDRF_ID => null,
+        PLONGNAME => 'Заявление на Агро платформу' , PDOCDATE => sysdate, PDOCNUM => vdocnum, PCOPYFL => '0' ,
+        PDOCCPYCNT => 1, PEXPDATE => null, PDOCPUBL => 'AGROPLATFORMA' , PDOCDSC =>'', PNOTIFYFL => '0' , PSTORAGE => '' , PREAL_NORD => pPREAL_NORD);
+
+  dbms_output.put_line('****success');
+
+ insert into T_DOCECPY (FULLPATH, DOCBLB, FILEEXT, DBFL)
+              values (NULL, cBase64Data, vFormat,/*'.doc'*/ 1)
+              returning ID into nNewDecId;
+    commit;
+
+
+ update T_DOCCLIVER set dec_id = nNewDecId  where id = p_pID and nord = p_PNORD and DDO_ID = 1984;
+
+    end if;
+
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('success', true);
+    pOutput := ObjTmp.To_Clob;
+ commit;
+exception
+  when others then
+    pOutput := Z_116_ELOAN_UTILS.fErr(sqlcode, 'Ошибка при обновлении клиента %0:s: %1:s', vargs(vIdCli, substr(sqlerrm,1,2000)));
+
+end pUpdAttr;
+
+
+
+end Z_116_PKGAGROPL;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_DBLJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCCLIVER"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCDOS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCECPY"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCLST"/>
+    </PKGDPNENT>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGDBLCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDOCDOS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_ELOAN_UTILS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKGCONNECT"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

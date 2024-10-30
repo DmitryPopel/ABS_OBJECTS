@@ -1,0 +1,1890 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_L_PKG_L_UZ_LN_009" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="8BA8B01ACDB10A3CFFAF0C152D979753">
+  <PKG 
+    NAME="Z_116_L_PKG_L_UZ_LN_009">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_L_PKG_L_UZ_LN_009 as
+/**
+* Пакет подготовки данных для отчета L_UZ_LN00_009 - Кредитный портфель.
+*
+* @author Владимир Фёдоров
+* @author Максим Полубоярцев
+* @author Инна Комисарчик
+* @author Юлия Бедина
+* @version 3.4
+* @headcom
+*
+* Copyright (c) 2023 By Colvir Software Solutions. All Rights Reserved.
+*/
+
+  procedure pProcessOneChunk(pChunkNum number, pSID number, dOp date, pDATEPOST in varchar2 default null);
+
+  /** Процедура подготовки данных для отчета L_UZ_LN00_009 - Кредитный портфель
+  * <br/><i>С версии 13.0</i>
+  * @param pDCRED Дата формирования отчета
+  * @param pREGION Код региона
+  * @param pREGIONNAME Наименование региона
+  * @param pDEP_CODE Код подразделения  обслуживания
+  * @param pDEP_ID Идентификатор подразделения обслуживания
+  * @param pDEP_NAME Наименование подразделения обслуживания
+  * @param pTVAL Тип валюты кредита (нацвалюта, инвалюта)
+  * @param pTYPE_CRED Тип состояния кредита (списанные, просроченные, текущие и т.д.)
+  * @param pTYPE_CRE Тип кредита (овердрафт, микрозаим и т.д.)
+  * @param pV_CRED Вид кредита (Без линии, с линией, все)
+  * @param pEND_PER Флаг истекшего срока погашения
+  * @param pTCLI Тип клиента
+  * @param pNIBBD_CODE Код клиента в НИББД
+  * @param pDATEPOST необходимость вывода даты предоставления решения по кредитной заявке
+  * @return Наполняет сущность для основного запроса отчета
+  */
+  procedure pEXEC(
+    pDCRED in date default P_OperDay,
+    pREGION in varchar2,
+    pREGIONNAME in varchar2,
+    pDEP_CODE in varchar2,
+    pDEP_ID in T_DEA.DEP_ID%type,
+    pDEP_NAME in varchar2,
+    pTVAL in varchar2,
+    pTYPE_CRED in varchar2,
+    pTYPE_CRE in varchar2,
+    pV_CRED in varchar2,
+    pEND_PER in varchar2,
+    pTCLI in varchar2,
+    pNIBBD_CODE in varchar2,
+    pDATEPOST in varchar2 default 0);
+
+
+
+  procedure pClean;
+
+ /** Запуск в составе РП процедуры подготовки данных для отчета L_UZ_LN00_009 - Кредитный портфель
+  * <br/><i>С версии 3.0</i>
+  * @param P_DOP Дата формирования отчета
+  * @param P_IDDEP Идентификатор подразделения
+  */
+  procedure pEXECFORALL(P_DOP IN DATE, P_IDDEP IN INTEGER);
+
+
+  /** Процедура подготовки данных для отчета L_UZ_LN00_009 - Кредитный портфель посредством чтения готовых данных
+  * <br/><i>С версии 3.0</i>
+  * @param pDCRED Дата формирования отчета
+  * @param pREGION Код региона
+  * @param pREGIONNAME Наименование региона
+  * @param pDEP_CODE Код подразделения  обслуживания
+  * @param pDEP_ID Идентификатор подразделения обслуживания
+  * @param pDEP_NAME Наименование подразделения обслуживания
+  * @param pTVAL Тип валюты кредита (нацвалюта, инвалюта)
+  * @param pTYPE_CRE Тип кредита (овердрафт, микрозаим и т.д.)
+  * @param pV_CRED Вид кредита (Без линии, с линией, все)
+  * @param pEND_PER Флаг истекшего срока погашения
+  * @param pNIBBD_CODE Код клиента в НИББД
+  * @param pDATEPOST необходимость вывода даты предоставления решения по кредитной заявке
+  * @return Наполняет сущность для основного запроса отчета
+  */
+  procedure pReadReady(
+    pDCRED in date default P_OperDay,
+    pREGION in varchar2,
+    pREGIONNAME in varchar2,
+    pDEP_CODE in varchar2,
+    pDEP_ID in T_DEA.DEP_ID%type,
+    pDEP_NAME in varchar2,
+    pTVAL in varchar2,
+    pTYPE_CRE in varchar2,
+    pV_CRED in varchar2,
+    pEND_PER in varchar2,
+    pNIBBD_CODE in varchar2,
+    pDATEPOST in varchar2 default 0);
+
+  /** Процедура подготовки данных для отчета L_UZ_LN00_009 - Кредитный портфель по всем договорам
+  * <br/><i>С версии 3.0</i>
+  * @param dOp Дата формирования отчета
+  */
+  procedure pEXECALL(P_DOP in date);
+
+  /** Процедура подготовки данных для отчета L_UZ_LN00_009 - Кредитный портфель по всем договорам за текущий день и предыдущий
+  * <br/><i>С версии 3.0</i>
+  * @param P_DOP Дата формирования отчета
+  */
+  procedure pEXECALL2DAY(P_DOP in date);
+
+   /** Процедура для запуска отчета L_UZ_LN00_009 - Кредитный портфель посредством. Если данные уже готовы, они будут зачитаны из L_C116LN00009, иначе рассчитаны стандартн
+  * <br/><i>С версии 3.0</i>
+  * @param pDCRED Дата формирования отчета
+  * @param pREGION Код региона
+  * @param pREGIONNAME Наименование региона
+  * @param pDEP_CODE Код подразделения  обслуживания
+  * @param pDEP_ID Идентификатор подразделения обслуживания
+  * @param pDEP_NAME Наименование подразделения обслуживания
+  * @param pTVAL Тип валюты кредита (нацвалюта, инвалюта)
+  * @param pTYPE_CRE Тип кредита (овердрафт, микрозаим и т.д.)
+  * @param pV_CRED Вид кредита (Без линии, с линией, все)
+  * @param pEND_PER Флаг истекшего срока погашения
+  * @param pNIBBD_CODE Код клиента в НИББД
+  * @param pDATEPOST необходимость вывода даты предоставления решения по кредитной заявке
+  * @param pRESET пересчитать данные
+  * @return Наполняет сущность для основного запроса отчета
+  */
+  procedure pMain(
+    pDCRED in date default P_OperDay,
+    pREGION in varchar2,
+    pREGIONNAME in varchar2,
+    pDEP_CODE in varchar2,
+    pDEP_ID in T_DEA.DEP_ID%type,
+    pDEP_NAME in varchar2,
+    pTVAL in varchar2,
+    pTYPE_CRED in varchar2,
+    pTYPE_CRE in varchar2,
+    pV_CRED in varchar2,
+    pEND_PER in varchar2,
+    pTCLI in varchar2,
+    pNIBBD_CODE in varchar2,
+    pDATEPOST in varchar2,
+    pRESET in integer default 0);
+
+end Z_116_L_PKG_L_UZ_LN_009;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_L_PKG_L_UZ_LN_009 as   --Z_116_L_PKGRPT_L_UZ_LN00_009
+
+    idAcc03101 integer := BL_SUPPORT.FGETIDBPS('03101',1);
+    idAcc7805 integer := BL_SUPPORT.FGETIDBPS('7805',1);
+    nSignDea number := T_ASGN.fCode2Id('DEA');
+    nSignCourt number := T_ASGN.fCode2Id('COURT');
+    cPk1Court char(1) := T_ASGN.FANLPK(nSignCourt,'1',1,0);
+    cPk2Court char(1) := T_ASGN.FANLPK(nSignCourt,'1',2,0);
+    nSignRev number := T_ASGN.fCode2Id('REVIEW');
+    cPk1Rev char(1) := T_ASGN.FANLPK(nSignRev,'1',1,0);
+    cPk2Rev char(1) := T_ASGN.FANLPK(nSignRev,'1',2,0);
+    tmpMrtDscr      varchar2(2000);
+    endStrDelimiter varchar2(2) := chr(13)||chr(10);
+
+    iCS_CRED T_SCEN.ID%type:= bs_bop.FGETBOPID('CS_CRED');
+    iCS_CR_LIN T_SCEN.ID%type:= bs_bop.FGETBOPID('CS_CR_LIN');
+
+    iLOAN_OUT T_SCEN.Nord%type:= bs_scen.FGETSCENNORD(iCS_CRED,'LOAN_OUT');
+    iLOAN_OUT2 T_SCEN.Nord%type:= bs_scen.FGETSCENNORD(iCS_CRED,'LOAN_OUT2');
+    iRunAnlCred T_SCEN.Nord%type:=  bs_scen.FGETSCENNORD(iCS_CRED,'_RUN_ANL_ACM_');
+    iInitialPosition  T_SCEN.Nord%type:=  bs_scen.FGETSCENNORD(iCS_CRED,'INITIALPOSITION');
+
+    iNEWDEA T_SCEN.Nord%type:= bs_scen.FGETSCENNORD(iCS_CR_LIN,'NEWDEA');
+    iACCMOV T_SCEN.Nord%type:=  bs_scen.FGETSCENNORD(iCS_CR_LIN,'ACCMOV');
+    iRunAnlCR_LIN T_SCEN.Nord%type:=  bs_scen.FGETSCENNORD(iCS_CR_LIN,'_RUN_ANL_ACM_');
+
+
+  function pProcessOneRow(pRec in out Z_116_L_TMPC116LN00009%rowtype, pDCRED date,  pDATEPOST in varchar2 default null) return boolean is
+    n pls_integer := 1;
+
+    ANL_BAL number(18,2);
+    ANL_PROV number(18,2);
+    ANL_PRC number(18,2);
+    ANL_PEN number(18,2);
+    ANL_PDPAY number(18,2);
+    ACC12105BLN number(18,2);
+    ACC16405BLN number(18,2);
+    ACC16309BLN number(18,2);
+    ACC16323BLN number(18,2);
+    ACC16379BLN number(18,2);
+    ACC16325BLN number(18,2);
+    ACC16327BLN number(18,2);
+    ACC16377BLN number(18,2);
+    ACC95497BLN number(18,2);
+    ACC91501BLN number(18,2);
+    ACC95413BLN number(18,2);
+    nSumBal number(18,2);
+    ANL_EXPPD number(18,2);
+    ANL_EXPPRC number(18,2);
+    revieWStatFl char(1);
+    CourtFl char(1);
+    ACC0318801BLN number(18,2);
+    sSum number(18,2) :=0;
+    skipToAdd    exception;
+
+    fPcnTax float;
+    iPROC_ID T_PROCESS.ID%TYPE;
+    iBopID  T_PROCESS.BOP_ID%TYPE;
+    iREVIEW T_SCEN.NORD%TYPE;
+    iSET_COURT_INFO T_SCEN.NORD%TYPE;
+    iRUN_ANL_ACM T_SCEN.NORD%TYPE;
+    iPrmClose C_PRMCLS.Id%type:=t_pkgdeaprm.fGetParId('DCLOSE');
+
+  begin
+
+    begin
+      pRec.dateClose := T_PkgDeaPrm.GetPar(pRec.ID,pRec.DEP_ID,iPrmClose);
+    exception
+      when NO_DATA_FOUND then
+        pRec.dateClose := null;
+    end;
+    if pRec.dateClose is not null and pRec.dateClose < pDCRED then
+      raise skipToAdd;
+    end if;
+
+   --Выборка данных по баланcовым проводкам
+    select
+    sum(decode(c.PART_CODE,'A',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.Val_Id)),0))
+    into nSumBal
+        from   LEDACC_STD c, G_ACCBLN a,T_ACC ta
+        where  a.DEP_ID = ta.DEP_ID  and a.ID = ta.ID  and c.ID = a.CHA_ID
+        and instr(a.CODE,'#') = 0
+        and    (tA.DEP_ID,tA.ID) in (SELECT DEP_ID,ACC_ID FROM
+        (SELECT /*+materialize no_merge*/ l.DEP_ID,l.ACC_ID FROM LEDACC_DET l
+        WHERE l.SGN_ID= nSignDea AND l.PK1=to_char(pRec.dep_id) AND l.PK2=to_char(pRec.id)) acc)
+        ;
+    if nSumBal < 0 then
+      return false;
+    else
+      select
+        nvl(t_pkgarlrun.fDeaAccBal(pRec.DEP_ID,pRec.ID,decode(pRec.tp,1,'LS_PD_EXP','CR_EXP_PD'),pRec.VAL_ID,pDCRED),0),
+        nvl(t_pkgarlrun.fDeaAccBal(pRec.DEP_ID,pRec.ID,decode(pRec.tp,1,'LS_PRC_EXP_BAL','CR_EXP_IN'),pRec.VAL_ID,pDCRED),0)
+      into ANL_EXPPD, ANL_EXPPRC from dual;
+
+      revieWStatFl := substr(T_PkgDeaPrm.fParByCode(pRec.ID,pRec.DEP_ID,'L_REVIEWSTAT'),1,1);
+      CourtFl := substr(T_PkgDeaPrm.fParByCode(pRec.ID,pRec.DEP_ID,'L_COURT'),1,1);
+
+      if pRec.tpCred=6 then
+        begin
+          select nvl(T_PkgAccBal.fAddPln(g.dep_id,g.id,pDCRED,0,nvl(a.val_id,p_natval)),0)
+            into ACC0318801BLN
+            from t_acc a, g_accbln g, ledacc_det d
+           where a.dep_id = g.dep_id and a.id = g.id
+             and g.dep_id = d.dep_id and g.id = d.acc_id
+             and d.sgn_id = nSignDea
+             and d.pk1 = to_char(pRec.DEP_ID)
+             and d.pk2 = to_char(pRec.ID)
+             and G_BlnAcc.fIsAccBCH(g.dep_id, g.id, g.cha_id, '0318801') = 1;
+        exception
+          when others then
+            ACC0318801BLN:=0;
+        end;
+      elsif pRec.tpCred = 3 then
+        sSum := ANL_EXPPD + ANL_EXPPRC;
+      end if;
+
+      case
+        when (pRec.tpCred is not null and pRec.tpCred = 2) then
+          if nvl(revieWStatFl,'0') <> '1' then raise skipToAdd; end if;
+        when (pRec.tpCred is not null and pRec.tpCred = 3) then
+          if sSum =0 then raise skipToAdd; end if;
+        when (pRec.tpCred is not null and pRec.tpCred = 4 ) then
+          if nvl(CourtFl,'0') <> '1' then raise skipToAdd; end if;
+        when (pRec.tpCred is not null and pRec.tpCred = 5) then
+          if pRec.dateClose is null or not (pRec.dateClose between trunc(pDCRED,'yyyy')
+            and add_months(trunc(pDCRED,'yyyy'),12)-1) then
+            raise skipToAdd;
+          end if;
+        when (pRec.tpCred is not null and pRec.tpCred = 6) then
+          if ACC0318801BLN = 0 then raise skipToAdd; end if;
+        else null;
+      end case;
+
+        --Выборка по типу кредитного отчёта
+      if ((nvl(pRec.tpCred,0)=0)
+         or(pRec.tpCred=1 and CourtFl=0 and ANL_EXPPD = 0) -- Текущие
+         or(pRec.tpCred in (2,3,6)) --   Переcмотренные, Проcроченныее
+         or(pRec.tpCred=4 and T_PKGRUNOPRUTL.fStatCodeByOrd(pRec.dep_id,pRec.id)='INCOURT') --В cудебном разбирательcтве
+         or(pRec.tpCred=5 and T_PKGRUNOPRUTL.fStatCodeByOrd(pRec.dep_id,pRec.id) in ('FIN','FIN_COURT')) --Закрытые за год
+         )
+      then--   Проcроченныее
+        pRec.VIDCRED := L_PKGDEAUNIREF.fGetRefValCode(pRec.DEP_ID, pRec.ID, 'UZ_VIDCRED');
+        pRec.VIDCR := L_PKGDEAUNIREF.fGetClsRefValCode(t_pkgdea.fDeaDclId(pRec.DEP_ID, pRec.ID), u_pkguniref.fRefCode2Id('UZ_VIDCRED'));
+        pRec.VIDIST := L_PKGDEAUNIREF.fGetRefValCode(pRec.DEP_ID, pRec.ID, 'UZ_VIDIST');
+        pRec.VIDST := L_PKGDEAUNIREF.fGetClsRefValCode(t_pkgdea.fDeaDclId(pRec.DEP_ID,pRec.ID), u_pkguniref.fRefCode2Id('UZ_VIDIST'));
+
+          --ИcточникСредcтв
+        begin
+          select u.CODE||'-'||u.LONGNAME into pRec.P39 from U_UZ_VIDIST u where code in nvl(pRec.VIDIST,pRec.VIDST) and rownum=1;
+            exception
+         when NO_DATA_FOUND then
+          pRec.P39 := null;
+        end;
+        --ВидКредитования
+        begin
+          select u.CODE||'-'||u.LONGNAME into pRec.P40 from U_UZ_VIDCRED u where code in nvl(pRec.VIDCRED,pRec.VIDCR) and rownum=1;
+            exception
+          when NO_DATA_FOUND then
+          pRec.P40 := null;
+        end;
+        --ЦельКредитования
+        begin
+          select lp.CODE||'-'||lp.LONGNAME into pRec.P41  from l_purdsc lp where lp.ID=pRec.PUR_ID;
+        exception
+          when NO_DATA_FOUND then
+          pRec.P41 := null;
+        end;
+
+          select ID, BOP_ID into iPROC_ID, iBopID from T_PROCMEM where DEP_ID=pRec.dep_id AND ORD_ID=pRec.id and MAINFL='1';
+          select
+              sum(decode (substr(c.code,1,5),'16405',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0)),--1
+              sum(decode (substr(c.code,1,5),'16309',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0)),--2
+              sum(decode (substr(c.code,1,5),'16323',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0)),--3
+              sum(decode (substr(c.code,1,5),'16379',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0)),--4
+              sum(decode (substr(c.code,1,5),'16325',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0)),--5
+              sum(decode (substr(c.code,1,5),'16327',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0)),--6
+
+              sum(decode (substr(c.code,1,5),'11199',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'12399',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'12499',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'12599',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'12699',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'12799',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'12899',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'12999',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'13099',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'13199',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'13299',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'13399',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'14399',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'14499',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'14799',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'14899',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'14999',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'15099',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'15199',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'15299',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'15399',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'15499',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'15599',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'15799',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0)),--7
+
+              sum(decode (substr(c.code,1,5),'12105',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'12305',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'12405',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'12505',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'12605',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'12705',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'12805',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'12905',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'13005',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'13105',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'13205',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'13305',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))+
+              sum(decode (substr(c.code,1,5),'15617',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0)),--8
+              sum(decode (substr(c.code,1,5),'16377',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0)),--9
+              sum(decode (substr(c.code,1,5),'91501',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0)),--10
+              sum(decode (substr(c.code,1,5),'95413',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0)),--11
+              sum(decode (substr(c.code,1,5),'95497',abs(T_PkgAccBal.fAccBal(ta.DEP_ID,ta.ID, pDCRED, 0,pRec.val_id)),0))--12
+          into ACC16405BLN, ACC16309BLN, ACC16323BLN, ACC16379BLN, ACC16325BLN, ACC16327BLN,ANL_PROV,
+                ACC12105BLN, ACC16377BLN, ACC91501BLN, ACC95413BLN, ACC95497BLN
+          from   LEDACC_STD c, G_ACCBLN a,T_ACC ta
+            where  a.DEP_ID = ta.DEP_ID  and a.ID = ta.ID  and c.ID = a.CHA_ID
+                  and instr(a.CODE,'#') = 0
+                  and    (tA.DEP_ID,tA.ID) in (SELECT DEP_ID,ACC_ID FROM
+                  (SELECT /*+materialize no_merge*/ l.DEP_ID,l.ACC_ID FROM LEDACC_DET l
+                  WHERE l.SGN_ID= nSignDea AND l.PK1=to_char(pRec.dep_id) AND l.PK2=to_char(pRec.id)) acc)
+                  ;
+
+begin
+ select
+             nvl(t_pkgarlrun.fDeaAccBal(pRec.DEP_ID,pRec.ID,decode(pRec.tp,1,'LS_BAL','CR_BAL'),pRec.VAL_ID,pDCRED),0),
+             nvl(t_pkgarlrun.fDeaAccBal(pRec.DEP_ID,pRec.ID,decode(pRec.tp,1,'LS_PRC_BAL','CR_INT_CH'),pRec.VAL_ID,pDCRED),0),
+             decode(pRec.tp,1,0,nvl(t_pkgarlrun.fDeaAccBal(pRec.DEP_ID,pRec.ID,'CR_PEN_I',pRec.VAL_ID,pDCRED),0)),
+             nvl(t_pkgarlrun.fDeaAccBal(pRec.DEP_ID,pRec.ID,decode(pRec.tp,1,'LS_PD_PAID','CR_PD_T'),pRec.VAL_ID,pDCRED),0)
+          into ANL_BAL, ANL_PRC, ANL_PEN, ANL_PDPAY from dual;
+exception
+  when others then
+
+    null;
+
+end;
+
+          select CODE, LONGNAME into pRec.P3, pRec.PORGNAME from C_DEP where ID = pRec.SRV_DEP_ID;
+
+              --БаланcСчет, Кредитный cчет
+                begin
+                if pRec.tp=1 then
+                 select GK_CODE, ACC_CODE into pRec.P6, pRec.P7 from
+                 (select c.CODE GK_CODE,  a.CODE ACC_CODE
+                  from  LEDACC_STD c, G_ACCBLN a,T_ACC ta
+                  where  a.DEP_ID = ta.DEP_ID  and a.ID = ta.ID  and c.ID = a.CHA_ID
+                  and instr(a.code,'#') = 0 and a.DREG <= pDCRED
+                  and (tA.DEP_ID,tA.ID) in (SELECT DEP_ID,ACC_ID FROM LEDACC_DET
+                  WHERE SGN_ID= nSignDea AND PK1=to_char(pRec.dep_id) AND PK2=to_char(pRec.id))
+
+                  AND (A.DEP_ID,A.ID) not in (SELECT DEP_ID,ACC_ID FROM LEDACC_DET
+                      WHERE SGN_ID= nSignCourt AND PK1=cPk1Court
+                        AND PK2= cPk2Court)
+                  AND (A.DEP_ID,A.ID) not in (SELECT DEP_ID,ACC_ID FROM LEDACC_DET
+                      WHERE SGN_ID= nSignRev AND PK1=cPk1Rev
+                        AND PK2=cPk2Rev)
+
+                  AND L_PKGRPT.fIsAccBCH(a.DEP_ID, a.ID, a.CHA_ID, idAcc7805)=1
+                  order by a.DREG desc) where rownum =1;
+                else
+                 select GK_CODE, ACC_CODE into pRec.P6, pRec.P7 from
+                 (select c.CODE GK_CODE,  a.CODE ACC_CODE
+                  from  LEDACC_STD c, G_ACCBLN a,T_ACC ta
+                  where  a.DEP_ID = ta.DEP_ID  and a.ID = ta.ID  and c.ID = a.CHA_ID
+                  and instr(a.code,'#') = 0 and a.DREG <= pDCRED
+                  and (tA.DEP_ID,tA.ID) in (SELECT DEP_ID,ACC_ID FROM LEDACC_DET
+                  WHERE SGN_ID= nSignDea AND PK1=to_char(pRec.dep_id) AND PK2=to_char(pRec.id))
+
+                  AND (A.DEP_ID,A.ID) not in (SELECT DEP_ID,ACC_ID FROM LEDACC_DET
+                      WHERE SGN_ID= nSignCourt AND PK1=cPk1Court
+                        AND PK2= cPk2Court)
+                  AND (A.DEP_ID,A.ID) not in (SELECT DEP_ID,ACC_ID FROM LEDACC_DET
+                      WHERE SGN_ID= nSignRev AND PK1=cPk1Rev
+                        AND PK2=cPk2Rev)
+
+                  AND L_PKGRPT.fIsAccBCH(a.DEP_ID, a.ID, a.CHA_ID, idAcc03101)=1
+                  order by a.DREG desc) where rownum =1;
+                end if;
+                exception when others then
+                   pRec.P6 := null; pRec.P7 := null;
+                end;
+
+              --КодВал
+
+                pRec.P9 := t_pkgval.fGetAlterCode(pRec.val_id);
+
+                if pRec.P9 ='860' then
+                   pRec.P9 := '000';
+                end if;
+
+              pRec.P1:= 0;
+              -- Регион
+              begin
+                pRec.P2 := L_PkgRpt.fGetRegForDep2(pRec.SRV_DEP_ID);
+              exception when others then
+                pRec.P2 := '0';
+              end;
+              --Район подачи заявки
+              begin
+               select g_pkgaddress_uz.fgetRn(adr_id) into pRec.P4  from
+                (select (select t.ADR_ID from G_CLIADDRESS t
+                 where t.DEP_ID = c.DEP_ID and t.ID = c.ID
+                 and t.ADRTYPE = nvl(C_PKGPRM.fGetValPrm('CDEPADRTYPE'), GCLIADR_FACT) and rownum=1) adr_id
+                    from C_DEP d, G_CLI c
+                    where D.ID = pRec.SRV_DEP_ID
+                    and c.DEPCRD_ID = d.ID);
+              exception
+               when NO_DATA_FOUND then
+                pRec.P4 := null;
+              end;
+
+              if pDATEPOST='1' then
+                begin
+                  select json_value(lv.REQ_JSON, '$.NDOCPOST')||'-'||
+                  to_char(to_date(substr(json_value(lv.REQ_JSON, '$.DATEPOST'),1,10),'yyyy-mm-dd'),'dd.mm.yyyy') into pRec.P8
+                    from LV_REQ_JSON lv, T_PROCMEM tmm
+                  where lv.dep_id=tmm.dep_id and lv.id=tmm.ord_id and tmm.mainfl='1' and BS_BOP.FGETBOPCODE(tmm.bop_id)='B3FOLN_REQDEA' and tmm.id
+                   in
+                   (select tm.id from T_PROCMEM tm where tm.dep_id= pRec.dep_id And tm.ord_id= pRec.id and tm.mainfl='0'
+                    and BS_BOP.FGETBOPCODE(tm.bop_id)='B3FOLN_REQDEA');--№иДатаРеш
+                exception when others then
+                  pRec.P8 := null;
+                end;
+              end if;
+
+              begin
+              pRec.P11 := t_pkgval.fCrossRate(to_number(pRec.P10),pRec.val_id, p_natval,pDCRED); --СуммаДог(ном)
+              exception
+                when others then
+                  pRec.P11 := null;
+              end;
+
+              --% кредита
+              for pcn in ( select ar.CODE,T_PkgArl.fPcnVal(ar.DEP_ID, ar.ORD_ID, ar.PCN_ID,pDCRED,iRaiseFl=>0) cvalue from TV_ARLDEA ar
+                  where ar.DEP_ID = pRec.dep_id and ar.ORD_ID = pRec.id and ar.CODE in ('CR_INTER','CR_EXP_INT','CR_DBT_COM','LS_PD_TAX'))
+              loop
+                if pcn.code = 'CR_INTER' then pRec.P18 := pcn.cvalue; --% кредита
+                elsif  pcn.code = 'CR_EXP_INT' then pRec.P19 := pcn.cvalue; --% просрочки
+                elsif  pcn.code = 'CR_DBT_COM' then pRec.P55 := pcn.cvalue; --%за ВедСчета
+                elsif  pcn.code = 'LS_PD_TAX' then pRec.P55 :=  fPcnTax; -- ставка налога
+                end if;
+              end loop;
+
+              pRec.P18 := nvl(pRec.P18,0);
+              pRec.P19 := nvl(pRec.P19,0);
+              pRec.P55 := nvl(pRec.P55,0);
+
+             --Фактичеcки выданная cумма
+             if pRec.tp=1  then
+               pRec.P14 := b3lsn_pkgclc.fGetAmountFromAmountWithTax(pRec.dep_id,pRec.id,pRec.P10,'LS_PD_TAX');
+             else
+               pRec.P14 := nvl(T_PKGARLRUN.FDEAACCBAL(pRec.DEP_ID,pRec.ID,'CR_AMT',pRec.val_id,pDCRED),0);
+             end if;
+
+             --Срок
+             begin
+                select G_PKGCON.fGetLName(t.ID, o.ID_OBJ, pRec.dep_id, pRec.id, 0, 'C')||'-'|| G_PKGCON.fGetLName(t.ID, o.ID_OBJ, pRec.dep_id, pRec.id, 0, 'L') into pRec.P16
+                  from G_CONSRC o, G_CON t, T_DEACLS_STD td
+                where t.ID_HI is null and t.ARCFL = 0
+                and o.CHI_ID = t.ID and o.CON_ID = t.ID and o.ID_OBJ = td.ENT_ID
+                and td.ID = pRec.dcl_id and t.CODE='RSLN_PERIOD'  and rownum=1;
+             exception
+               when NO_DATA_FOUND then
+                 pRec.P16 := null;
+             end;
+
+           --ОcтатокКредСчета
+           if pRec.tp=1 then
+              pRec.P20 := nvl(l_pkgrpt.fGetBpsBal(pRec.DEP_ID, pRec.ID, '7805', pDCRED, 1, 'REVIEW', '0'),0);
+           else
+              pRec.P20 := nvl(l_pkgrpt.fGetBpsBal(pRec.DEP_ID, pRec.ID, '03101', pDCRED, 1, 'REVIEW', '0','COURT', '0'),0);
+           end if;
+
+           --ОcтатокПереcм
+           if pRec.tp=1 then
+              pRec.P21 := nvl(l_pkgrpt.fGetBpsBal(pRec.DEP_ID, pRec.ID, '7805', pDCRED, 1, 'REVIEW', '1'),0);
+           else
+              pRec.P21 := nvl(l_pkgrpt.fGetBpsBal(pRec.DEP_ID, pRec.ID, '03101', pDCRED, 1, 'REVIEW', '1','COURT', '0'),0);
+           end if;
+          --№иДатаПрод
+           begin
+             iREVIEW:=bs_scen.FGETSCENNORD(iBopID,'REVIEW');
+              select
+                (SELECT od.CVALUE from T_OPERDET od where od.ID = j.ID and od.NJRN =J.NJRN and OD.CODE ='REVIEWNUM')||' '||
+                (SELECT od.CVALUE FROM T_OPERDET od WHERE od.ID = j.ID and od.NJRN =J.NJRN and OD.CODE ='REVIEWDATE') into pRec.P22
+                FROM (SELECT ID,  max(NJRN) KEEP (DENSE_RANK FIRST ORDER BY DOPER DESC ) NJRN
+                      FROM T_OPERJRN
+                       WHERE NOPER=iREVIEW
+                         AND UNDOFL = '0'
+                         AND ID=iProc_ID
+                         GROUP by ID ) j;
+           exception
+             when NO_DATA_FOUND then
+               pRec.P22 := null;
+           end;
+           --ДатаПогашПоcлеПрол
+           if (t_pkgdeaprm.fParByCode(pRec.ID,pRec.DEP_ID, 'L_REVIEWSTAT')<>0)  then
+                      SELECT max(j.doper) into pRec.P23 FROM T_OPERJRN J, T_OPRCHR_STD op
+                      WHERE J.CANCELFL ='0' and J.UNDOFL ='0' and op.id = j.cha_id and op.CODE in ('105202','240302')
+                        and J.DEP_ID = pRec.DEP_ID  and J.ORD_ID = pRec.ID;
+           else
+             pRec.P23 := null;
+           end if;
+           --ОcтатокПроcр
+           pRec.P24 :=ACC12105BLN;
+           --ДатаОбразПроc
+           if  pRec.P24 > 0 or ACC95413BLN > 0 then
+              select
+                 min(tp.PLANDATE) into pRec.P25
+                 from T_DEAPAY dp, TT_POINT tp
+                 where dp.DEP_ID = pRec.DEP_ID
+                   and dp.DEA_ID = pRec.ID
+                   and tp.id = dp.TT_ID and tp.nord = dp.TT_NORD
+                   and tp.PLANDATE <= pDCRED
+                   and ((dp.waitdate is not null  and dp.waitdate <= pDCRED)-- неисполненные пункты графика
+                   or (tp.REALDATE is not null and dp.DCLOSE is not null and dp.DCLOSE > pDCRED)); -- исполненные пункты с датой погашения >= даты отчета
+           else
+             pRec.P25:= null;
+           end if;
+
+          --ОcтатокСудеб
+           if pRec.tp=1 then
+              pRec.P26 := 0;
+           else
+              pRec.P26 := nvl(l_pkgrpt.fGetBpsBal(pRec.DEP_ID, pRec.ID, '03101', pDCRED, 1, 'COURT', '1', 'REVIEW', '0'),0);
+           end if;
+
+           --КодПравоохрОрган --ПризнакРешения и --ДатаПеред/ДатаРеш
+           begin
+                iSET_COURT_INFO:=bs_scen.FGETSCENNORD(iBopID,'SET_COURT_INFO');
+                select
+                (SELECT od.CVALUE  FROM T_OPERDET od  WHERE od.ID = j.ID and od.NJRN =J.NJRN and OD.CODE ='ORG_VAL'),
+                (SELECT v.LONGNAME from T_OPERDET od,C_VALLIST v where od.ID = j.ID and od.NJRN =J.NJRN and OD.CODE ='CONCL_VAL'
+                  and v.CONSTVAL= od.cvalue and v.CODE='L_COURT_CONCL'),
+                (SELECT od.CVALUE FROM T_OPERDET od where od.ID = j.ID and od.NJRN =J.NJRN and OD.CODE ='TRN_DATE' )
+                into pRec.P27, pRec.P28, pRec.P29 FROM
+                 (SELECT ID,  max(NJRN) KEEP (DENSE_RANK FIRST ORDER BY DOPER DESC ) NJRN
+                      FROM T_OPERJRN
+                       WHERE NOPER=iSET_COURT_INFO
+                         AND UNDOFL = '0'
+                         AND ID=iProc_ID
+                         GROUP by ID ) j;   --ПризнакРешения
+
+           exception
+             when NO_DATA_FOUND then
+               pRec.P27 := null; pRec.P28 := null; pRec.P29 := null;
+           end;
+
+           --ОcтатокРезерв
+           pRec.P32 := ANL_PROV;
+           --ОcтатокНачПроц
+           pRec.P33 := ACC16309BLN + ACC16323BLN;
+           --ОcтатокНачПроцПандем
+           pRec.P33_1 := ACC16379BLN;
+           --ОcтатокНачСубсидирПроц
+           pRec.P33_2 :=  ACC16325BLN + ACC16327BLN;
+           --ОcтатокНачПроcПроц
+           pRec.P34 :=  ACC16377BLN;
+           --НачиcленнаяПеня
+           pRec.P35 := nvl(T_PKGARLRUN.FDEAACCBAL(pRec.DEP_ID,pRec.ID,'CR_EXPI_PEN',pRec.val_id,pDCRED),0)
+                +nvl(T_PKGARLRUN.FDEAACCBAL(pRec.DEP_ID,pRec.ID,'CR_EXPPD_PEN',pRec.val_id,pDCRED),0)
+                +nvl(T_PKGARLRUN.FDEAACCBAL(pRec.DEP_ID,pRec.ID,'LS_PEN_PRC_CHR',pRec.val_id,pDCRED),0);
+           pRec.P35 := ACC16405BLN;
+           --НачиcленнаяПеняВнеб
+           pRec.P35_1 :=  ACC95497BLN;
+
+           --ОценкаОбеcпечения
+begin
+    select sum(t_Pkgval.fCrossRate(m.MORTG_COST, m.mrt_val_id, p_natval,pDCRED))
+             into pRec.P36
+           from T_PROCESS p, T_PROCMEM r, L_MRTDEA md, L_MORTGAGE m, T_BOP_STAT s, L_ENSDSC e
+             where e.id = m.ENS_ID and m.DEP_ID = md.MRT_DEP_ID and m.ID = md.MRT_ID
+               and p.ID = r.ID and r.ORD_ID = m.ID and r.DEP_ID = m.DEP_ID
+               and s.ID = p.BOP_ID and s.NORD = p.NSTAT
+               and md.DEA_DEP_ID =pRec.dep_id  and md.DEA_ID = pRec.id;
+exception
+  when others
+    then
+    pRec.P36 := null;
+end;
+
+           --Обеcпечение
+           begin
+                select substr(listagg(ee.CODE || '-' || ee.LONGNAME||endStrDelimiter,'' ON OVERFLOW TRUNCATE '…') within group(order by ee.CODE),1,2000)
+                 into pRec.P37
+                 from (select e.CODE, e.LONGNAME
+                       from l_ensdsc e, l_mortgage mo, L_MRTDEA md
+                      where e.ID = mo.ens_id
+                        and mo.dep_id = md.mrt_dep_id and mo.id = md.mrt_id
+                        and md.dea_dep_id = pRec.dep_id  and md.dea_id = pRec.id
+                        order by e.code, md.DEA_NN) ee;
+           exception when NO_DATA_FOUND then
+             pRec.P37 := null;
+           end;
+
+           --ОпиcаниеОбеcпечения
+            n := 1;
+            for ens in (select e.CODE as ensCode, e.LONGNAME as ensName, e.STYP,
+                               mo.dscr, mo.market_cost,
+                               t_pkgval.fCrossRateN(mo.mortg_cost, nvl(mo.mrt_val_id,p_natval), p_Date => pDCRED) as mortg_cost,
+                               substr(T_pkgVal.fGetCode(mo.mrt_val_id),1,27) as MRT_VAL_CODE,
+                               mo.dep_id, mo.id,
+                               bs.LONGNAME as statName,
+                               md.cli_dep_id,md.cli_id,
+                               g_pkgcli.fGetCliLongName(md.cli_dep_id,md.cli_id) as cliName,
+                               L_pkgMortgage.fGetObjAddAtrValue(mo.dep_id, mo.id, 'NAMEZAL') as nameZal
+                          from t_bop_stat bs, t_process p, t_procmem mem, l_ensdsc e, l_mortgage mo, L_MRTDEA md
+                         where bs.id = p.bop_id and bs.nord = p.nstat
+                           and p.id = mem.id
+                           and mem.dep_id = mo.dep_id and mem.ord_id = mo.id and mem.mainfl = '1'
+                           and e.ID = mo.ens_id
+                           and mo.dep_id = md.mrt_dep_id and mo.id = md.mrt_id
+                           and md.dea_dep_id = pRec.dep_id and md.dea_id = pRec.id
+                           order by e.code, md.DEA_NN)
+            loop
+
+              tmpMrtDscr:= '';
+              -- Описание
+              begin
+                case
+                  when ens.styp = 'REALTY' then -- Недвижимость
+                    select ens.nameZal||': '||t.cadnum_object||' ('||ens.statname||') - '||ens.cliname||'; '
+                      into tmpMrtDscr
+                      from l_real_estate t where t.dep_id = ens.dep_id and t.id = ens.id and rownum = 1;
+                  when ens.styp = 'AUTO' then -- Транспортные средства
+                    select ens.nameZal||': '||t.regsign||' ('||ens.statname||') - '||ens.cliname||'; '
+                      into tmpMrtDscr
+                      from l_vehicle t where t.dep_id = ens.dep_id and t.id = ens.id  and rownum = 1;
+                  when ens.styp = 'DEPO' then -- Депозит
+                    select decode (t.dea_id,null,ens.nameZal,substr(ah.LONGNAME,instr(ah.LONGNAME,'-')+1))||' ('||ens.statname||'):'
+                      ||to_money(to_number(ens.mortg_cost))||' '||ens.MRT_VAL_CODE||' - '||ens.cliname||'; '
+                    into tmpMrtDscr
+                    from G_ACCBLNHST ah,
+                    (select d.DEP_ID as DEA_DEP_ID
+                           , d.ID as DEA_ID
+                           , d.ACC_DEP_ID,d.ACC_ID
+                      from D_DEA d
+                    union all
+                    select sd.dep_id  as dea_dep_id
+                           ,sd.id      as dea_id
+                           , sd.ACC_DEP_ID,sd.ACC_ID
+                      from s_deaacc sd) dd,
+                    L_DEPO t, l_mortgage mo, L_MRTDEA md
+                    where ah.dep_id(+) = dd.ACC_DEP_ID and ah.id(+) = dd.ACC_ID
+                    and mo.dep_id = md.mrt_dep_id and mo.id = md.mrt_id
+                    and dd.dea_dep_id(+) = t.dea_dep_id and dd.dea_id(+) = t.dea_id
+                    and t.DEP_ID = mo.DEP_ID and t.ID = mo.ID
+                    and t.dep_id = ens.dep_id and t.id = ens.id and rownum = 1;
+                  when ens.styp = 'EQUIP' then -- Оборудование
+                    tmpMrtDscr:= ens.nameZal||': ('||ens.statname||') - '||ens.cliname||'; ';
+                  when ens.styp = 'GRNT' then -- Поручительства и гарантии
+                    tmpMrtDscr:= ens.cliname||' ('||ens.statname||') - ';
+                    if g_pkgcli.fgetTypeFl(ens.cli_dep_id,ens.cli_id) = '1' then
+                      select tmpMrtDscr||(select max(gcl.PASSSER)||max(gcl.passnum)||'; '  from G_CLIDOC gcl
+                      where gcl.dep_id = ens.cli_dep_id and gcl.id = ens.cli_id and gcl.arcfl=0 and rownum=1) into tmpMrtDscr from dual;
+                    else
+                      tmpMrtDscr:= tmpMrtDscr||Localize('; ')||g_pkgCli.fGetCliTaxCode(ens.cli_dep_id,ens.cli_id)||'; ';
+                    end if;
+                  when ens.styp = 'INSUR' then -- Страховой полис
+                    tmpMrtDscr:= ens.cliname||': ('||ens.statname||');';
+                  else
+                    tmpMrtDscr:= ens.nameZal||': ('||ens.statname||') - '||ens.cliname||'; ';
+                end case;
+              exception
+                when no_data_found then tmpMrtDscr:= null;
+              end;
+              if substr(tmpMrtDscr,1,2) = '; ' then tmpMrtDscr:= substr(tmpMrtDscr,3); end if;
+              if pRec.P38 is null then
+                pRec.P38:= to_char(n)||')'||tmpMrtDscr;
+              else
+                n:= n+1;
+                pRec.P38 := substr(pRec.P38||endStrDelimiter||to_char(n)||')'||tmpMrtDscr,1,2000);
+              end if;
+            end loop;
+
+            select REGEXP_REPLACE(replace(replace(replace(replace(replace(pRec.P38,'; ;',';'),'.;',';'),'- ;','- '),'-;','-'),',;',';'), ';;*', ';') into pRec.P38 from dual;
+            for unr in ( select u.code, r.value from  U_UNIREF_STD u, G_CLIREFVAL r
+                 where r.dep_id = pRec.cli_dep_id and r.id = pRec.cli_id and u.id  = r.ref_id
+                  and pDCRED between r.FROMDATE and nvl(r.TODATE,p_maxdate))
+            loop
+              begin
+                if unr.code = 'UZ_VOGHS' then
+          --ВышеcтОргКлиента
+                  select '('||uv.CODE||')'||uv.LONGNAME into pRec.P42 from U_UZ_VOGHS uv where uv.CODE=unr.value and rownum =1;
+                elsif  unr.code = 'UZ_SECON' then
+          -- ОтраcльКлиента, ОтраcльКредита
+                  select '('||uv.CODE||')'||substr(uv.LONGNAME,instr(uv.LONGNAME,')')+1) into pRec.P43 from U_UZ_SECON uv where uv.CODE=unr.value and rownum =1;
+                elsif  unr.code = 'UZ_OKED' then
+          --Классификатор видов экономической деятельности
+                  select '('||uv.CODE||')'||uv.LONGNAME into pRec.P61 from U_UZ_OKED uv where uv.CODE=unr.value and rownum =1;
+                elsif  unr.code = 'UZ_OKONH' then
+          --Классификатор отраслей народного хозяйства
+                  select '('||uv.CODE||')'||uv.LONGNAME into pRec.P60 from U_UZ_OKONH uv where uv.CODE=unr.value and rownum =1;
+                end if;
+              exception when others then
+                if t_log.isenabled then
+                  t_log.debug(Localize(' Не найдено значение классификатора '||unr.code||', установленное у клиента '||G_PKGCLI.FGETCLICODE(pRec.CLI_DEP_ID, pRec.CLI_ID),'PKG','Z_116_L_PKG_L_UZ_LN_009'));
+                end if;
+              end;
+            end loop;
+            if pRec.P42 is null then
+              begin
+                select '('||uv.CODE||')'||uv.LONGNAME into pRec.P42 from U_UZ_VOGHS_STD uv where upper(uv.LONGNAME) = upper(Localize('Физические лица','PKG','Z_116_L_PKG_L_UZ_LN_009')) and rownum =1;
+              exception when no_data_found then pRec.P42:= null;
+              end;
+            end if;
+            if pRec.P43 is null then
+              begin
+                select '('||uv.CODE||')'||substr(uv.LONGNAME,instr(uv.LONGNAME,')')+1) into pRec.P43 from U_UZ_SECON_STD uv where upper(uv.LONGNAME) like upper(Localize('%Другие отрасли для физических лиц%','PKG','Z_116_L_PKG_L_UZ_LN_009')) and rownum =1;
+              exception when no_data_found then pRec.P43:= null;
+              end;
+            end if;
+            pRec.P44 := pRec.P43;
+
+            --КлаccсКредитcспcс
+            begin
+                select u.LONGNAME into pRec.P45 from U_UZ_CLASSCR u where code in
+                nvl(L_PKGDEAUNIREF.fGetRefValCode(pRec.dep_id, pRec.id, 'UZ_CLCR'),
+                L_PKGDEAUNIREF.fGetClsRefValCode(t_pkgdea.fDeaDclId(pRec.dep_id, pRec.id), u_pkguniref.fRefCode2Id('UZ_CLCR'))) and rownum=1;
+            exception
+              when NO_DATA_FOUND then  pRec.P45 := null;
+            end;
+            --АдрcсКлиента
+            begin
+                select g_pkgaddress.fGetFullAddr(gc.adr_id)  into pRec.P47 from G_CLIADDRESS gc
+                where bs_dom.DCCODE('G_CLIADR_TYPE', gc.ADRTYPE)='GCLIADR_REG' and gc.dep_id = pRec.cli_dep_id and gc.id = pRec.cli_id and rownum =1;
+            exception
+              when NO_DATA_FOUND then  pRec.P47 := null;
+            end;
+            --ИНН/Пcспорт
+            begin
+                select(G_PKGCLIIDN.fCliIdn_Fld(pRec.CLI_DEP_ID, pRec.CLI_ID, 'TAXCODE')||'/'||(select gcl.PASSSER||gcl.passnum  from G_CLIDOC gcl
+               where gcl.dep_id = pRec.cli_dep_id and gcl.id = pRec.cli_id and gcl.arcfl=0 and rownum=1)) into pRec.P49 from dual;
+            exception
+               when NO_DATA_FOUND then  pRec.P49 := null;
+            end;
+            --cстатокВнебПрcср 91501
+            pRec.P50 := ACC91501BLN;
+            --cстатокВнебcсновной долг (95413)
+            pRec.P51 :=ACC95413BLN;
+            --ТипЗаемщика
+            begin
+                select u.CODE||'-'||u.LONGNAME into pRec.P53 from U_UZ_TZ u where code in
+                nvl(L_PKGDEAUNIREF.fGetRefValCode(pRec.dep_id, pRec.id, 'UZ_TZ'),
+                L_PKGDEAUNIREF.fGetClsRefValCode(t_pkgdea.fDeaDclId(pRec.dep_id, pRec.id), u_pkguniref.fRefCode2Id('UZ_TZ'))) and rownum=1;
+            exception
+               when NO_DATA_FOUND then pRec.P53 := null;
+            end;
+            --Регcстр.номер и дата нормат.док-та по выдаче кредита
+            begin
+                select u.CODE||'-'||u.LONGNAME into pRec.P59 from U_UZ_NPA u where code in
+                nvl(L_PKGDEAUNIREF.fGetRefValCode(pRec.dep_id, pRec.id, 'UZ_NPA'),
+                L_PKGDEAUNIREF.fGetClsRefValCode(t_pkgdea.fDeaDclId(pRec.dep_id, pRec.id), u_pkguniref.fRefCode2Id('UZ_NPA'))) and rownum=1;
+            exception
+               when NO_DATA_FOUND then  pRec.P59 := null;
+            end;
+            --Последняя дата погашения
+            iRUN_ANL_ACM:=bs_scen.FGETSCENNORD(iBopID,'_RUN_ANL_ACM_');
+            select max(j.doper) into pRec.P62 FROM T_OPERJRN J, T_OPRCHR_STD op
+            where J.CANCELFL ='0' and J.UNDOFL ='0' and op.id = j.cha_id and op.CODE in ('105202','240302')
+                 and J.ID=iPROC_Id and NOPER=iRUN_ANL_ACM;
+
+            pRec.SM:= 1;
+            pRec.P1 := 0;
+            pRec.P5 := G_ACAttrs.fCliName(pRec.CLI_DEP_ID, pRec.CLI_ID); -- P5 Наименование клиента
+
+            if  iBopID =iCS_CR_LIN then
+              select /*+ all_rows*/ min(j.doper) into pRec.P13 FROM T_OPERJRN J, T_OPRCHR_STD op --  Дата фактичcской выдачи
+              where j.doper<=pDCRED and J.UNDOFL ='0' and op.id = j.cha_id
+                 and op.CODE in ('10011','240102') and j.ID=iPROC_ID and NOPER  IN (iNEWDEA,iACCMOV,iRunAnlCR_LIN);
+
+            elsif iBopID=iCS_CRED then
+              select /*+ all_rows*/ min(j.doper) into pRec.P13 FROM T_OPERJRN J, T_OPRCHR_STD op --  Дата фактичcской выдачи
+              where j.doper<=pDCRED and J.UNDOFL ='0' and op.id = j.cha_id
+                 and op.CODE in ('10011','240102') and j.ID=iPROC_ID and NOPER  IN (iLOAN_OUT,iLOAN_OUT2,iRunAnlCred,iInitialPosition);
+            else
+              select min(j.doper) into pRec.P13 FROM T_OPERJRN J, T_OPRCHR_STD op --  Дата фактичcской выдачи
+              where j.doper<=pDCRED and J.UNDOFL ='0' and op.id = j.cha_id
+                and op.CODE in ('10011','240102') and j.DEP_ID = pRec.DEP_ID  and J.ORD_ID = pRec.ID;
+            end if;
+
+
+            pRec.P46 := t_pkgdeaprm.fParByCode(pRec.ID, pRec.DEP_ID, 'L_UZ_FIO_NIKI');-- Председатель КБ*/
+            pRec.P48 := t_pkgdeaprm.fParByCode(pRec.ID, pRec.DEP_ID, 'L_UZ_UNIQNUM'); -- УнНомДог
+
+            pRec.P52 := t_pkgdeaprm.fParByCode(pRec.ID, pRec.DEP_ID, 'L_PURPOSE_CREDLINE'); -- КонкрНазнКредита
+            pRec.P57 := G_PkgCliAff.fCheckAffilFl(pRec.CLI_DEP_ID,pRec.CLI_ID); -- Связанный
+            pRec.P58 := nvl(g_pkgcliaddatr.fAttrValueDbl(pRec.CLI_DEP_ID, pRec.CLI_ID, p_ATTR => 'SMALLBUSINESSFL'),0);
+            --- Перевод сумм в эквивалент
+            pRec.P14 := t_pkgval.fCrossRate(pRec.P14,pRec.val_id, p_natval,pDCRED);
+            pRec.P20 := t_pkgval.fCrossRate(pRec.P20,pRec.val_id, p_natval,pDCRED);
+            pRec.P21 := t_pkgval.fCrossRate(pRec.P21,pRec.val_id, p_natval,pDCRED);
+            pRec.P24 := t_pkgval.fCrossRate(pRec.P24,pRec.val_id, p_natval,pDCRED);
+            pRec.P26 := t_pkgval.fCrossRate(pRec.P26,pRec.val_id, p_natval,pDCRED);
+            pRec.P34 := t_pkgval.fCrossRate(pRec.P34,pRec.val_id, p_natval,pDCRED);
+            pRec.P32 := t_pkgval.fCrossRate(pRec.P32,pRec.val_id, p_natval,pDCRED);
+            pRec.P33 := t_pkgval.fCrossRate(pRec.P33,pRec.val_id, p_natval,pDCRED);
+            pRec.P33_1 := t_pkgval.fCrossRate(pRec.P33_1,pRec.val_id, p_natval,pDCRED);
+            pRec.P33_2 := t_pkgval.fCrossRate(pRec.P33_2,pRec.val_id, p_natval,pDCRED);
+            pRec.P35 := t_pkgval.fCrossRate(pRec.P35,pRec.val_id, p_natval,pDCRED);
+            pRec.P35_1 := t_pkgval.fCrossRate(pRec.P35_1,pRec.val_id, p_natval,pDCRED);
+            pRec.P50 := t_pkgval.fCrossRate(pRec.P50,pRec.val_id, p_natval,pDCRED);
+            pRec.P51 := t_pkgval.fCrossRate(pRec.P51,pRec.val_id, p_natval,pDCRED);
+            pRec.p30 := to_number(pRec.P20)+to_number(pRec.P21)+ to_number(pRec.P24) +to_number(pRec.P26);--  p30 вся задолженность
+            pRec.workplacecount := T_PkgDeaPrm.fDeaParByCode(pRec.id, pRec.dep_id,'L_WORKPLACES_NUM');
+
+            return true;
+
+      else return false; end if;
+     end if;
+
+  exception
+      when skipToAdd then
+
+        return false;
+      when others then
+
+        pRec.p2:= SQLERRM;
+        return true;
+  end;
+
+  procedure pProcessOneChunk(pChunkNum number, pSID number, dOp date, pDATEPOST in varchar2 default null) is
+    cursor c is
+      select * from Z_116_L_TMPC116LN00009 where SID = pSID and chunknum = pChunkNum for update;
+    nRec Z_116_L_TMPC116LN00009%rowtype;
+  begin
+    open c;
+    loop
+      fetch c into nRec;
+      exit when c%notfound;
+      if pProcessOneRow(nRec, dOp, pDATEPOST) then
+        update Z_116_L_TMPC116LN00009 set row = nRec where current of c;
+      else
+        delete Z_116_L_TMPC116LN00009 where current of c;
+      end if;
+    end loop;
+    close c;
+    commit;
+  end;
+
+function fGetMainSQL(
+    pDCRED date,
+    pREGION in varchar2,
+    pDEP_CODE in varchar2,
+    pDEP_ID in T_DEA.DEP_ID%type,
+    pTVAL in varchar2,
+    pTYPE_CRE in varchar2,
+    pV_CRED in varchar2,
+    pEND_PER in varchar2,
+    pTCLI in varchar2,
+    pNIBBD_CODE in varchar2) return varchar2 is
+
+    sRet varchar2(10000);
+    sDepWhere varchar2(10000);
+    sNibdFrom varchar2(10000);
+    sNibdWhere varchar2(10000);
+    sVCredWhere varchar2(10000);
+    sTypeCreWhere varchar2(10000);
+    sTypeCliWhere varchar2(10000);
+
+    iInitialPosition  T_SCEN.Nord%type:=  bs_scen.FGETSCENNORD(bs_bop.FGETBOPID('CS_CRED'),'INITIALPOSITION');
+    sOprChr varchar2(30);
+  begin
+
+   select  listagg(ID, ',') within group (order by ID)
+   into sOprCHR from t_oprchr where code in ('10011','240102','240710','104002');
+
+   if pDEP_CODE is not null and P_DEPBAL(pDEP_ID)<>pDEP_ID then
+    sDepWhere:=  q'[
+      --Выборка по cправочнику департаментов
+      td.srv_dep_id in (select dep.id
+                               from c_dep_std dep
+                               start with dep.id = ]'||pDEP_ID||q'[
+                               connect by prior dep.id = dep.id_hi)
+      and ]';
+  end if;
+
+   if pNIBBD_CODE is not null then
+     sNibdFrom:=q'[ ,(select i.DEP_ID, i.ID from G_CLIIDN i, G_IDNDSC_STD s where s.CODE LIKE 'IDN_NIBBD%' and i.IDN_ID =s.ID and i.IDN_NUM = ]'||''''||pNIBBD_CODE||''') cli';
+     sNibdWhere:=' cli.DEP_ID = td.CLI_DEP_ID and cli.ID = td.CLI_ID and ';
+  end if;
+
+  if pV_CRED is not null then
+    sVCredWhere:= q'[
+      --Выборка по виду кредитной линии
+      nvl(L_PKGDEAUNIREF.fGetRefValCode(td.DEP_ID, td.ID, 'UZ_VIDCRED'), L_PKGDEAUNIREF.fGetClsRefValCode(t_pkgdea.fDeaDclId(td.DEP_ID,td.ID), u_pkguniref.fRefCode2Id('UZ_VIDIST')))
+           in (select code from U_UZ_VIDCRED start with ID = (select id from U_UZ_VIDCRED
+           where code=']'||case pV_CRED when '1' then '50' when '2' then '20' else '' end || q'[') connect by PRIOR ID = ID_HI)
+     and ]';
+  end if;
+  if nvl(pTYPE_CRE,0) != 0 then
+    sTypeCreWhere:=
+      -- Выборка по типу кредита
+      case pTYPE_CRE
+        when 1 then q'[ (select u.CODE from U_UZ_VIDCRED u where code in  nvl(L_PKGDEAUNIREF.fGetRefValCode(td.DEP_ID, td.ID, 'UZ_VIDCRED'),L_PKGDEAUNIREF.fGetClsRefValCode(t_pkgdea.fDeaDclId(td.DEP_ID, td.ID), u_pkguniref.fRefCode2Id('UZ_VIDCRED')))) in ('30') and]'
+        when 2 then q'[ (select u.CODE from U_UZ_VIDCRED u where code in  nvl(L_PKGDEAUNIREF.fGetRefValCode(td.DEP_ID, td.ID, 'UZ_VIDCRED'),L_PKGDEAUNIREF.fGetClsRefValCode(t_pkgdea.fDeaDclId(td.DEP_ID, td.ID), u_pkguniref.fRefCode2Id('UZ_VIDCRED')))) in ('34') and]'
+        when 3 then q'[ (select u.CODE from U_UZ_VIDCRED u where code in  nvl(L_PKGDEAUNIREF.fGetRefValCode(td.DEP_ID, td.ID, 'UZ_VIDCRED'),L_PKGDEAUNIREF.fGetClsRefValCode(t_pkgdea.fDeaDclId(td.DEP_ID, td.ID), u_pkguniref.fRefCode2Id('UZ_VIDCRED')))) in ('32','58') and]'
+        when 4 then q'[ (select u.CODE from U_UZ_VIDCRED u where code in  nvl(L_PKGDEAUNIREF.fGetRefValCode(td.DEP_ID, td.ID, 'UZ_VIDCRED'),L_PKGDEAUNIREF.fGetClsRefValCode(t_pkgdea.fDeaDclId(td.DEP_ID, td.ID), u_pkguniref.fRefCode2Id('UZ_VIDCRED')))) in ('59') and]'
+        when 5 then q'[ (select u.CODE from U_UZ_VIDCRED u where code in  nvl(L_PKGDEAUNIREF.fGetRefValCode(td.DEP_ID, td.ID, 'UZ_VIDCRED'),L_PKGDEAUNIREF.fGetClsRefValCode(t_pkgdea.fDeaDclId(td.DEP_ID, td.ID), u_pkguniref.fRefCode2Id('UZ_VIDCRED')))) in ('53','54') and]'
+        else ''
+      end;
+  end if;
+
+  if pTCLI is not null then
+    sTypeCliWhere :=
+    case when pTCLI < 3 then q'[g_pkgcli.fgetTypeFl(td.CLI_DEP_ID,td.CLI_ID) = ]' || pTCLI || ' and '
+         when pTCLI = 3 then q'[g_pkgcli.fgetTypeFl(td.CLI_DEP_ID,td.CLI_ID) <> 1 and ]'
+         else ''
+    end;
+  end if;
+
+    sRet:= q'[
+   with pdate as (select :pDCRED as pDCRED from dual),
+   LD as --Кредиты
+    (
+    select /*+ LEADING*/ td.dep_id,td.id,td.CLI_DEP_ID,td.CLI_ID,td.SRV_DEP_ID,
+    o.val_id,td.ANALIZ_L,o.dord,o.code codeld,td.TODATE,td.FROMDATE,td.SDOK,td.dcl_id,
+    ld.PUR_ID, o.TUS_ID, 0 tp
+    from pdate, t_procmem m,t_dea td,T_ORD o,L_DEA ld]'||sNibdFrom||q'[
+    where ]'||sDepWhere||sNibdWhere||sVCredWhere||sTypeCreWhere||sTypeCliWhere||
+    q'[
+    o.DEP_ID = td.DEP_ID and o.ID = td.ID
+      and ld.DEP_ID = td.DEP_ID and ld.ID = td.ID
+       --and td.ID = '761767649' and td.DEP_ID = '3016'
+       and m.dep_id=ld.dep_id and m.ord_id=ld.id and m.mainfl='1'
+       and exists (select 1 from dual where ld.impfl='0' and
+       exists (SELECT 1 FROM T_OPERJRN J
+            where j.doper<=pDCRED  and J.UNDOFL ='0' and j.NOPER in  (]'||iLOAN_OUT||','||iLOAN_OUT2||q'[)
+             and J.ID = m.ID)
+        or
+        ld.impfl='1' and
+        exists (SELECT 1 FROM T_OPERJRN J
+            WHERE j.doper<=pDCRED  and J.UNDOFL ='0' and j.NOPER in (]'||iRunAnlCred||','||iInitialPosition||q'[)
+            and j.cha_id in (]'||sOprChr||q'[)
+             and J.ID = m.ID) )
+             ),
+    LZ as  --Лизинг
+    (select  /*+ LEADING*/ td.dep_id,td.id,td.CLI_DEP_ID,td.CLI_ID,td.SRV_DEP_ID,
+    o.val_id,td.ANALIZ_L,o.dord,o.code codeld,td.TODATE,td.FROMDATE,td.SDOK,td.dcl_id,
+    ld.PUR_ID, o.TUS_ID, 1 tp
+    from pdate, t_dea td,T_ORD o,LS_DEA ld]'||sNibdFrom||q'[
+    where  ]'||sDepWhere||sNibdWhere||sVCredWhere||sTypeCreWhere||sTypeCliWhere||
+    q'[
+    o.DEP_ID = td.DEP_ID and o.ID = td.ID
+      and ld.DEP_ID = td.DEP_ID and ld.ID = td.ID
+       --and td.ID = '761767649' and td.DEP_ID = '3016'
+      and exists (SELECT 1 FROM T_OPERJRN J, T_OPRCHR_STD op
+            where j.doper<=pDCRED and J.UNDOFL ='0' and op.id = j.cha_id
+              and op.CODE in ('10011','240102','240710') and J.DEP_ID = ld.DEP_ID  and J.ORD_ID = ld.ID)),
+     LLD as  --Кредитные линии
+    (select  /*+ LEADING*/ td.dep_id,td.id,td.CLI_DEP_ID,td.CLI_ID,td.SRV_DEP_ID,
+    o.val_id,td.ANALIZ_L,o.dord,o.code codeld,td.TODATE,td.FROMDATE,td.SDOK,td.dcl_id,
+    ld.PUR_ID, o.TUS_ID, 2 tp
+    from pdate, t_procmem m, t_dea td,T_ORD o,L_LDEA ld]'||sNibdFrom||q'[
+    where ]'||sDepWhere||sNibdWhere||sVCredWhere||sTypeCreWhere||sTypeCliWhere||
+    q'[
+    o.DEP_ID = td.DEP_ID and o.ID = td.ID
+     --and td.ID = '761767649' and td.DEP_ID = '3016'
+      and ld.DEP_ID = td.DEP_ID and ld.ID = td.ID
+      and nvl(T_PkgDeaPrm.fParByCode(td.ID,td.DEP_ID,'LL_TECHOVER'),0) = 0
+      and nvl(T_PkgDeaPrm.fParByCode(td.ID,td.DEP_ID,'L_REVOLVER_LINE'),0) =1
+      and m.dep_id=ld.dep_id and m.ord_id=ld.id and m.mainfl='1'
+      and exists (select 1 from dual where ld.impfl='0' and
+       exists (SELECT 1 FROM T_OPERJRN J
+            where j.doper<=pDCRED  and J.UNDOFL ='0' and j.NOPER in  (]'||iNEWDEA||','||iACCMOV||q'[)
+             and J.ID = m.ID)
+        or
+        ld.impfl='1' and
+        exists (SELECT 1 FROM T_OPERJRN J
+            WHERE j.doper<=pDCRED  and J.UNDOFL ='0' and j.NOPER in (]'||iRunAnlCR_LIN||q'[)
+            and j.cha_id in (]'||sOprChr||q'[)
+             and J.ID = m.ID) )
+             ),
+      dd as
+      (select * from LD
+       union all
+       select * from LZ
+       union all
+       select * from LLD)
+
+   select
+     dep_id, id, CLI_DEP_ID, CLI_ID, SRV_DEP_ID,
+     val_id, ANALIZ_L, dord, codeld, TODATE, FROMDATE, SDOK, dcl_id,
+     PUR_ID, TUS_ID, tp,
+     TUSER_CODE
+   from (
+    select dd.*,
+   (select nvl(u.FIO , s.LONGNAME) as USER_FIO from C_USR s, C_STFUSR l, C_USER u
+       where s.ID = dd.TUS_ID  and l.STF_ID(+) = s.ID  and u.ID(+) = l.USR_ID and rownum =1) as TUSER_CODE
+   from  dd, pdate
+   where 1=1
+  ]';
+  if pRegion is not null then
+    sRet:= sRet || q'[
+    --Выборка по региону
+      and exists (select 1
+                                        from (select g_pkgaddress_uz.fgetObl(a.adr_id) as obl
+                                                from g_cliaddress a, g_cli c
+                                                where a.dep_id = c.dep_id and a.id = c.id
+                                                  and c.depcrd_id = dd.srv_dep_id) ff
+                                         where ff.obl = ']'||pRegion||q'[')
+
+    ]';
+  end if;
+
+  if pTVAL is not null then
+    sRet:= sRet || q'[
+      -- Выборка по типу валюты
+      ]'||
+      case pTVAL when 1 then ' and (dd.val_id=p_natval) ' when 2 then 'and (dd.val_id != p_natval) ' else '' end;
+  end if;
+  if nvl(pEND_PER,0) = 1 then
+    sRet:= sRet || q'[
+      --Выборка по иcтёкшему cроку погашения
+        and (dd.todate <= pDCRED)
+    ]';
+  end if;
+  sRet:= sRet || q'[
+    ) d
+  ]';
+
+  return sRet;
+end;
+
+
+
+
+  --Процедура подготовки данных для отчета Z_116_L_UZ_LN00_009 - Кредитный портфель
+  procedure pEXEC(
+    pDCRED in date default P_OperDay,
+    pREGION in varchar2,
+    pREGIONNAME in varchar2,
+    pDEP_CODE in varchar2,
+    pDEP_ID in T_DEA.DEP_ID%type,
+    pDEP_NAME in varchar2,
+    pTVAL in varchar2,
+    pTYPE_CRED in varchar2,
+    pTYPE_CRE in varchar2,
+    pV_CRED in varchar2,
+    pEND_PER in varchar2,
+    pTCLI in varchar2,
+    pNIBBD_CODE in varchar2,
+    pDATEPOST in varchar2  default 0)
+  is
+    main Z_116_L_TMPC116LN00009%rowtype;
+
+    sMainSQL varchar2(10000);
+    cMain sys_refcursor;
+
+    rec_dep_id        T_DEA.Dep_Id%type;
+    rec_id            T_DEA.Id%type;
+    rec_CLI_DEP_ID    T_DEA.Cli_Dep_Id%type;
+    rec_CLI_ID        T_DEA.Cli_Id%type;
+    rec_SRV_DEP_ID    T_DEA.Srv_Dep_Id%type;
+    rec_val_id        T_ORD.Val_Id%type;
+    rec_ANALIZ_L      T_DEA.Analiz_l%type;
+    rec_dord          T_ORD.Dord%type;
+    rec_codeld        T_ORD.Code%type;
+    rec_TODATE        date;
+    rec_FROMDATE      date;
+    rec_SDOK          T_DEA.Sdok%type;
+    rec_dcl_id        T_DEA.Dcl_Id%type;
+    rec_PUR_ID        L_DEA.Pur_Id%type;
+    rec_TUS_ID        T_ORD.TUS_ID%type;
+    rec_tp            number;
+    rec_TUSER_CODE    varchar2(250);
+
+begin
+
+  L_PKGRPT_PRLUTL.pPrepare(
+         pRPT_CODE => 'Z_116_L_UZ_LN00_009',
+         pRptDate  => pDCRED,
+         pPKG_NAME => 'Z_116_L_PKG_L_UZ_LN_009',
+         pTBL_NAME => 'Z_116_L_TMPC116LN00009',
+         pParam => pDATEPOST);
+
+  commit;
+
+  sMainSQL := fGetMainSQL(
+    pDCRED,
+    pREGION,
+    pDEP_CODE,
+    pDEP_ID,
+    pTVAL,
+    pTYPE_CRE,
+    pV_CRED,
+    pEND_PER,
+    pTCLI,
+    pNIBBD_CODE);
+
+  open cMain for sMainSQL using pDCRED;
+  loop
+    fetch cMain into
+      rec_dep_id,
+      rec_id,
+      rec_CLI_DEP_ID,
+      rec_CLI_ID,
+      rec_SRV_DEP_ID,
+      rec_val_id,
+      rec_ANALIZ_L,
+      rec_dord,
+      rec_codeld,
+      rec_TODATE,
+      rec_FROMDATE,
+      rec_SDOK,
+      rec_dcl_id,
+      rec_PUR_ID,
+      rec_TUS_ID,
+      rec_tp,
+      rec_TUSER_CODE;
+    exit when cMain%notfound;
+    begin
+
+        main.dep_id:= rec_dep_id;
+        main.id:= rec_id;
+        main.cli_dep_id:= rec_cli_dep_id;
+        main.cli_id:= rec_cli_id;
+        main.srv_dep_id:= rec_srv_dep_id;
+
+        main.val_id:= rec_val_id;
+        main.dcl_id:= rec_dcl_id;
+        main.tp:= rec_tp;
+
+        main.P10 := rec_SDOK; -- P10 СуммаДог
+        main.P12 := rec_FROMDATE; -- ДатаДоговора
+        main.P15 := rec_TODATE; --  ДатаПогаш
+        main.P17 := rec_codeld||'-'||to_char(rec_dord,'dd.mm.yyyy'); --№иДатаДог
+        main.P31 := substr(bs_dom.dLongname('T_DEA_ANALIZ_L',rec_ANALIZ_L),1,250); --КлаcсКачества
+        main.P56 := rec_TUSER_CODE; -- Иcспектор
+        -- 58 Уникальный номер
+        --main.uniqnum:= T_PkgDeaPrm.fParByCode(/*pRec.ID, pRec.DEP_ID,*/rec_id,rec_dep_id,'L_UZ_UNIQNUM');
+        main.tpCred := pTYPE_CRED;
+        main.pur_id := rec_PUR_ID;
+
+        main.sid:= L_PKGRPT_PRLUTL.fGetMainSessionNum;
+        main.chunknum:= 0;
+        insert into Z_116_L_TMPC116LN00009 values main;
+
+    end;
+    main:= null;
+  end loop; -- rec
+
+  L_PKGRPT_PRLUTL.pRun;
+  commit;
+ end pEXEC;
+
+ procedure pClean is
+ begin
+   L_PKGRPT_PRLUTL.pClean;
+ end;
+
+  procedure pEXECFORALL(P_DOP IN DATE, P_IDDEP IN INTEGER)
+  is
+  begin
+    --Запуск выполняем только для головного подрзаделения
+    if  c_pkgprm.fGetValPrm('GL_MAINDEP')=c_pkgdep.fGetCodeDep(P_IDDEP) then
+      DBMS_SCHEDULER.create_job (job_name     => 'Z_116_L_UZ_LN00_009_'||to_char(P_DOP,'ddmmyyyy'),
+                                 job_type     => 'PLSQL_BLOCK',
+                                 job_action   => 'begin Z_116_L_PKG_L_UZ_LN_009.pEXECALL2DAY('''||P_DOP||''');end;',
+                                 start_date   => SYSTIMESTAMP,
+                                 enabled      => TRUE,
+                                 auto_drop    => TRUE);
+    end if;
+  end;
+
+  procedure pEXECALL2DAY(P_DOP in date) is
+    dStart date;
+  begin
+    dStart:=sysdate;
+    c_pkgconnect.popenlink('COLVIR');
+    pEXECALL(c_pkgdate.fPrevOD(P_DOP,iNum => 1));
+    pEXECALL(P_DOP);
+    insert into Z_116_L_UZ_LN00_009_PROT (CODE, DOPER, STARTDT, ENDDT) values ('PEXECALL2DAY', P_DOP, dStart, SYSDATE);
+    commit;
+  end;
+
+  procedure pEXECALL(P_DOP in date)
+  is
+    dStart date;
+  begin
+    dStart:=sysdate;
+    c_pkgconnect.popenlink('COLVIR');
+    --очищаем если есть готовые данные за этот ден ь
+    delete from Z_116_L_C116LN00009 where DOPER=P_DOP;
+    commit;
+    dbms_application_info.set_action('Z_116_L_UZ_LN00_009 ALL '||P_DOP);
+    --запускаем обычный расчёт по всему банку
+    pEXEC(pDCRED=>P_DOP,
+    pREGION =>null,
+    pREGIONNAME =>null,
+    pDEP_CODE =>null,
+    pDEP_ID =>null,
+    pDEP_NAME =>null,
+    pTVAL =>null,
+    pTYPE_CRED =>null,
+    pTYPE_CRE =>null,
+    pV_CRED =>null,
+    pEND_PER =>null,
+    pTCLI =>null,
+    pNIBBD_CODE =>null,
+    pDATEPOST =>'1');
+
+    --сохраняем данные из отчетной таблицы в централизованную
+    insert into Z_116_L_C116LN00009
+          (doper, correctdt,
+           sm, p1, p2, p3, porgname, p4, p5, p6, p7, p8, p9, p11, p12, p13, p15, p16, p17, p18, p19,
+           p20, p21, p22, p23, p24, p25, p26, p27, p28, p29, p30, p31, p33, p33_1, p33_2, p34, p35,
+           p35_1, p36, p37, p38, p39, p40, p41, p42, p43, p44, p45, p46, p47, p48, p49, p50, p52,
+           p53, p54, p55, p56, p57, p58, p59, p60, p61, p62, val_id, dep_id, id,
+           tp, cli_dep_id, cli_id, srv_dep_id, dcl_id, p10, p14, p32, p51,
+           todate,
+           vidcred,
+           vidst,
+           vidcr )
+    select P_DOP, sysdate,
+           sm, p1, p2, p3, porgname, p4, p5, p6, p7, p8, p9, p11, p12, p13, p15, p16, p17, p18, p19,
+           p20, p21, p22, p23, p24, p25, p26, p27, p28, p29, p30, p31, p33, p33_1, p33_2, p34, p35,
+           p35_1, p36, p37, p38, p39, p40, p41, p42, p43, p44, p45, p46, p47, p48, p49, p50, p52,
+           p53, p54, p55, p56, p57, p58, p59, p60, p61, p62, val_id, r.dep_id, r.id,
+           tp, r.cli_dep_id, r.cli_id, r.srv_dep_id, r.dcl_id, p10, p14, p32, p51,
+           t.todate,
+           L_PKGDEAUNIREF.fGetRefValCode(r.DEP_ID, r.ID, 'UZ_VIDCRED'),
+           L_PKGDEAUNIREF.fGetClsRefValCode(t_pkgdea.fDeaDclId(r.DEP_ID,r.ID), u_pkguniref.fRefCode2Id('UZ_VIDIST')),
+           L_PKGDEAUNIREF.fGetClsRefValCode(t_pkgdea.fDeaDclId(r.DEP_ID, r.ID), u_pkguniref.fRefCode2Id('UZ_VIDCRED')) VIDCR
+    from Z_116_L_TMPC116LN00009 R, T_DEA T
+    where SID = L_PKGRPT_PRLUTL.fGetMainSessionNum
+      and t.DEP_ID=r.DEP_ID and t.ID=r.ID;
+    commit;
+    --очищаем рассчитанные данные
+    pClean;
+    insert into Z_116_L_UZ_LN00_009_PROT (CODE,DOPER, STARTDT, ENDDT) values ('pEXECALL', P_DOP, dStart, SYSDATE);
+    commit;
+   end;
+
+
+
+ function fGetInsertSQL(
+    pDCRED date,
+    pREGION in varchar2,
+    pDEP_CODE in varchar2,
+    pDEP_ID in T_DEA.DEP_ID%type,
+    pTVAL in varchar2,
+    pTYPE_CRE in varchar2,
+    pV_CRED in varchar2,
+    pEND_PER in varchar2,
+    pNIBBD_CODE in varchar2) return varchar2
+  is
+    sRet varchar2(10000);
+    sDep varchar2(10000);
+    sNibdFrom varchar2(10000);
+    sNibdWhere varchar2(10000);
+    sVal varchar2(10000);
+    sEND_PER varchar2(10000);
+    sTYPE_CRE varchar2(10000);
+    sV_CRED varchar2(10000);
+    sRegion varchar2(10000);
+    sEOL varchar2(2):=chr(13)||chr(10);
+
+
+  begin
+    if pDEP_CODE is not null and P_DEPBAL(pDEP_ID)<>pDEP_ID then
+    --Выборка по cправочнику департаментов
+    sDep:=  'and x.srv_dep_id in (select dep.id
+                               from c_dep_std dep
+                               start with dep.id = '||pDEP_ID||'
+                               connect by prior dep.id = dep.id_hi)'||sEOL;
+    end if;
+
+   if pNIBBD_CODE is not null then
+   --Выборка по клиенту
+     sNibdFrom:=' ,(select i.DEP_ID, i.ID from G_CLIIDN i, G_IDNDSC_STD s where s.CODE LIKE ''IDN_NIBBD%'' and i.IDN_ID =s.ID and i.IDN_NUM = '||''''||pNIBBD_CODE||''') cli'||sEOL;
+     sNibdWhere:='and cli.DEP_ID = x.CLI_DEP_ID and cli.ID = x.CLI_ID '||sEOL;
+  end if;
+
+  --Выборка по региону
+  if pRegion is not null then
+    sRegion:=q'[and exists (select 1 from (select g_pkgaddress_uz.fgetObl(a.adr_id) as obl
+                from g_cliaddress a, g_cli c
+                 where a.dep_id = c.dep_id and a.id = c.id
+                  and c.depcrd_id = x.srv_dep_id) ff
+                where ff.obl = ']'||pRegion||q'[') ]'||sEOL;
+  end if;
+  -- Выборка по типу валюты
+  if pTVAL is not null then
+    sVal:= case pTVAL when 1 then 'and (x.val_id=p_natval) ' when 2 then 'and (x.val_id != p_natval) ' else '' end||sEOL;
+  end if;
+  --Выборка по иcтёкшему cроку погашения
+  if nvl(pEND_PER,0) = 1 then
+    sEND_PER :='and (x.todate <= '''||pDCRED||''')'||sEOL;
+  end if;
+
+  if pV_CRED is not null then
+  --Выборка по виду кредитной линии
+    sV_CRED:=q'[and nvl(x.VIDCRED,x.VIDST)
+           in (select code from U_UZ_VIDCRED start with ID = (select id from U_UZ_VIDCRED
+           where code=']'||case pV_CRED when '1' then '50' when '2' then '20' else '' end || q'[') connect by PRIOR ID = ID_HI)
+    ]'||sEOL;
+  end if;
+  -- Выборка по типу кредита
+  if nvl(pTYPE_CRE,0) != 0 then
+    sTYPE_CRE:=
+      case pTYPE_CRE
+        when 1 then q'[and (select u.CODE from U_UZ_VIDCRED u where code in  nvl(x.VIDCRED,x.VIDCR)) in ('30')]'
+        when 2 then q'[and (select u.CODE from U_UZ_VIDCRED u where code in  nvl(x.VIDCRED,x.VIDCR)) in ('34')]'
+        when 3 then q'[and (select u.CODE from U_UZ_VIDCRED u where code in  nvl(x.VIDCRED,x.VIDCR)) in ('32','58')]'
+        when 4 then q'[and (select u.CODE from U_UZ_VIDCRED u where code in  nvl(x.VIDCRED,x.VIDCR)) in ('59')]'
+        when 5 then q'[and (select u.CODE from U_UZ_VIDCRED u where code in  nvl(x.VIDCRED,x.VIDCR)) in ('53','54')]'
+        else ''
+      end||sEOL;
+  end if;
+
+  sRet:= q'[insert into Z_116_L_TMPC116LN00009
+    (sm, p1, p2, p3, porgname, p4, p5, p6, p7, p8, p9, p11, p12, p13, p15, p16, p17, p18, p19,
+     p20, p21, p22, p23, p24, p25, p26, p27, p28, p29, p30, p31, p33, p33_1, p33_2, p34, p35,
+     p35_1, p36, p37, p38, p39, p40, p41, p42, p43, p44, p45, p46, p47, p48, p49, p50, p52,
+     p53, p54, p55, p56, p57, p58, p59, p60, p61, p62, val_id, dep_id, id,
+     tp, cli_dep_id, cli_id, srv_dep_id, dcl_id, p10, p14, p32, p51,sid )
+   select sm, p1, p2, p3, porgname, p4, p5, p6, p7, p8, p9, p11, p12, p13, p15, p16, p17, p18, p19,
+     p20, p21, p22, p23, p24, p25, p26, p27, p28, p29, p30, p31, p33, p33_1, p33_2, p34, p35,
+     p35_1, p36, p37, p38, p39, p40, p41, p42, p43, p44, p45, p46, p47, p48, p49, p50, p52,
+     p53, p54, p55, p56, p57, p58, p59, p60, p61, p62, val_id, x.dep_id, x.id,
+     tp, cli_dep_id, cli_id, srv_dep_id, dcl_id, p10, p14, p32, p51,:SID
+   from Z_116_L_C116LN00009 x ]'||sNibdFrom||
+   'where DOPER='''||pDCRED||''' '||
+     sNibdWhere||
+     sDep||
+     sVal||
+     sEND_PER||
+     sTYPE_CRE||
+     sV_CRED||
+     sRegion;
+   return sRet;
+  end;
+
+--Процедура подготовки данных для отчета Z_116_L_UZ_LN00_009 - Кредитный портфель на основании уже подготовленных данных
+  procedure pReadReady(
+    pDCRED in date default P_OperDay,
+    pREGION in varchar2,
+    pREGIONNAME in varchar2,
+    pDEP_CODE in varchar2,
+    pDEP_ID in T_DEA.DEP_ID%type,
+    pDEP_NAME in varchar2,
+    pTVAL in varchar2,
+    pTYPE_CRE in varchar2,
+    pV_CRED in varchar2,
+    pEND_PER in varchar2,
+    pNIBBD_CODE in varchar2,
+    pDATEPOST in varchar2)
+  is
+    sInsertSql varchar2(10000);
+  begin
+    --pPrepare нужна только для определения псевдо-сида fGetMainSessionNum
+    L_PKGRPT_PRLUTL.pPrepare(
+         pRPT_CODE => 'Z_116_L_UZ_LN00_009',
+         pRptDate  => pDCRED,
+         pPKG_NAME => 'Z_116_L_PKG_L_UZ_LN_009',
+         pTBL_NAME => 'Z_116_L_TMPC116LN00009',
+         pParam => pDATEPOST);
+    --Получаем инсерт на получение нужных пользователю данных из общей таблицы с рассчитанными данными
+    sInsertSql:=fGetInsertSQL(pDCRED,
+                              pREGION,
+                              pDEP_CODE,
+                              pDEP_ID,
+                              pTVAL,
+                              pTYPE_CRE,
+                              pV_CRED,
+                              pEND_PER,
+                              pNIBBD_CODE);
+   --выполняем вставку данных из L_C116LN00009 в L_C116LN00009
+   execute immediate sInsertSql using L_PKGRPT_PRLUTL.fGetMainSessionNum;
+   commit;
+
+  end;
+
+ procedure pMAIN(
+    pDCRED in date default P_OperDay,
+    pREGION in varchar2,
+    pREGIONNAME in varchar2,
+    pDEP_CODE in varchar2,
+    pDEP_ID in T_DEA.DEP_ID%type,
+    pDEP_NAME in varchar2,
+    pTVAL in varchar2,
+    pTYPE_CRED in varchar2,
+    pTYPE_CRE in varchar2,
+    pV_CRED in varchar2,
+    pEND_PER in varchar2,
+    pTCLI in varchar2,
+    pNIBBD_CODE in varchar2,
+    pDATEPOST in varchar2,
+    pRESET in integer default 0)
+is
+  sDate1 varchar2(5);
+  sDate2 varchar2(5);
+  date1 date;
+  date2 date;
+  iFlReady int:=0;
+  iCheckDay int:=0;
+begin
+  select count(1) into iCheckDay from dual where exists (select 1 from Z_116_L_C116LN00009 where DOPER=pDCRED);
+  if pReset=0 and --если пользователь не указал обязательный пересчёт данных
+     iCheckDay>0 and --и данные за нужный день уже рассчитаны
+     nvl(pTYPE_CRED,0)=0 and --и пользователь не нужно получать отчет с учётом типа состояния кредита (списанные, просроченные, текущие и т.д.)
+     pTCLI is  null --и не нужно учитывать тип клиента
+  then
+    iFlReady:=1;
+  end if;
+  if iFlReady=1 then
+
+    --Тогда запускаем отчет на основании готовых данных
+    Z_116_L_PKG_L_UZ_LN_009.pReadReady(pDCRED,
+                                      pREGION,
+                                      pREGIONNAME ,
+                                      pDEP_CODE,
+                                      pDEP_ID,
+                                      pDEP_NAME ,
+                                      pTVAL,
+                                      pTYPE_CRE,
+                                      pV_CRED,
+                                      pEND_PER,
+                                      pNIBBD_CODE,
+                                      1);
+  else
+
+    --в противном случае, проверяем можно ли запускать в это время расчет
+    begin
+    select STARTDT, ENDDT into sDate1, sDate2
+    from C_RPT_TIMEBAN
+    where RPT_CODE='Z_116_L_UZ_LN00_009';
+    date1:= to_date( to_char(sysdate,'dd.mm.yyyy')||' '||sDate1,'dd.mm.yyyy hh24:mi');
+    date2:= to_date( to_char(sysdate,'dd.mm.yyyy')||' '||sDate2,'dd.mm.yyyy hh24:mi');
+    /*if sysdate between  date1  and date2 then
+       raise_application_error(-20000,Localize('Попробуйте запустить отчёт после '||sDate2,'PKG','L_PKGRPT_L_UZ_LN00_009'));
+    end if;*/
+    exception when no_data_found then
+
+      null;
+    end;
+    --и запускаем стандартный расчёт отчета в параллельных потоках
+    Z_116_L_PKG_L_UZ_LN_009.pEXEC(pDCRED,
+                                 pREGION,
+                                 pREGIONNAME ,
+                                 pDEP_CODE,
+                                 pDEP_ID,
+                                 pDEP_NAME ,
+                                 pTVAL,
+                                 pTYPE_CRED,
+                                 pTYPE_CRE,
+                                 pV_CRED,
+                                 pEND_PER,
+                                 pTCLI,
+                                 pNIBBD_CODE,
+                                 pDATEPOST);
+   end if;
+end;
+
+
+end Z_116_L_PKG_L_UZ_LN_009;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_BOP"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_DOM"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_SCEN"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="G_BLNACC"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_PRMCLS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_RPT_TIMEBAN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_VALLIST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="D_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLNHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIADDRESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIDOC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIREFVAL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CON"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CONSRC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LEDACC_DET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LV_REQ_JSON"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEPO"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_ENSDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MORTGAGE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MRTDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_PURDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REAL_ESTATE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_VEHICLE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="S_DEAACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="TT_POINT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="TV_ARLDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEACLS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPAY"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERDET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPRCHR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_SCEN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UNIREF"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_CLASSCR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_NPA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_OKED"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_OKONH"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_SECON"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_TZ"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_VIDCRED"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_VIDIST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_VOGHS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_L_C116LN00009"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_L_TMPC116LN00009"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_L_UZ_LN00_009_PROT"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_DEPBAL"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_IDDEP"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_LOCID"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_MAXDATE"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_NATVAL"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="TO_MONEY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="B3LSN_PKGCLC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="BL_SUPPORT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDATE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDEP"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_ACATTRS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGADDRESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGADDRESS_UZ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIADDATR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIAFF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCON"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGDEAUNIREF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGMORTGAGE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGRPT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGRPT_PRLUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_ASGN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCBAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARLRUN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEA"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGRUNOPRUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="U_PKGUNIREF"/>
+    </PKGDPNPKG>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="G_CLIADR_TYPE"/>
+    </PKGDPNDOM>
+  </PKG>
+</DDC>

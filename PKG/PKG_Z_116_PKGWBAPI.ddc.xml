@@ -1,0 +1,1125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGWBAPI" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="D3129AC8C3762FD8F1DF54C6DE3EBEF1">
+  <PKG 
+    NAME="Z_116_PKGWBAPI">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGWBAPI is
+/**
+* Пакет методов для API WB
+*
+* @author Анатолий Бондаренко
+* @version 1.2
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+/** Процедура получения информации по клиенту WB
+* <br/><i>С версии 1.0</i>
+* @param pInput JSON с входными параметрами пользователя
+* @param pOutput JSON с выходными параметрами клиента и/или сообщением об ошибке
+*/
+procedure pWBInfo(pInput   in Clob,
+                  pOutput  out Clob);
+
+/** Процедура получения выписки по счету WB
+* <br/><i>С версии 1.0</i>
+* @param pInput JSON с входными параметрами: счет, подразделение счета, дата и время
+* @param pOutput JSON с выходными параметрами с движениями по счету
+*/
+procedure pWBAccInfo(pInput   in Clob,
+                     pOutput  out Clob);
+
+/** Процедура получения выписки по счету WB без проверки по Логину
+* <br/><i>С версии 1.0</i>
+* @param pInput JSON с входными параметрами пользователя
+* @param pOutput JSON с выходными параметрами клиента и/или сообщением об ошибке
+*/
+procedure pWBAccInfoNoLogin(pInput   in Clob,
+                            pOutput  out Clob);
+
+
+
+end Z_116_PKGWBAPI;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGWBAPI is
+  cWBUsrRegState constant T_BOP_STAT_STD.CODE%type := 'STATE1';
+  cWBDeaRegState constant T_BOP_STAT_STD.CODE%type := 'STATE1';
+
+-- создание CLOB-а с JSON-ом об ошибке для возврата методу API
+function fErr(pErrCode in integer, pMess in varchar2, pArgs in vargs default vargs(null)) return CLOB
+is
+  ObjTmp  JSON_OBJECT_T;
+  ObjR    JSON_OBJECT_T;
+begin
+  ObjTmp := new JSON_OBJECT_T;
+  ObjTmp.put('code', pErrCode);
+  ObjTmp.put('message', LocalFrmt(pMess||dbms_utility.format_error_backtrace, pArgs,'PKG', 'Z_116_ELOAN_LOAN'));
+  ObjR := new JSON_OBJECT_T;
+  ObjR.put('error', ObjTmp);
+  t_log.debug('Z_116_PKGWBAPI.fErr, ошибка: %0:s', vargs(ObjR.To_String), 'PKG', 'Z_116_ELOAN_LOAN');
+  return ObjR.To_Clob;
+end fErr;
+
+-- Процедура получения информации по клиенту WB
+procedure pWBInfo(pInput   in Clob,
+                  pOutput  out Clob)
+is
+  ObjIn                   JSON_OBJECT_T;
+  ObjOut                  JSON_OBJECT_T;
+  cLogin                  WB_USR.LOGIN%type;
+  nDeaDepId               WB_USR.DEA_DEP_ID%type;
+  nDeaId                  WB_USR.DEA_ID%type;
+  nCliDepId               WB_USR.CLI_DEP_ID%type;
+  nCliID                  WB_USR.CLI_ID%type;
+  cWBUsrStat              T_BOP_STAT_STD.CODE%type;
+  cWBDeaStat              T_BOP_STAT_STD.CODE%type;
+  nWBUId                  WB_USR.ID%type;
+
+  lArr	                  JSON_ARRAY_T;
+  lArrTmp	                JSON_ARRAY_T;
+  ObjTmp                  JSON_OBJECT_T;
+  ObjAccTmp               JSON_OBJECT_T;
+  nIdnJur                 G_IDNDSC_STD.ID%type := G_PKGIDN.fId('IDN_JUR_UZ');
+begin
+  Z_116_PKGCONNECT.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  cLogin := ObjIn.get_String('login');
+
+  -- валидация входных данных:
+  if cLogin is null then
+    pOutput := fErr(-20000, 'Не передан логин пользователя ИБ для поиска информации.');
+    return;
+  end if;
+  begin
+    select u.DEA_DEP_ID, u.DEA_ID, u.cli_dep_id, u.cli_id, u.id,
+           t_pkgprocess.fGetStatCodeByMainOrd(u.dea_dep_id, u.id),
+           t_pkgprocess.fGetStatCodeByMainOrd(u.dea_dep_id, u.dea_id)
+      into nDeaDepId, nDeaId, nCliDepId, nCliId, nWBUId,
+           cWBUsrStat,
+           cWBDeaStat
+      from WB_USR u
+        where u.login = cLogin;
+  exception
+    when others then
+      pOutput := fErr(sqlcode, 'Ошибка поиска договора ДБО и карточки клиента по логину: %0:s, ошибка: %1:s', vargs(cLogin,substr(sqlerrm,1,2000)));
+      return;
+  end;
+  if cWBUsrStat <> cWBUsrRegState then
+    pOutput := fErr(-20000, 'Пользователь ДБО с логином %0:s не в состоянии "Зарегистрирован".', vargs(cLogin));
+    return;
+  end if;
+  if cWBDeaStat <> cWBDeaRegState then
+    pOutput := fErr(-20000, 'Договор ДБО %0:s не в состоянии "Зарегистрирован".', vargs(t_fGetOrdCode(nDeaDepId, nDeaId)));
+    return;
+  end if;
+  -- завершили валидацию
+
+  lArr := new JSON_ARRAY_T;
+
+  -- соберем инфу по договору ДБО и дочерним организациям
+  for rec in ((select /*+ RULE */
+                  WC.ID, WC.DEP_ID,
+                  O.CODE,
+                  O.DRECV REG_DATE,
+                  D.CLI_DEP_ID, D.CLI_ID,
+                  G.CODE CLI_CODE, GH.LONGNAME CLI_NAME,
+                  ST.CODE as DEA_STATE_CODE,
+                  ST.NAME as STATE,
+                  TD.ID DCL_ID,
+                  TD.CODE DCL_CODE, TD.LONGNAME DCL_NAME
+                  , GH.Addrjur ,gh.phone, gh.fax
+                from T_PROCESS PR, T_PROCMEM PM, T_ORD O, T_DEA D, G_CLIHST GH, G_CLI G, T_BOP_STAT ST, T_DEACLS TD,
+                  WB_DEA WC,
+                  WB_DEPDEA WD
+                where
+                  D.CLI_DEP_ID = G.DEP_ID and D.CLI_ID=G.ID
+                  and GH.DEP_ID = G.DEP_ID and GH.ID=G.ID and p_operday between GH.FROMDATE and GH.TODATE
+                  and D.DEP_ID=WC.DEP_ID and D.ID=WC.ID
+                  and O.DEP_ID=D.DEP_ID and O.ID=D.ID
+                  and PM.ORD_ID = O.ID
+                  and PM.DEP_ID = O.DEP_ID
+                  and PM.MAINFL = '1'
+                  and PR.ID = PM.ID
+                  and ST.ID = PR.BOP_ID
+                  and ST.NORD = PR.NSTAT
+                  and TD.ID= D.DCL_ID
+                  and WC.DEP_ID = WD.CHILD_DEA_DEP_ID and WC.ID = WD.CHILD_DEA_ID
+                  and WD.DEA_DEP_ID = nDeaDepId and WD.DEA_ID = nDeaId
+               union
+               select /*+ RULE */
+                  WC.ID, WC.DEP_ID,
+                  O.CODE,
+                  O.DRECV REG_DATE,
+                  D.CLI_DEP_ID, D.CLI_ID,
+                  G.CODE CLI_CODE, GH.LONGNAME CLI_NAME,
+                  ST.CODE as DEA_STATE_CODE,
+                  ST.NAME as STATE,
+                  TD.ID DCL_ID,
+                  TD.CODE DCL_CODE, TD.LONGNAME DCL_NAME
+                  , GH.Addrjur ,gh.phone, gh.fax
+                from T_PROCESS PR, T_PROCMEM PM, T_ORD O, T_DEA D, G_CLIHST GH, G_CLI G, T_BOP_STAT ST, T_DEACLS TD,
+                  WB_DEA WC,
+                  WB_DEPDEA WD
+                where
+                  D.CLI_DEP_ID = G.DEP_ID and D.CLI_ID=G.ID
+                  and GH.DEP_ID = G.DEP_ID and GH.ID=G.ID and p_operday between GH.FROMDATE and GH.TODATE
+                  and D.DEP_ID=WC.DEP_ID and D.ID=WC.ID
+                  and O.DEP_ID=D.DEP_ID and O.ID=D.ID
+                  and PM.ORD_ID = O.ID
+                  and PM.DEP_ID = O.DEP_ID
+                  and PM.MAINFL = '1'
+                  and PR.ID = PM.ID
+                  and ST.ID = PR.BOP_ID
+                  and ST.NORD = PR.NSTAT
+                  and TD.ID= D.DCL_ID
+                  and WC.DEP_ID = nDeaDepId and WC.ID = nDeaId)
+                 order by CODE, CLI_CODE
+  ) loop
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('depId', rec.CLI_DEP_ID);
+    ObjTmp.put('id', rec.CLI_ID);
+    ObjTmp.put('branch', c_pkgdep.fGetCodeDep(rec.CLI_DEP_ID));
+    ObjTmp.put('code', rec.cli_code);
+    ObjTmp.put('name', rec.cli_name);
+    ObjTmp.put('operDay', to_char(p_operday,'dd.mm.yyyy'));
+    ObjTmp.put('inn', G_PKGCLIIDN.fCliIdn(rec.CLI_DEP_ID, rec.CLI_ID, nIdnJur));
+    ObjTmp.put('dirName', g_pkgcli.fRuk(rec.CLI_DEP_ID, rec.CLI_ID));
+    ObjTmp.put('buhName', g_pkgcli.fBuch(rec.CLI_DEP_ID, rec.CLI_ID));
+    ObjTmp.put('address', rec.addrjur);
+    ObjTmp.put('phone', rec.phone);
+    ObjTmp.put('fax', rec.fax);
+
+    -- инфо посчетам в разрезе логин-договор ДБО-счет-клиент:
+    lArrTmp := new JSON_ARRAY_T;
+    for acc in (select
+                    DA.ID as DEAACC_ID,
+                    nvl(PH.VAL_ID, p_natval) as ACC_VAL,
+                    D.CODE as DEP_CODE
+                    , p.code as ACC_CODE, ua.access_fin_fl, DA.ACC_DEP_ID, DA.ACC_ID, P.DREG, PH.NAME as ACC_NAME, p.ORD_ID
+                  from G_ACCBLNHST PH, G_ACCBLN P, wb_deaacc DA, WB_USRACC UA, C_DEP D
+                  where
+                    DA.DEA_DEP_ID(+) = nDeaDepId
+                    and DA.DEA_ID(+) = nDeaId
+                    and P.DEP_ID = DA.ACC_DEP_ID
+                    and P.ID = DA.ACC_ID
+                    and D.ID = P.DEP_ID
+                    and PH.DEP_ID = P.DEP_ID
+                    and PH.ID = P.ID
+                    and p_operday between PH.FROMDATE and PH.TODATE
+                    and UA.DEAACC_ID(+) = DA.ID
+                    and UA.USR_ID = nWBUId
+                    and ph.clidep_id = rec.cli_dep_id and ph.cli_id = rec.cli_id
+                   order by P.CODE asc
+    ) loop
+      ObjAccTmp := new JSON_OBJECT_T;
+      ObjAccTmp.put('account', acc.ACC_CODE);
+      ObjAccTmp.put('depId', acc.ACC_DEP_ID);
+      ObjAccTmp.put('id', acc.ACC_ID);
+      ObjAccTmp.put('branch', acc.DEP_CODE);
+      ObjAccTmp.put('ct', 100 * t_pkgaccmov.fGetAccMov(acc.ACC_DEP_ID, acc.ACC_ID, acc.DREG, p_operday, acc.ACC_VAL,flIncom => 1));
+      ObjAccTmp.put('dt', 100 * t_pkgaccmov.fGetAccMov(acc.ACC_DEP_ID, acc.ACC_ID, acc.DREG, p_operday, acc.ACC_VAL,flIncom => 0));
+      ObjAccTmp.put('lDate', to_char(t_pkgaccmov.fGetMovLstDate(acc.ACC_DEP_ID, acc.ACC_ID),'dd.mm.yyyy') );
+      ObjAccTmp.put('name', acc.ACC_NAME);
+      ObjAccTmp.put('oDate', to_char(acc.DREG,'dd.mm.yyyy'));
+      ObjAccTmp.put('sIn', 100 * t_pkgaccbal.fAbs(acc.ACC_DEP_ID, acc.ACC_ID, p_operday, 1, acc.ACC_VAL));
+      ObjAccTmp.put('sOut', 100 * t_pkgaccbal.fAbs(acc.ACC_DEP_ID, acc.ACC_ID, p_operday, 0, acc.ACC_VAL));
+      ObjAccTmp.put('state', t_pkgprocess.fGetStatNameByMainOrd(acc.ACC_DEP_ID, acc.ORD_ID));
+      ObjAccTmp.put('val', t_pkgval.fGetCode(acc.ACC_VAL));
+
+      lArrTmp.append(ObjAccTmp); -- accounts
+    end loop;
+
+    ObjTmp.put('accounts', lArrTmp);
+
+    lArr.append(ObjTmp);  -- clients
+  end loop;
+  ObjOut := new JSON_OBJECT_T;
+  ObjOut.put('login',cLogin);
+  ObjOut.put('clients',lArr);
+
+  pOutput := ObjOut.To_Clob;
+
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'Ошибка получения информаци по логину WB %0:s: %1:s', vargs(cLogin,substr(sqlerrm,1,2000)));
+
+end pWBInfo;
+
+-- Процедура получения выписки по счету WB
+procedure pWBAccInfo(pInput   in Clob,
+                     pOutput  out Clob)
+is
+  ObjIn                   JSON_OBJECT_T;
+  ObjOut                  JSON_OBJECT_T;
+  lArrTmp	                JSON_ARRAY_T;
+  --lArrUD	                JSON_ARRAY_T;
+  ObjTmp                  JSON_OBJECT_T;
+  ObjTmpUD                JSON_OBJECT_T;
+  dOp                     date;
+  cAcc                    G_ACCBLN.CODE%type;
+  cAccDep                 C_DEP_STD.CODE%type;
+  nAccDepId               C_DEP_STD.ID%type;
+  --iCnt                    pls_integer;
+  nBalDepId               C_DEP_STD.ID%type := C_PKGDEP.FGETIDDEP(c_pkgprm.fGetValPrm('GL_MAINDEP'));
+  cODStat                 C_CLDDEP.STATUS_OD%type;
+  cC5FL                   C_CLDDEP.CUSTFL5%type;
+  iFin                    pls_integer := 0;
+  dAcc                    G_ACCBLN.Dreg%type;
+  nAccValId               T_VAL_STD.ID%type;
+
+  nACC_DEP_ID             G_ACCBLN.DEP_ID%type;
+  nACC_ID                 G_ACCBLN.ID%type;
+  cRnnBud                 P_ORDEXT.Rnn_Bud%type;
+
+  nOrdDepId               T_ORD.DEP_ID%type;
+  nOrdId                  T_ORD.ID%type;
+  cLogin                  WB_USR.LOGIN%type;
+  nAccCnt                 pls_integer;
+  nMovCr                  number(18,2);
+  nMovDt                  number(18,2);
+  cFullFl                 char(1) := '1';
+
+  function fAddPar(cAddParCode in S_ORDPAY_ADD.CODE%type ) return S_ORDPAY_ADD.VALUE%type
+  as
+    cPVal S_ORDPAY_ADD.VALUE%type;
+  begin
+    select a.value into cPVal from S_ORDPAY_ADD a
+      where a.dep_id = nOrdDepId and a.id = nOrdId
+        and a.code = cAddParCode;
+    return cPVal;
+  exception
+    when NO_DATA_FOUND then
+      return null;
+  end;
+
+begin
+  Z_116_PKGCONNECT.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  dOp := to_date(ObjIn.get_String('date'), 'dd.mm.yyyy');
+  cAcc := ObjIn.get_String('account');
+  cAccDep := nvl(ObjIn.get_String('branch'),'00401');
+  nAccDepId := c_pkgdep.fGetIdDep(cAccDep);
+  cLogin := ObjIn.get_String('login');
+
+  if ObjIn.has('fullInfoFl') then
+    cFullFl := ObjIn.get_String('fullInfoFl');
+  end if;
+
+  -- валидация входных данных:
+  if cLogin is null then
+    pOutput := fErr(-20000, 'Не передан логин пользователя ИБ для поиска информации.');
+    return;
+  end if;
+
+  g_pkgaccbln.pGetIdDepIdAcc(cAcc, nACC_DEP_ID, nACC_ID);
+
+  -- валидация входных данных:
+  if nACC_ID is null then
+    pOutput := fErr(-20000, 'Не найден счет с номером %0:s.', vargs(cAcc));
+    return;
+  elsif nACC_ID is not null and nACC_DEP_ID is not null and nACC_DEP_ID <> nAccDepId then
+    pOutput := fErr(-20000, 'Не найден счет с номером %0:s в подразделении %1:s.', vargs(cAcc, cAccDep));
+    return;
+  end if;
+
+  -- нужна ли какая то валидация по клиенту/пользователю???  -- !!! или через ua.access_fin_fl ?
+  select count(1)
+    into nAccCnt
+    from wb_deaacc DA, WB_USRACC UA, WB_USR u
+   where da.acc_dep_id = nACC_DEP_ID and da.acc_id = nACC_ID
+     and UA.DEAACC_ID = DA.ID
+     and UA.USR_ID = u.id
+     and u.login = cLogin;
+  if nAccCnt = 0 then
+    pOutput := fErr(-20000, 'Пользователь с логином %0:s не имеет доступа к счету %1:s.', vargs(cLogin, cAcc));
+    return;
+  end if;
+
+  -- проверим отчетную дату
+  begin
+    select cd.status_od, cd.custfl5 into cODStat, cC5FL
+      from C_CLDDEP cd
+        where cd.doper = dOp and cd.dep_id = nBalDepId;
+    if cC5FL = '1' and cODStat = '0' then
+      iFin := 1;
+    else
+      iFin := 0;
+    end if;
+  exception
+    when others then
+      pOutput := fErr(sqlcode, 'Ошибка определения статуса операционного дня %0:s в балансовом подразделении: %1:s', vargs(to_char(dOp,'dd.mm.yyyy'), substr(sqlerrm,1,2000)));
+      return;  -- ???????? iFin := 0; -- or NULL ?
+  end;
+
+  select ab.dreg
+    into dAcc
+    from G_ACCBLN ab
+      where ab.dep_id = nACC_DEP_ID and ab.id = nACC_ID;
+  nAccValId := g_pkgaccbln.fVal_Id(nACC_DEP_ID, nACC_ID, dOp);
+
+
+  ObjOut := new JSON_OBJECT_T;
+  ObjOut.put('fin', iFin);
+  ObjOut.put('operDay', to_char(dOp,'dd.mm.yyyy'));
+
+  if cFullFl = '1' then  -- заполним общую инфомрацию по остаткам и оборотам
+    ObjOut.put('saldoIn', 100 * t_pkgaccbal.fAbs(nACC_DEP_ID, nACC_ID, dOp, 1, idVal => nAccValId));
+    ObjOut.put('saldoOut', 100 * t_pkgaccbal.fAbs(nACC_DEP_ID, nACC_ID, dOp, 0, idVal => nAccValId));
+    --ObjOut.put('totalCredit', 100 * 0/*t_pkgaccmov.fGetAccMov(nACC_DEP_ID, nACC_ID, dAcc, dOp, nAccValId, flIncom => 1)*/);
+    --ObjOut.put('totalDebit', 100 * 0/*t_pkgaccmov.fGetAccMov(nACC_DEP_ID, nACC_ID ,dAcc, dOp, nAccValId, flIncom => 0)*/);
+
+    select /*+ index (T_TRNDTL IE_T_TRNDTL_ACC)*/ sum(decode(INCOMFL,'0', nvl(SDOK,0), 0)), sum(decode(INCOMFL,'1', nvl(SDOK,0), 0)) into nMovCr, nMovDt
+      from T_TRNDTL
+        where DEP_ID = nACC_DEP_ID and ACC_ID = nACC_ID
+          and VAL_ID = nAccValId
+          and DOPER between dAcc and dOp
+          and FLZO = '0' and POSTFL = '1';
+
+    ObjOut.put('totalCredit', 100 * nMovCr);
+    ObjOut.put('totalDebit', 100 * nMovDt);
+  else
+    ObjOut.put_null('saldoIn');
+    ObjOut.put_null('saldoOut');
+    ObjOut.put_null('totalCredit');
+    ObjOut.put_null('totalDebit');
+  end if;
+
+  lArrTmp := new JSON_ARRAY_T;
+
+  for doc in (select distinct
+                  TRN.*,
+                  nvl(J.ORD_ID, (Select ORD_ID from T_OPERJRN where T_OPERJRN.id=OPERM.ID and T_OPERJRN.NJRN=OPERM.NJRN)) as ORD_ID,
+                  nvl(J.DEP_ID, (Select DEP_ID from T_OPERJRN where T_OPERJRN.id=OPERM.ID and T_OPERJRN.NJRN=OPERM.NJRN)) as ORD_DEPID,
+                  nvl(decode( p.incomfl,trn.incomfl, p.code_acl, p.code_acr),TRN.TRN_ACC_CODE) as CORR_ACC_CODE,
+                  nvl(decode( p.incomfl,trn.incomfl, p.code_bcl, p.code_bcr),C_pkgDep.fIdDep2CodeBnk(TRN.DEP_ID,1)) as CORR_BANK_CODE,
+                  nvl(p.TXT_DSCR || p.TXT_ADD, nvl(A.DSCR, J.DSCR)) as DSCR,
+                  nvl(J.ID,OPERM.ID) as PROC_ID,
+                  nvl(J.NJRN,OPERM.NJRN) as NJRN,
+                  substr(T_PkgOprChr.fCode(nvl(A.OPE_ID, J.CHA_ID)), 1, 250) as OPR_CODE,
+                  substr(T_PkgOprChr.fName(nvl(A.OPE_ID, J.CHA_ID)), 1, 250) as OPR_NAME,
+                  A.REFER,
+                  D.CODE as DEP_CODE,
+                  p.TXT_PAY,
+                  p.TXT_BEN,
+                  nvl(j.EXECDT, (Select EXECDT from T_OPERJRN where T_OPERJRN.id=OPERM.ID and T_OPERJRN.NJRN=OPERM.NJRN)) as EXECDT
+                  , nvl(P.Vo, A.VO) as VO, p.rnn_cl, p.rnn_cr, p.knp, p.code_bc, p.ext_id
+                from (select
+                        nvl(DT.ID, KT.ID) as ID,
+                        nvl(DT.FLZO, KT.FLZO) as FLZO,
+                        nvl(DT.NORD, KT.NORD) as NORD,
+                        decode(T.INCOMFL, '1', DT.DOPER, KT.DOPER) as DOPER,
+                        decode(T.INCOMFL, '1', DT.VAL_ID, KT.VAL_ID) as VAL_ID,
+                        decode(T.INCOMFL, '1', DT.DEP_ID, KT.DEP_ID) as DEP_ID,
+                        decode(T.INCOMFL, '1', DT.INCOMFL, KT.INCOMFL) as INCOMFL,
+                        decode(T.INCOMFL, '1', DT.SDOK, KT.SDOK) as SDOK,
+                        DT.ACC_ID as ACCDT_ID,
+                        KT.ACC_ID as ACCKT_ID,
+                        DT.NORD as DT_NORD,
+                        KT.NORD as KT_NORD,
+                        decode(T.INCOMFL, '1', DT.SDOK) as DT_SDOK,
+                        decode(T.INCOMFL, '0', KT.SDOK) as KT_SDOK,
+                        DT.VAL_ID as DT_VAL_ID,
+                        KT.VAL_ID as KT_VAL_ID,
+                        decode(T.INCOMFL, '0', substr(T_PKGMONEY.FTRNVALUETOSIGNMONEY(KT.SDOK, T_PKGVAL.FGETFAC(kt.VAL_ID)), 1, 27)) as KT_SDOK_NAME,
+                        decode(T.INCOMFL, '1', substr(T_PKGMONEY.FTRNVALUETOSIGNMONEY(DT.SDOK, T_PKGVAL.FGETFAC(DT.VAL_ID)), 1, 27)) as DT_SDOK_NAME,
+                        substr(T_PKGMONEY.FTRNVALUETOSIGNMONEY(decode(T.INCOMFL, '1', DT.NAT_SDOK, KT.NAT_SDOK), T_PKGVAL.FGETFAC(P_NATVAL)), 1, 27) as NAT_SDOK,
+                        decode(T.INCOMFL, '1', DT.NAT_SDOK, KT.NAT_SDOK) as SDOKN,
+                        substr(decode(T.INCOMFL, '1', G_PKGACCBLN.fGetCodeAccByIdAcc(KT.ACC_ID, KT.DEP_ID), G_PKGACCBLN.fGetCodeAccByIdAcc(DT.ACC_ID, DT.DEP_ID)), 1, 250) as TRN_ACC_CODE,
+                        substr(decode(T.INCOMFL, '1', decode(DT.VAL_ID, null, null, T_PkgVal.fGetIsoCode(DT.VAL_ID)), decode(KT.VAL_ID, null, null, T_PkgVal.fGetIsoCode(KT.VAL_ID))), 1, 250) as VAL_CODE,
+                        decode(nvl(DT.POSTFL, KT.POSTFL), 2, 1, 0) as PLANFL,
+                        decode(T.INCOMFL, '1', KT.ACC_ID, DT.ACC_ID) as ACC_ID,
+                        decode(T.INCOMFL, '1', KT.DEP_ID, DT.DEP_ID) as ACC_DEP_ID,
+                        (Select TRA_ID from T_OPERMOV where TRA_ID=nvl(DT.ID, KT.ID) group by TRA_ID having count(*)=1) as CONS_ID
+                      from T_TRNDTL DT,
+                           T_TRNDTL KT,
+                           (select /*+ index(td IE_T_TRNDTL_ACC)*/ td.ID,
+                                   nvl(td.NORD_HDR,td.NORD) NORD,
+                                   td.INCOMFL
+                           from T_TRN t, t_trndtl td
+                           where t.ID=any(
+                                          select id
+                                          from t_trn
+                                          where acc_id=nACC_ID
+                                          and dep_id=nACC_DEP_ID
+                                          and td.DOPER+0 = dOp
+                                         )
+                                 and t.id=td.id
+                           ) T
+                      where
+                        DT.ID(+)=T.ID
+                        and KT.ID(+)=T.ID
+                        and DT.INCOMFL(+) = '1'
+                        and KT.INCOMFL(+) = '0'
+                        and DT.NORD(+) = T.NORD
+                        and KT.NORD(+) = T.NORD
+                        and (DT.POSTFL <> '0' or DT.POSTFL is null)
+                        and (KT.POSTFL <> '0' or KT.POSTFL is null)
+                     ) TRN,
+                     T_OPERMOV OPERM,
+                     T_TRNATR A,
+                     T_OPERJRN J,
+                     C_DEP D,
+                     P_ORD p
+                where A.ID(+) = TRN.ID
+                  and A.NORD(+) = TRN.NORD
+                  and J.TRA_ID(+) = TRN.ID
+                  and OPERM.TRA_ID(+)=TRN.CONS_ID
+                  and D.ID = TRN.DEP_ID
+                  and j.ORD_ID = p.ID(+)
+                  and j.DEP_ID = p.DEP_ID(+)
+                 and (1 = 1)
+                 --and ((:flt_PEREOC=0 and TRN.SDOK <> 0) or (:flt_PEREOC=1 and TRN.SDOK = 0))
+                 order by TRN.DOPER asc , EXECDT asc  , VAL_CODE asc  , DT_SDOK asc  , KT_SDOK asc
+
+  ) loop
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('accCt',dbase.iif(doc.incomfl='1', doc.corr_acc_code, cAcc));
+    ObjTmp.put('branch',''); -->>> ?????
+    ObjTmp.put('currencyCt',dbase.iif(doc.incomfl='1', t_pkgval.fGetCode(doc.kt_val_id), t_pkgval.fGetCode(doc.dt_val_id)));
+
+    ObjTmp.put('accDt',dbase.iif(doc.incomfl='0', doc.corr_acc_code, cAcc));
+    ObjTmp.put('currencyDt',dbase.iif(doc.incomfl='0', t_pkgval.fGetCode(doc.kt_val_id), t_pkgval.fGetCode(doc.dt_val_id)));
+
+    --ObjTmp.put('amount',doc.sdok);
+    ObjTmp.put('amount',100 * doc.sdok);
+    --ObjTmp.put('amountEq',nvl(doc.sdokn,doc.sdok));
+    ObjTmp.put('amountEq',100 * nvl(doc.sdokn,doc.sdok));
+    ObjTmp.put('dateEnter',t_pkgordatr.fGetDate(doc.ord_depid,doc.ord_id) );
+    ObjTmp.put('dateProv',doc.doper);
+    if g_pkgnibbdutl.fGetNIBBDCodeByAccCode(cAcc) = g_pkgnibbdutl.fGetNIBBDCodeByAccCode(doc.corr_acc_code) then
+      ObjTmp.put('dir',0);
+    else
+      ObjTmp.put('dir',dbase.iif(doc.incomfl='1', 1, 2));
+    end if;
+    ObjTmp.put('dtype',doc.vo);
+    ObjTmp.put('err','');  -->>> ?????
+    ObjTmp.put('errMsg',''); -->>> ?????
+    ObjTmp.put('generalDepId',doc.ord_depid);
+    ObjTmp.put('generalId',doc.ord_id);
+    ObjTmp.put('innCt',dbase.iif(doc.incomfl='1', doc.rnn_cl, doc.rnn_cr ));  --
+    ObjTmp.put('innDt',dbase.iif(doc.incomfl='0', doc.rnn_cl, doc.rnn_cr ));
+    ObjTmp.put('mfoCt',dbase.iif(doc.incomfl='1', doc.corr_bank_code, cAccDep));
+    ObjTmp.put('mfoDt',dbase.iif(doc.incomfl='0', doc.corr_bank_code, cAccDep));
+    ObjTmp.put('nameCt', doc.txt_ben);  --
+    ObjTmp.put('nameDt', doc.txt_pay);
+    ObjTmp.put('num',T_fGetOrdCode(doc.ord_depid,doc.ord_id));
+    ObjTmp.put('purpCode',doc.knp);
+    ObjTmp.put('purpose',doc.dscr);
+    ObjTmp.put('state',/*t_pkgprocess.fGetNStat(doc.proc_id)*/ t_pkgprocess.fGetStatCode(doc.proc_id) );
+    ObjTmp.put('uniq',''); -->>> ?????
+    ObjTmp.put('time',to_char(doc.execdt, 'dd.mm.yyyy hh24:mi:ss'));
+    ObjTmp.put('budget',doc.code_bc);
+    -- ИНН бюджетополучателя может быть (но не обязателен) только если указан казначейский счет
+    if doc.code_bc is not null then
+      begin
+        select e.rnn_bud into cRnnBud from P_ORDEXT e where e.id = doc.ext_id;
+      exception
+        when no_data_found then
+          cRnnBud := null;
+      end;
+    end if;
+    ObjTmp.put('budgetInn',cRnnBud);
+    -- заполнение данных по расчетноум документу, если он есть
+    begin
+      select m2.dep_id, m2.ord_id into nOrdDepId, nOrdId
+           from t_procmem m1, t_procinh ph, t_procmem m2, t_bop_dscr_std s
+           where m1.dep_id = doc.ord_depid and m1.ord_id = doc.ord_id and m1.mainfl = '1'
+             and m1.id = ph.child_id
+             and ph.parent_id = m2.id and m2.bop_id = s.id and s.code||'' = 'PAYDOCBY';
+      ObjTmpUD := new JSON_OBJECT_T;
+      ObjTmpUD.put('celRashodaUd',fAddPar('WB_BENADD_TERGCODE'));
+      ObjTmpUD.put('idUd',fAddPar('WB_BENADD_ID'));
+      ObjTmpUD.put('fioUd',fAddPar('WB_BENADD_NAME'));
+      ObjTmpUD.put('soatoRegionUd',fAddPar('WB_BENADD_OBLCODE'));
+      ObjTmpUD.put('soatoAreaUd',fAddPar('WB_BENADD_REGCODE'));
+      ObjTmpUD.put('addressUd',fAddPar('WB_BENADD_ADDRESS'));
+      ObjTmpUD.put('phoneUd',fAddPar('WB_BENADD_PHONE'));
+      ObjTmp.put('userData',ObjTmpUD);
+    exception
+      when no_data_found then
+        ObjTmp.put('userData','');
+    end;
+
+    lArrTmp.append(ObjTmp);
+  end loop;
+
+  ObjOut.put('docList',lArrTmp);
+
+
+  pOutput := ObjOut.To_Clob;
+
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'Ошибка получения выписки по счету %0:s: %1:s', vargs(cAcc, substr(sqlerrm,1,2000)));
+end pWBAccInfo;
+
+
+-- Процедура получения выписки по счету WB
+procedure pWBAccInfoNoLogin(pInput   in Clob,
+                            pOutput  out Clob)
+is
+  ObjIn                   JSON_OBJECT_T;
+  ObjOut                  JSON_OBJECT_T;
+  lArrTmp	                JSON_ARRAY_T;
+  --lArrUD	                JSON_ARRAY_T;
+  ObjTmp                  JSON_OBJECT_T;
+  ObjTmpUD                JSON_OBJECT_T;
+  dOp                     date;
+  cAcc                    G_ACCBLN.CODE%type;
+  cAccDep                 C_DEP_STD.CODE%type;
+  nAccDepId               C_DEP_STD.ID%type;
+  --iCnt                    pls_integer;
+  nBalDepId               C_DEP_STD.ID%type := C_PKGDEP.FGETIDDEP(c_pkgprm.fGetValPrm('GL_MAINDEP'));
+  cODStat                 C_CLDDEP.STATUS_OD%type;
+  cC5FL                   C_CLDDEP.CUSTFL5%type;
+  iFin                    pls_integer := 0;
+  dAcc                    G_ACCBLN.Dreg%type;
+  nAccValId               T_VAL_STD.ID%type;
+
+  nACC_DEP_ID             G_ACCBLN.DEP_ID%type;
+  nACC_ID                 G_ACCBLN.ID%type;
+  cRnnBud                 P_ORDEXT.Rnn_Bud%type;
+
+  nOrdDepId               T_ORD.DEP_ID%type;
+  nOrdId                  T_ORD.ID%type;
+  cLogin                  WB_USR.LOGIN%type;
+  nAccCnt                 pls_integer;
+  nMovCr                  number(18,2);
+  nMovDt                  number(18,2);
+  cFullFl                 char(1) := '1';
+  vClientCode             G_CLI.CODE%type;
+  nCliID                  G_CLI.ID%type;
+  nCli_depID              G_CLI.DEP_ID%type;
+  vCliName                G_CLIHST.LONGNAME%type;
+  function fAddPar(cAddParCode in S_ORDPAY_ADD.CODE%type ) return S_ORDPAY_ADD.VALUE%type
+  as
+    cPVal S_ORDPAY_ADD.VALUE%type;
+  begin
+    select a.value into cPVal from S_ORDPAY_ADD a
+      where a.dep_id = nOrdDepId and a.id = nOrdId
+        and a.code = cAddParCode;
+    return cPVal;
+  exception
+    when NO_DATA_FOUND then
+      return null;
+  end;
+
+begin
+  Z_116_PKGCONNECT.pOpen();
+  ObjIn := JSON_OBJECT_T.parse(pInput);
+  dOp := to_date(ObjIn.get_String('date'), 'dd.mm.yyyy');
+  cAcc := ObjIn.get_String('account');
+  cAccDep := nvl(ObjIn.get_String('branch'),'00401');
+  nAccDepId := c_pkgdep.fGetIdDep(cAccDep);
+
+  if ObjIn.has('fullInfoFl') then
+    cFullFl := ObjIn.get_String('fullInfoFl');
+  end if;
+
+  g_pkgaccbln.pGetIdDepIdAcc(cAcc, nACC_DEP_ID, nACC_ID);
+
+  -- валидация входных данных:
+  if nACC_ID is null then
+    pOutput := fErr(-20000, 'Не найден счет с номером %0:s.', vargs(cAcc));
+    return;
+  elsif nACC_ID is not null and nACC_DEP_ID is not null and nACC_DEP_ID <> nAccDepId then
+    pOutput := fErr(-20000, 'Не найден счет с номером %0:s в подразделении %1:s.', vargs(cAcc, cAccDep));
+    return;
+  end if;
+
+  -- проверим отчетную дату
+  begin
+    select cd.status_od, cd.custfl5 into cODStat, cC5FL
+      from C_CLDDEP cd
+        where cd.doper = dOp and cd.dep_id = nBalDepId;
+    if cC5FL = '1' and cODStat = '0' then
+      iFin := 1;
+    else
+      iFin := 0;
+    end if;
+  exception
+    when others then
+      pOutput := fErr(sqlcode, 'Ошибка определения статуса операционного дня %0:s в балансовом подразделении: %1:s', vargs(to_char(dOp,'dd.mm.yyyy'), substr(sqlerrm,1,2000)));
+      return;  -- ???????? iFin := 0; -- or NULL ?
+  end;
+
+  select ab.dreg
+    into dAcc
+    from G_ACCBLN ab
+      where ab.dep_id = nACC_DEP_ID and ab.id = nACC_ID;
+  nAccValId := g_pkgaccbln.fVal_Id(nACC_DEP_ID, nACC_ID, dOp);
+
+  -- Клиент
+
+  vClientCode := GL_Anl.fAccAnlValue(nACC_DEP_ID, nACC_ID, 'CLIENT');
+
+  begin
+    if vClientCode is null then
+      select ah.cli_id,
+             ah.clidep_id,
+             g_pkgcli.fGetCliCode(ah.clidep_id,ah.cli_id)
+        into nCliID,
+             nCli_depID,
+             vClientCode
+        from g_accblnhst ah
+       where ah.id = nACC_ID
+         and ah.dep_id = nACC_DEP_ID
+         and p_operday between fromdate and todate;
+    else
+      select id, dep_id into nCliID,nCli_depID from g_cli where code = vClientCode;
+    end if;
+  exception
+    when others then
+      nCliID := null;
+  end;
+
+  vCliName := g_Pkgcli.fGetCliLongName(nCli_depID,nCliID);
+
+  ObjOut := new JSON_OBJECT_T;
+  ObjOut.put('fin', iFin);
+  ObjOut.put('operDay', to_char(dOp,'dd.mm.yyyy'));
+  ObjOut.put_null('totalDebit');
+  ObjOut.put('clientCode', vClientCode);
+  ObjOut.put('clientName', vCliName);
+  if cFullFl = '1' then  -- заполним общую инфомрацию по остаткам и оборотам
+    ObjOut.put('saldoIn', 100 * t_pkgaccbal.fAbs(nACC_DEP_ID, nACC_ID, dOp, 1));
+    ObjOut.put('saldoOut', 100 * t_pkgaccbal.fAbs(nACC_DEP_ID, nACC_ID, dOp, 0));
+    --ObjOut.put('totalCredit', 100 * 0/*t_pkgaccmov.fGetAccMov(nACC_DEP_ID, nACC_ID, dAcc, dOp, nAccValId, flIncom => 1)*/);
+    --ObjOut.put('totalDebit', 100 * 0/*t_pkgaccmov.fGetAccMov(nACC_DEP_ID, nACC_ID ,dAcc, dOp, nAccValId, flIncom => 0)*/);
+
+    select /*+ index (T_TRNDTL IE_T_TRNDTL_ACC)*/ sum(decode(INCOMFL,'0', nvl(SDOK,0), 0)), sum(decode(INCOMFL,'1', nvl(SDOK,0), 0)) into nMovCr, nMovDt
+      from T_TRNDTL
+        where DEP_ID = nACC_DEP_ID and ACC_ID = nACC_ID
+          and VAL_ID = nAccValId
+          and DOPER between dAcc and dOp
+          and FLZO = '0' and POSTFL = '1';
+
+    ObjOut.put('totalCredit', 100 * nMovCr);
+    ObjOut.put('totalDebit', 100 * nMovDt);
+  else
+    ObjOut.put_null('saldoIn');
+    ObjOut.put_null('saldoOut');
+    ObjOut.put_null('totalCredit');
+    ObjOut.put_null('totalDebit');
+  end if;
+
+  lArrTmp := new JSON_ARRAY_T;
+
+  for doc in (select distinct
+                  TRN.*,
+                  nvl(J.ORD_ID, (Select ORD_ID from T_OPERJRN where T_OPERJRN.id=OPERM.ID and T_OPERJRN.NJRN=OPERM.NJRN)) as ORD_ID,
+                  nvl(J.DEP_ID, (Select DEP_ID from T_OPERJRN where T_OPERJRN.id=OPERM.ID and T_OPERJRN.NJRN=OPERM.NJRN)) as ORD_DEPID,
+                  nvl(decode( p.incomfl,trn.incomfl, p.code_acl, p.code_acr),TRN.TRN_ACC_CODE) as CORR_ACC_CODE,
+                  nvl(decode( p.incomfl,trn.incomfl, p.code_bcl, p.code_bcr),C_pkgDep.fIdDep2CodeBnk(TRN.DEP_ID,1)) as CORR_BANK_CODE,
+                  nvl(p.TXT_DSCR || p.TXT_ADD, nvl(A.DSCR, J.DSCR)) as DSCR,
+                  (select knp from S_ORDNBL where ID = J.ORD_ID and  DEP_ID = J.DEP_ID) as knpcode,
+                  T_PKGPROCESS.fGetBopName(nvl(J.ID,OPERM.ID)) as procName,
+                  nvl(J.ID,OPERM.ID) as PROC_ID,
+                  nvl(J.NJRN,OPERM.NJRN) as NJRN,
+                  substr(T_PkgOprChr.fCode(nvl(A.OPE_ID, J.CHA_ID)), 1, 250) as OPR_CODE,
+                  substr(T_PkgOprChr.fName(nvl(A.OPE_ID, J.CHA_ID)), 1, 250) as OPR_NAME,
+                  A.REFER,
+                  D.CODE as DEP_CODE,
+                  p.TXT_PAY,
+                  p.TXT_BEN,
+                  nvl(j.EXECDT, (Select EXECDT from T_OPERJRN where T_OPERJRN.id=OPERM.ID and T_OPERJRN.NJRN=OPERM.NJRN)) as EXECDT
+                  , nvl(P.Vo, A.VO) as VO, p.rnn_cl, p.rnn_cr, p.knp, p.code_bc, p.ext_id
+                from (select
+                        nvl(DT.ID, KT.ID) as ID,
+                        nvl(DT.FLZO, KT.FLZO) as FLZO,
+                        nvl(DT.NORD, KT.NORD) as NORD,
+                        decode(T.INCOMFL, '1', DT.DOPER, KT.DOPER) as DOPER,
+                        decode(T.INCOMFL, '1', DT.VAL_ID, KT.VAL_ID) as VAL_ID,
+                        decode(T.INCOMFL, '1', DT.DEP_ID, KT.DEP_ID) as DEP_ID,
+                        decode(T.INCOMFL, '1', DT.INCOMFL, KT.INCOMFL) as INCOMFL,
+                        decode(T.INCOMFL, '1', DT.SDOK, KT.SDOK) as SDOK,
+                        DT.ACC_ID as ACCDT_ID,
+                        KT.ACC_ID as ACCKT_ID,
+                        DT.NORD as DT_NORD,
+                        KT.NORD as KT_NORD,
+                        decode(T.INCOMFL, '1', DT.SDOK) as DT_SDOK,
+                        decode(T.INCOMFL, '0', KT.SDOK) as KT_SDOK,
+                        DT.VAL_ID as DT_VAL_ID,
+                        KT.VAL_ID as KT_VAL_ID,
+                        decode(T.INCOMFL, '0', substr(T_PKGMONEY.FTRNVALUETOSIGNMONEY(KT.SDOK, T_PKGVAL.FGETFAC(kt.VAL_ID)), 1, 27)) as KT_SDOK_NAME,
+                        decode(T.INCOMFL, '1', substr(T_PKGMONEY.FTRNVALUETOSIGNMONEY(DT.SDOK, T_PKGVAL.FGETFAC(DT.VAL_ID)), 1, 27)) as DT_SDOK_NAME,
+                        substr(T_PKGMONEY.FTRNVALUETOSIGNMONEY(decode(T.INCOMFL, '1', DT.NAT_SDOK, KT.NAT_SDOK), T_PKGVAL.FGETFAC(P_NATVAL)), 1, 27) as NAT_SDOK,
+                        decode(T.INCOMFL, '1', DT.NAT_SDOK, KT.NAT_SDOK) as SDOKN,
+                        substr(decode(T.INCOMFL, '1', G_PKGACCBLN.fGetCodeAccByIdAcc(KT.ACC_ID, KT.DEP_ID), G_PKGACCBLN.fGetCodeAccByIdAcc(DT.ACC_ID, DT.DEP_ID)), 1, 250) as TRN_ACC_CODE,
+                        substr(decode(T.INCOMFL, '1', decode(DT.VAL_ID, null, null, T_PkgVal.fGetIsoCode(DT.VAL_ID)), decode(KT.VAL_ID, null, null, T_PkgVal.fGetIsoCode(KT.VAL_ID))), 1, 250) as VAL_CODE,
+                        decode(nvl(DT.POSTFL, KT.POSTFL), 2, 1, 0) as PLANFL,
+                        decode(T.INCOMFL, '1', KT.ACC_ID, DT.ACC_ID) as ACC_ID,
+                        decode(T.INCOMFL, '1', KT.DEP_ID, DT.DEP_ID) as ACC_DEP_ID,
+                        (Select TRA_ID from T_OPERMOV where TRA_ID=nvl(DT.ID, KT.ID) group by TRA_ID having count(*)=1) as CONS_ID
+                      from T_TRNDTL DT,
+                           T_TRNDTL KT,
+                           (select /*+ index(td IE_T_TRNDTL_ACC)*/ td.ID,
+                                   nvl(td.NORD_HDR,td.NORD) NORD,
+                                   td.INCOMFL
+                           from T_TRN t, t_trndtl td
+                           where t.ID=any(
+                                          select id
+                                          from t_trn
+                                          where acc_id=nACC_ID
+                                          and dep_id=nACC_DEP_ID
+                                          and td.DOPER+0 = dOp
+                                         )
+                                 and t.id=td.id
+                           ) T
+                      where
+                        DT.ID(+)=T.ID
+                        and KT.ID(+)=T.ID
+                        and DT.INCOMFL(+) = '1'
+                        and KT.INCOMFL(+) = '0'
+                        and DT.NORD(+) = T.NORD
+                        and KT.NORD(+) = T.NORD
+                        and (DT.POSTFL <> '0' or DT.POSTFL is null)
+                        and (KT.POSTFL <> '0' or KT.POSTFL is null)
+                     ) TRN,
+                     T_OPERMOV OPERM,
+                     T_TRNATR A,
+                     T_OPERJRN J,
+                     C_DEP D,
+                     P_ORD p
+                where A.ID(+) = TRN.ID
+                  and A.NORD(+) = TRN.NORD
+                  and J.TRA_ID(+) = TRN.ID
+                  and OPERM.TRA_ID(+)=TRN.CONS_ID
+                  and D.ID = TRN.DEP_ID
+                  and j.ORD_ID = p.ID(+)
+                  and j.DEP_ID = p.DEP_ID(+)
+                 and (1 = 1)
+                 --and ((:flt_PEREOC=0 and TRN.SDOK <> 0) or (:flt_PEREOC=1 and TRN.SDOK = 0))
+                 order by TRN.DOPER asc , EXECDT asc  , VAL_CODE asc  , DT_SDOK asc  , KT_SDOK asc
+
+  ) loop
+
+    ObjTmp := new JSON_OBJECT_T;
+    ObjTmp.put('accCt',dbase.iif(doc.incomfl='1', doc.corr_acc_code, cAcc));
+    ObjTmp.put('branch',''); -->>> ?????
+    ObjTmp.put('currencyCt',dbase.iif(doc.incomfl='1', t_pkgval.fGetCode(doc.kt_val_id), t_pkgval.fGetCode(doc.dt_val_id)));
+
+    ObjTmp.put('accDt',dbase.iif(doc.incomfl='0', doc.corr_acc_code, cAcc));
+    ObjTmp.put('currencyDt',dbase.iif(doc.incomfl='0', t_pkgval.fGetCode(doc.kt_val_id), t_pkgval.fGetCode(doc.dt_val_id)));
+
+    --ObjTmp.put('amount',doc.sdok);
+    ObjTmp.put('amount',100 * doc.sdok);
+    --ObjTmp.put('amountEq',nvl(doc.sdokn,doc.sdok));
+    ObjTmp.put('amountEq',100 * nvl(doc.sdokn,doc.sdok));
+    ObjTmp.put('dateEnter',t_pkgordatr.fGetDate(doc.ord_depid,doc.ord_id) );
+    ObjTmp.put('dateProv',doc.doper);
+    if g_pkgnibbdutl.fGetNIBBDCodeByAccCode(cAcc) = g_pkgnibbdutl.fGetNIBBDCodeByAccCode(doc.corr_acc_code) then
+      ObjTmp.put('dir',0);
+    else
+      ObjTmp.put('dir',dbase.iif(doc.incomfl='1', 1, 2));
+    end if;
+
+/*
+    ObjTmp.put('innCt',dbase.iif(doc.incomfl='1', doc.rnn_cl, doc.rnn_cr ));  --
+    ObjTmp.put('innDt',dbase.iif(doc.incomfl='0', doc.rnn_cl, doc.rnn_cr ));
+    ObjTmp.put('mfoCt',dbase.iif(doc.incomfl='1', doc.corr_bank_code, cAccDep));
+    ObjTmp.put('mfoDt',dbase.iif(doc.incomfl='0', doc.corr_bank_code, cAccDep));
+    */
+
+    ObjTmp.put('dtype',doc.vo);
+    ObjTmp.put('err','');  -->>> ?????
+    ObjTmp.put('errMsg',''); -->>> ?????
+    ObjTmp.put('generalDepId',doc.ord_depid);
+    ObjTmp.put('generalId',doc.ord_id);
+    ObjTmp.put('innCt',dbase.iif(doc.incomfl='0', doc.rnn_cl, doc.rnn_cr ));        ------------------- тут 0 и 1 поменял местами
+    ObjTmp.put('innDt',dbase.iif(doc.incomfl='1', doc.rnn_cl, doc.rnn_cr ));        ------------------- тут 0 и 1 поменял местами
+    ObjTmp.put('mfoCt',dbase.iif(doc.incomfl='1', doc.corr_bank_code, cAccDep));
+    ObjTmp.put('mfoDt',dbase.iif(doc.incomfl='0', doc.corr_bank_code, cAccDep));
+    ObjTmp.put('nameCt',dbase.iif(doc.incomfl='1', doc.txt_ben, doc.txt_pay));  --
+    ObjTmp.put('nameDt',dbase.iif(doc.incomfl='0', doc.txt_ben, doc.txt_pay));
+    ObjTmp.put('num',T_fGetOrdCode(doc.ord_depid,doc.ord_id));
+    ObjTmp.put('purpCode',doc.knp);
+    ObjTmp.put('purpose',doc.dscr);
+    --ObjTmp.put('knp',doc.knpcode);
+    ObjTmp.put('knp',substr(S_PkgKnp.fGetName(doc.knp, dOp),1,250));
+    ObjTmp.put('doctype',doc.procName);
+    ObjTmp.put('state',/*t_pkgprocess.fGetNStat(doc.proc_id)*/ t_pkgprocess.fGetStatCode(doc.proc_id) );
+    ObjTmp.put('uniq',''); -->>> ?????
+    ObjTmp.put('time',to_char(doc.execdt, 'dd.mm.yyyy hh24:mi:ss'));
+    ObjTmp.put('budget',doc.code_bc);
+    -- ИНН бюджетополучателя может быть (но не обязателен) только если указан казначейский счет
+    if doc.code_bc is not null then
+      begin
+        select e.rnn_bud into cRnnBud from P_ORDEXT e where e.id = doc.ext_id;
+      exception
+        when no_data_found then
+          cRnnBud := null;
+      end;
+    end if;
+    ObjTmp.put('budgetInn',cRnnBud);
+    -- заполнение данных по расчетноум документу, если он есть
+    begin
+      select m2.dep_id, m2.ord_id into nOrdDepId, nOrdId
+           from t_procmem m1, t_procinh ph, t_procmem m2, t_bop_dscr_std s
+           where m1.dep_id = doc.ord_depid and m1.ord_id = doc.ord_id and m1.mainfl = '1'
+             and m1.id = ph.child_id
+             and ph.parent_id = m2.id and m2.bop_id = s.id and s.code||'' = 'PAYDOCBY';
+      ObjTmpUD := new JSON_OBJECT_T;
+      ObjTmpUD.put('celRashodaUd',fAddPar('WB_BENADD_TERGCODE'));
+      ObjTmpUD.put('idUd',fAddPar('WB_BENADD_ID'));
+      ObjTmpUD.put('fioUd',fAddPar('WB_BENADD_NAME'));
+      ObjTmpUD.put('soatoRegionUd',fAddPar('WB_BENADD_OBLCODE'));
+      ObjTmpUD.put('soatoAreaUd',fAddPar('WB_BENADD_REGCODE'));
+      ObjTmpUD.put('addressUd',fAddPar('WB_BENADD_ADDRESS'));
+      ObjTmpUD.put('phoneUd',fAddPar('WB_BENADD_PHONE'));
+      ObjTmp.put('userData',ObjTmpUD);
+    exception
+      when no_data_found then
+        ObjTmp.put('userData','');
+    end;
+
+    lArrTmp.append(ObjTmp);
+  end loop;
+
+  ObjOut.put('docList',lArrTmp);
+
+  pOutput := ObjOut.To_Clob;
+
+exception
+  when others then
+    pOutput := fErr(sqlcode, 'Ошибка получения выписки по счету %0:s: %1:s', vargs(cAcc, substr(sqlerrm,1,2000)));
+end pWBAccInfoNoLogin;
+
+
+
+end Z_116_PKGWBAPI;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_CLDDEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLNHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIIDN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_IDNDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="P_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="P_ORDEXT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="P_PAYCLSHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="S_ORDNBL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="S_ORDPAY_ADD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_DSCR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEACLS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERMOV"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCINH"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNATR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNDTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_VAL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="WB_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="WB_DEAACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="WB_DEPDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="WB_USR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="WB_USRACC"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_LOCID"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_NATVAL"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="T_FGETORDCODE"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDEP"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="DBASE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="GL_ANL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGACCBLN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGNIBBDUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="S_PKGKNP"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCBAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCMOV"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGMONEY"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGOPRCHR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGORDATR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGPROCESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKGCONNECT"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

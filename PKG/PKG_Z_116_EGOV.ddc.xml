@@ -1,0 +1,1004 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_EGOV" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="95860D49A366D2FA8661C0000883BDEB">
+  <PKG 
+    NAME="Z_116_EGOV">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_EGOV is
+  /**
+  * Пакет для поиска и обновления данных по клиентам, у которых истек паспорт
+  *
+  * @author Ахмеджанов Сардор
+  * @author Быстров Владимир
+  * @author Попель Дмитрий
+  * @author Самадов Сирож
+  * @version 1.2
+  * @headcom
+  *
+  * Copyright (c) 2023 By Aloqabank. All Rights Reserved.
+  */
+
+  /** Идентификация НИББД (ГЦП)
+  * @param pCliDepId Подразделение клиента
+  * @param pCliId Идентификатор клиента
+  * @param pRegResult Результат идентификации 1 - с ошибками, 0 - без ошибок
+  * @param pErrorText Текст ошибки, если она возникла
+  */
+  procedure pRegNIBDD(pCliDepId  Z_116_EGOV_CLI_IDN_JRN.DEP_ID%type,
+                      pCliId     Z_116_EGOV_CLI_IDN_JRN.ID%type,
+                      pRegResult out Z_116_EGOV_CLI_IDN_JRN.UPDATE_RESULT%type,
+                      pErrorText out Z_116_EGOV_CLI_IDN_JRN.ERROR_TEXT%type);
+
+  /** Процедура для записи логов
+  * @param pDepId Подразделение клиента
+  * @param pId Идентификатор клиента
+  * @param pNewPassTypId Тип документа
+  * @param pNewPassSer Серия паспорта
+  * @param pNewPassNum Номер паспорта
+  * @param pNewPassDat Дата выдачи паспорта
+  * @param pNewPassFin Срок действия удостоверяющего документа
+  * @param pNewPassOrg Орган, выдавший документ
+  * @param pUpdateResult Результат идентификации:
+      0 - без ошибок
+      1 - ошибка
+      2 - Истекший документ в EGOV
+      3 - по указанному ПИНФЛ=%PINFL% нет данных в системе EGOV
+      4 - ошибка связи с EGOV
+  * @param pErrorText Текст ошибки, если она возникла
+  */
+  procedure pWriteLog(pDepId        Z_116_EGOV_CLI_IDN_JRN.DEP_ID%type,
+                      pId           Z_116_EGOV_CLI_IDN_JRN.ID%type,
+                      pNewPassTypId Z_116_EGOV_CLI_IDN_JRN.Passtyp_Id%type,
+                      pNewPassSer   Z_116_EGOV_CLI_IDN_JRN.Passser%type,
+                      pNewPassNum   Z_116_EGOV_CLI_IDN_JRN.PASSNUM%type,
+                      pNewPassOrg   Z_116_EGOV_CLI_IDN_JRN.Passorg%type,
+                      pNewPassDat   Z_116_EGOV_CLI_IDN_JRN.PASSDAT%type,
+                      pNewPassFin   Z_116_EGOV_CLI_IDN_JRN.PASSFIN%type,
+                      pUpdateResult Z_116_EGOV_CLI_IDN_JRN.UPDATE_RESULT%type,
+                      pErrorText    Z_116_EGOV_CLI_IDN_JRN.ERROR_TEXT%type);
+
+  function GetLastUpdateDays(pDepId in G_CLI.DEP_ID%type,
+                             pId    in G_CLI.ID%type) return number;
+  -- Выборка по просроченным документам клиента
+  procedure pUpdateClientData;
+
+  /** Основая функция для обновления паспортных данных по клиенту
+  * @param pDepId Подразделение клиента
+  * @param pId Идентификатор клиента
+  * @param pDocType Тип документа
+  * @param pPassportSeries Серия паспорта
+  * @param pPassportNumber Номер паспорта
+  * @param pIssueDate Дата выдачи паспорта
+  * @param pExpirationDate Срок действия удостоверяющего документа
+  * @param pIssuedBy Орган, выдавший документ
+  */
+  procedure pUpdateClientPassport(pDepId             G_CLI.DEP_ID%type,
+                                  pId                G_CLI.ID%type,
+                                  pDocType           number,
+                                  pPassportSeries    varchar2,
+                                  pPassportNumber    varchar2,
+                                  pIssueDate         date,
+                                  pExpirationDate    date,
+                                  pIssuedBy          varchar2,
+                                  pOldDocType        Z_116_EGOV_CLI_DATA.PASSTYP_ID%type default null,
+                                  pOldPassportSeries Z_116_EGOV_CLI_DATA.PASSSER%type default null,
+                                  pOldPassportNumber Z_116_EGOV_CLI_DATA.PASSNUM%type default null);
+
+  /** Запрос в EGOV для получения паспортных данных
+  * @param pDepId Подразделение клиента
+  * @param pId Идентификатор клиента
+  * @param pPinfl ПИНФЛ
+  * @param pBirthDate Дата рождения
+  * @param pRecDocType Новый тип документа
+  * @param pRecPassportSeries Новая серия паспорта
+  * @param pRecPassportNumber Новый номер паспорта
+  * @param pRecIssueDate Новая дата выдачи паспорта
+  * @param pRecExpirationDate Новый срок действия удостоверяющего документа
+  * @param pRecIssuedBy Новый орган, выдавший документ
+  * @param pResultCode Код ответа (0200 - все хорошо)
+  * @param pResultMessage Текст ответа
+  */
+  procedure pGetEgovCliPass(pDepId             G_CLI.DEP_ID%type,
+                            pId                G_CLI.ID%type,
+                            pPinfl             in VARCHAR2,
+                            pBirthDate         in date,
+                            pRecDocType        out number,
+                            pRecPassportSeries out varchar2,
+                            pRecPassportNumber out varchar2,
+                            pRecIssueDate      out date,
+                            pRecExpirationDate out date,
+                            pRecIssuedBy       out varchar2,
+                            pResultCode        out varchar2,
+                            pResultMessage     out varchar2,
+                            pUpdateResult      out number);
+
+  /** Запрос в EGOV для получения кол-во сотрудников
+  * @param pDepId Подразделение клиента
+  * @param pId Идентификатор клиента
+  * @param pResultCode Код ответа (0 - все хорошо)
+  * @param pResultMessage Текст ответа
+  * @param pEmpCount Количество сотрудников
+  * @param pPosCount Количество позиций
+  */
+  procedure pGetEgovStaffCount(pDepId         G_CLI.DEP_ID%type,
+                               pId            G_CLI.ID%type,
+                               pResultCode    out varchar2,
+                               pResultMessage out varchar2,
+                               pEmpCount      out number,
+                               pPosCount      out number);
+
+  /**
+  * @param pDepId Подразделение клиента
+  * @param pId Идентификатор клиента
+  * @param pRecDocType Новый тип документа
+  * @param pRecPassportSeries Новая серия паспорта
+  * @param pRecPassportNumber Новый номер паспорта
+  * @param pRecIssueDate Новая дата выдачи паспорта
+  * @param pRecExpirationDate Новый срок действия удостоверяющего документа
+  * @param pRecIssuedBy Новый орган, выдавший документ
+  * @param pResultMessage Текст ответа
+  */
+  procedure pCheckDiff(pDepId         G_CLI.DEP_ID%type,
+                       pId            G_CLI.ID%type,
+                       pRecDocType           in number,
+                       pRecPassportSeries    in varchar2,
+                       pRecPassportNumber    in varchar2,
+                       pRecIssueDate         in date,
+                       pRecExpirationDate    in date,
+                       pRecIssuedBy          in varchar2,
+                       pResultMessage out varchar2,
+                       pIsNewDoc      out number);
+
+  /** Основная функция для обновления паспортных данных по клиенту из АБС
+  * @param pCliDepId Подразделение клиента
+  * @param pCliId Идентификатор клиента
+  * @param pRecDocType Новый тип документа
+  * @param pRecPassportSeries Новая серия паспорта
+  * @param pRecPassportNumber Новый номер паспорта
+  * @param pRecIssueDate Новая дата выдачи паспорта
+  * @param pRecExpirationDate Новый срок действия удостоверяющего документа
+  * @param pRecIssuedBy Новый орган, выдавший документ
+  * @param pOldPasstypId Старый тип документа
+  * @param pOldPassSer Старая серия паспорта
+  * @param pOldPassNum Старый номер паспорта
+  */
+  procedure pUpdateClientPassportOne(pCliDepId          Z_116_EGOV_CLI_DATA.DEP_ID%type,
+                                     pCliId             Z_116_EGOV_CLI_DATA.ID%type,
+                                     pRecDocType        in number,
+                                     pRecPassportSeries in varchar2,
+                                     pRecPassportNumber in varchar2,
+                                     pRecIssueDate      in date,
+                                     pRecExpirationDate in date,
+                                     pRecIssuedBy       in varchar2,
+                                     pOldPasstypId      Z_116_EGOV_CLI_DATA.PASSTYP_ID%type,
+                                     pOldPassSer        Z_116_EGOV_CLI_DATA.PASSSER%type,
+                                     pOldPassNum        Z_116_EGOV_CLI_DATA.PASSNUM%type,
+                                     pUpdateResultABS   out number);
+
+end Z_116_EGOV;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_EGOV is
+
+  /** Идентификация НИББД (ГЦП)
+  * @param pCliDepId Подразделение клиента
+  * @param pCliId Идентификатор клиента
+  * @param pRegResult Результат идентификации 1 - с ошибками, 0 - без ошибок
+  * @param pErrorText Текст ошибки, если она возникла
+  */
+  procedure pRegNIBDD(pCliDepId  Z_116_EGOV_CLI_IDN_JRN.DEP_ID%type,
+                      pCliId     Z_116_EGOV_CLI_IDN_JRN.ID%type,
+                      pRegResult out Z_116_EGOV_CLI_IDN_JRN.UPDATE_RESULT%type,
+                      pErrorText out Z_116_EGOV_CLI_IDN_JRN.ERROR_TEXT%type) as
+    nProcId   number;
+    nBopId    number;
+    nNstat    number;
+    nResOper  integer;
+    sInPar    varchar2(250);
+    sOutPar   varchar2(250);
+    sOperCode varchar2(30) := 'IDENT_NIBBD';
+  begin
+    pRegResult := 0;
+
+    G_PKGCLINIBBD.pGetCliProc(pDepId  => pCliDepId,
+                              pId     => pCliId,
+                              pCrfl   => 1,
+                              pProcId => nProcId,
+                              pBopId  => nBopId,
+                              pNstat  => nNstat);
+    if T_PKGRUNOPRUTL.fOprAvailable(nPROC_ID  => nProcId,
+                                    sOperCode => sOperCode,
+                                    nBOP_ID   => nBopId,
+                                    nSTAT     => nNstat) = 2 then
+      begin
+        nResOper := T_PKGRUNOPRUTL.fRunOperation(nProcId        => nProcId,
+                                                 sOperCode      => sOperCode,
+                                                 sInOperParams  => sInPar,
+                                                 sOutOperParams => sOutPar);
+        commit;
+      exception
+        when others then
+          pRegResult := 1;
+          pErrorText := substr('NIBBD: ' || SQLERRM, 0, 500);
+          rollback;
+      end;
+    end if;
+  end pRegNIBDD;
+
+  -- процедура для записи логов
+  procedure pWriteLog(pDepId        Z_116_EGOV_CLI_IDN_JRN.DEP_ID%type,
+                      pId           Z_116_EGOV_CLI_IDN_JRN.ID%type,
+                      pNewPassTypId Z_116_EGOV_CLI_IDN_JRN.Passtyp_Id%type,
+                      pNewPassSer   Z_116_EGOV_CLI_IDN_JRN.Passser%type,
+                      pNewPassNum   Z_116_EGOV_CLI_IDN_JRN.PASSNUM%type,
+                      PNewPassOrg   Z_116_EGOV_CLI_IDN_JRN.Passorg%type,
+                      PNewPassDat   Z_116_EGOV_CLI_IDN_JRN.PASSDAT%type,
+                      PNewPassFin   Z_116_EGOV_CLI_IDN_JRN.PASSFIN%type,
+                      pUpdateResult Z_116_EGOV_CLI_IDN_JRN.UPDATE_RESULT%type,
+                      pErrorText    Z_116_EGOV_CLI_IDN_JRN.ERROR_TEXT%type) as
+    pragma autonomous_transaction;
+
+  begin
+    -- логируем операцию
+    insert into Z_116_EGOV_CLI_IDN_JRN
+      (dep_id,
+       id,
+       date_oper,
+       passtyp_id,
+       passser,
+       passnum,
+       passorg,
+       passdat,
+       passfin,
+       update_result,
+       error_text)
+    values
+      (pDepId,
+       pId,
+       sysdate,
+       cast(pNewPassTypId as number),
+       pNewPassSer,
+       pNewPassNum,
+       PNewPassOrg,
+       PNewPassDat,
+       PNewPassFin,
+       pUpdateResult,
+       pErrorText);
+
+    update Z_116_EGOV_CLI_DATA d
+       set d.update_result = pUpdateResult, d.error_text = pErrorText
+     where d.dep_id = pDepId
+       and d.id = pId;
+    commit;
+  end pWriteLog;
+
+  function GetLastUpdateDays(pDepId in G_CLI.DEP_ID%type,
+                             pId    in G_CLI.ID%type) return number is
+    nDays number;
+  begin
+    select trunc(sysdate) - t.oper_date
+      into nDays
+      from Z_116_EGOV_CLI_DATA_EXP_DATA t
+     where t.dep_id = pDepId
+       and t.id = pId;
+    return nDays;
+  exception
+    when no_data_found then
+      return null;
+  end GetLastUpdateDays;
+
+  -- Выборка по просроченным документам клиента
+  procedure pUpdateClientData as
+    nDaysToWait number;
+  begin
+    nDaysToWait := NVL(C_PKGPRM.FGETVALPRM('Z_116_EGOV_REP_REQ'), '7');
+    --Очистить временную таблицу
+    execute immediate 'TRUNCATE TABLE Z_116_EGOV_CLI_DATA';
+    insert into Z_116_EGOV_CLI_DATA
+      (DEP_ID, ID, PASSTYP_ID, PASSSER, PASSNUM, BIRTH_DATE, PINFL, PASSFIN)
+   with clients as (
+        select /*+ Materialize*/
+               g.ord_id,
+               g.dep_id,
+               g.id,
+               d.passtyp_id,
+               d.passser,
+               d.passnum,
+               g.birdate,
+               g_pkgcliidn.fCliIdnRef(g.DEP_ID, g.ID, G_PKGIDN.fId('IDN_PRS_UZ')) as pinfl,
+               d.PASSFIN
+        from   G_CLI g,
+               G_CLIHST h,
+               G_CLIDOC d
+        where p_operday between h.FROMDATE and h.TODATE
+          and h.RESIDFL = '1' -- Резидент
+          and g.BIRDATE is not null -- дата рождения
+          and g.TYPEFL = '1' -- физ.лица
+          and d.ARCFL = '0' -- Утерян
+          and d.BASICFL = '1' -- Признак основной
+          and h.DEP_ID = g.DEP_ID
+          and h.Id = g.ID
+          and d.DEP_ID = g.DEP_ID
+          and d.ID = g.ID
+          and ((d.PASSFIN > trunc(sysdate)+4  and d.PASSFIN <  trunc(sysdate) + 6) --5 дней вперед
+             or d.PASSFIN = trunc(sysdate)
+             or (d.PASSFIN > trunc(sysdate)-4 and d.PASSFIN < trunc(sysdate)-2))
+              order by d.PASSFIN
+
+    )
+      select c.DEP_ID,
+             c.ID,
+             c.passtyp_id,
+             c.passser,
+             c.passnum,
+             c.birdate,
+             c.pinfl,
+             c.passfin
+      from   clients c,
+             T_PROCMEM m,
+             T_PROCESS p,
+             T_BOP_STAT s
+      where  m.MAINFL = '1'
+         and m.ORD_ID = c.ORD_ID and m.DEP_ID = c.DEP_ID
+         and s.ID = p.BOP_ID and s.NORD = p.NSTAT
+         and p.ID = m.ID
+         and p.BOP_ID = Bs_Bop.fGetBopId('CLIENTS')
+         and s.CODE = 'OPENED' -- карточка открыта
+         and c.PINFL is not null;
+    commit;
+  end pUpdateClientData;
+
+  procedure UpsertExpData(pDepId in G_CLI.DEP_ID%type,
+                          pId    in G_CLI.ID%type,
+                          pDate  in Date) is
+    pragma autonomous_transaction;
+  begin
+    update Z_116_EGOV_CLI_DATA_EXP_DATA t
+       set t.oper_date = pDate
+     where t.dep_id = pDepId
+       and t.id = pId;
+    if sql%notfound then
+      insert into Z_116_EGOV_CLI_DATA_EXP_DATA
+        (DEP_ID, ID, OPER_DATE)
+      values
+        (pDepId, pId, pDate);
+    end if;
+    commit;
+  end UpsertExpData;
+
+  procedure DeleteExpData(pDepId in G_CLI.DEP_ID%type,
+                          pId    in G_CLI.ID%type) is
+    pragma autonomous_transaction;
+  begin
+    delete Z_116_EGOV_CLI_DATA_EXP_DATA t
+     where t.dep_id = pDepId
+       and t.id = pId;
+    commit;
+  end DeleteExpData;
+
+  /** Основая функция для обновления паспортных данных по клиенту
+  * @param pDepId Подразделение клиента
+  * @param pId Идентификатор клиента
+  * @param pDocType Тип документа
+  * @param pPassportSeries Серия паспорта
+  * @param pPassportNumber Номер паспорта
+  * @param pIssueDate Дата выдачи паспорта
+  * @param pExpirationDate Срок действия удостоверяющего документа
+  * @param pIssuedBy Орган, выдавший документ
+  */
+  procedure pUpdateClientPassport(pDepId             G_CLI.DEP_ID%type,
+                                  pId                G_CLI.ID%type,
+                                  pDocType           number,
+                                  pPassportSeries    varchar2,
+                                  pPassportNumber    varchar2,
+                                  pIssueDate         date,
+                                  pExpirationDate    date,
+                                  pIssuedBy          varchar2,
+                                  pOldDocType        Z_116_EGOV_CLI_DATA.PASSTYP_ID%type default null,
+                                  pOldPassportSeries Z_116_EGOV_CLI_DATA.PASSSER%type default null,
+                                  pOldPassportNumber Z_116_EGOV_CLI_DATA.PASSNUM%type default null) is
+
+    nPASSTYP_ID      G_CLIDOC.PASSTYP_ID%type;
+    rCliDoc          G_CLIDOC%rowtype;
+    iNewDoc          integer := 0;
+    pNORD            G_CLIDOC.Nord%type;
+    vOldCliData      Z_116_EGOV_CLI_DATA%rowtype;
+    sError           Varchar2(500);
+    nResult          Number;
+    expired_document EXCEPTION;
+    dToday           Date := trunc(sysdate);
+
+  begin
+    nResult := 0;
+
+    if pDocType not in (0, 6) then
+      RAISE_APPLICATION_ERROR(-20010,
+                              LOCALIZE('Неверный тип документа.',
+                                       'PKG',
+                                       'Z_116_EGOV'));
+    end if;
+
+    if c_Pkgsession.idUser is null then
+      c_pkgconnect.pOpen();
+    end if;
+
+    /*if pExpirationDate < dToday then
+        UpsertExpData(pDepId, pId, dToday);
+      RAISE expired_document;
+    else
+      DeleteExpData(pDepId, pId);
+    end if;*/
+
+    nPASSTYP_ID := G_PKGCLIIDENTDOC.fAltCode2Id('NIBBD', to_char(pDocType));
+
+    /* Поищем есть ли такой документ у клиента */
+    begin
+      select *
+        into rCliDoc
+        from G_CLIDOC
+       where DEP_ID = pDepId
+         and ID = pId
+         and PASSTYP_ID = nPASSTYP_ID
+         and PASSSER = pPassportSeries
+         and PASSNUM = pPassportNumber
+         and basicfl = 1; -- ищем основной новый документ
+    exception
+      when NO_DATA_FOUND then
+        iNewDoc := 1;
+    end;
+
+    if iNewDoc = 1 then
+      -- Найдем старый паспорт
+      begin
+        select *
+          into vOldCliData
+          from Z_116_EGOV_CLI_DATA z
+         where z.dep_id = pDepId
+           and z.id = pId;
+      exception
+        when NO_DATA_FOUND then
+          vOldCliData.Passtyp_Id := pOldDocType;
+          vOldCliData.Passser    := pOldPassportSeries;
+          vOldCliData.Passnum    := pOldPassportNumber;
+      end;
+
+      -- пока Колвир не исправил ошибку (отправим в архив, иначе упадет на raise)
+      update G_CLIDOC
+         set arcfl = 1
+       where dep_id = pDepId
+         and id = pId
+         and nvl(ARCFL, '0') = '0'
+         and passtyp_id = vOldCliData.Passtyp_Id
+         and passser = vOldCliData.Passser
+         and passnum = vOldCliData.Passnum;
+       commit;
+
+
+      /* Поместим в архив старый паспорт и сделаем его не основным */
+  begin
+      for rec in (select d.*
+                    from G_CLIDOC d
+                   where d.dep_id = pDepId
+                     and d.id = pId
+                     and nvl(d.ARCFL, '0') = '0'
+                     and d.passtyp_id = vOldCliData.Passtyp_Id
+                     and d.passser = vOldCliData.Passser
+                     and d.passnum = vOldCliData.Passnum) loop
+        G_PKGDBLCLI.pInsUpdCliDoc(p_DEP_ID     => rec.DEP_ID,
+                                  p_ID         => rec.ID,
+                                  p_NORD       => rec.NORD,
+                                  P_PASSTYP_ID => rec.PASSTYP_ID,
+                                  P_PASSSER    => rec.PASSSER,
+                                  P_PASSNUM    => rec.PASSNUM,
+                                  P_PASSORG    => rec.PASSORG,
+                                  P_CODE_DEP   => rec.CODE_DEP,
+                                  P_PASSDAT    => rec.PASSDAT,
+                                  P_PASSFIN    => rec.PASSFIN,
+                                  P_DT_FROM    => rec.DT_FROM,
+                                  P_DT_TO      => rec.DT_TO,
+                                  P_BASICFL    => 0,
+                                  P_PRIM       => rec.PRIM,
+                                  P_ARCFL      => '1',
+                                  P_DT_SEN     => rec.DT_SEN,
+                                  P_REG_ID     => rec.REG_ID,
+                                  P_CLI_REG_ID => rec.CLI_REG_ID,
+                                  P_CliFl      => '0' -- запуск с сервера
+                                  );
+      end loop;
+  exception
+        when others then
+
+       -- временно
+       update G_CLIDOC
+         set arcfl = 0
+       where dep_id = pDepId
+         and id = pId
+         and nvl(ARCFL, '0') = '0'
+         and passtyp_id = vOldCliData.Passtyp_Id
+         and passser = vOldCliData.Passser
+         and passnum = vOldCliData.Passnum;
+       commit;
+
+
+        -- при обновлении нового документа старый автоматом кладется в архив, возможно этот кусок кода (выше) лишний
+  end;
+
+      /* Добавим новый документ */
+      G_PKGDBLCLI.pInsUpdCliDoc(p_DEP_ID     => pDepId,
+                                p_ID         => pId,
+                                p_NORD       => pNORD,
+                                P_PASSTYP_ID => nPASSTYP_ID,
+                                P_PASSSER    => pPassportSeries,
+                                P_PASSNUM    => pPassportNumber,
+                                P_PASSORG    => pIssuedBy,
+                                P_CODE_DEP   => null,
+                                P_PASSDAT    => pIssueDate,
+                                P_PASSFIN    => pExpirationDate,
+                                P_DT_FROM    => null,
+                                P_DT_TO      => null,
+                                P_BASICFL    => '1',
+                                P_PRIM       => null,
+                                P_ARCFL      => '0',
+                                P_DT_SEN     => null,
+                                P_REG_ID     => null,
+                                P_CLI_REG_ID => null,
+                                P_CliFl      => '0' -- запуск с сервера
+                                );
+      commit;
+      if NVL(C_PKGPRM.FGETVALPRM('Z_116_EGOV_IS_REG_NIBBD'), '0') = '1' then
+        pRegNIBDD(pDepId, pId, nResult, sError);
+      end if;
+    else
+      nResult := 1;
+      sError  := 'Данные для обновления совпадают с исходными данными по клиенту.';
+    end if;
+    pWriteLog(pDepId,
+              pId,
+              pDocType,
+              pPassportSeries,
+              pPassportNumber,
+              pIssuedBy,
+              pIssueDate,
+              pExpirationDate,
+              nResult,
+              sError);
+  exception
+    when expired_document then
+      nResult := 2;
+      sError  := 'Истекший документ.';
+      rollback;
+      pWriteLog(pDepId,
+                pId,
+                pDocType,
+                pPassportSeries,
+                pPassportNumber,
+                pIssuedBy,
+                pIssueDate,
+                pExpirationDate,
+                nResult,
+                sError);
+    when others then
+      nResult := 1;
+      sError  := substr(SQLERRM, 0, 500);
+      rollback;
+      pWriteLog(pDepId,
+                pId,
+                pDocType,
+                pPassportSeries,
+                pPassportNumber,
+                pIssuedBy,
+                pIssueDate,
+                pExpirationDate,
+                nResult,
+                sError);
+  end pUpdateClientPassport;
+
+  /** Запрос в EGOV для получения паспортных данных
+  * @param pDepId Подразделение клиента
+  * @param pId Идентификатор клиента
+  * @param pPinfl ПИНФЛ
+  * @param pBirthDate Дата рождения
+  * @param pRecDocType Новый тип документа
+  * @param pRecPassportSeries Новая серия паспорта
+  * @param pRecPassportNumber Новый номер паспорта
+  * @param pRecIssueDate Новая дата выдачи паспорта
+  * @param pRecExpirationDate Новый срок действия удостоверяющего документа
+  * @param pRecIssuedBy Новый орган, выдавший документ
+  * @param pResultCode Код ответа (0200 - все хорошо)
+  * @param pResultMessage Текст ответа
+  */
+  procedure pGetEgovCliPass(pDepId             G_CLI.DEP_ID%type,
+                            pId                G_CLI.ID%type,
+                            pPinfl             in VARCHAR2,
+                            pBirthDate         in date,
+                            pRecDocType        out number,
+                            pRecPassportSeries out varchar2,
+                            pRecPassportNumber out varchar2,
+                            pRecIssueDate      out date,
+                            pRecExpirationDate out date,
+                            pRecIssuedBy       out varchar2,
+                            pResultCode        out varchar2,
+                            pResultMessage     out varchar2,
+                            pUpdateResult      out number) is
+    l_Url     varchar2(100) := C_PKGPRM.FGETVALPRM('Z_116_EGOV_API_URL');
+    l_req     utl_http.req;
+    l_resp    utl_http.resp;
+    l_content clob;
+    l_buffer  varchar2(32767);
+    l_params  varchar2(4000);
+    l_Input JSON_OBJECT_T;
+
+  begin
+    if l_url is null then
+      RAISE_APPLICATION_ERROR(-20011,
+                              LOCALIZE('Укажите URL для API в системном параметре Z_116_EGOV_API_URL.',
+                                       'PKG',
+                                       'Z_116_EGOV'));
+    end if;
+    l_params := format('{"depId":"%s","id":"%s","pinfl":"%s","birthdate":"%s"}',
+                       vargs(to_char(pDepId),
+                             to_char(pId),
+                             pPinfl,
+                             to_char(pBirthDate, 'yyyy-mm-dd')));
+
+    dbms_lob.createtemporary(l_content, false);
+    utl_http.set_response_error_check(ENABLE => TRUE);
+    utl_http.set_detailed_excp_support(ENABLE => TRUE);
+    utl_http.set_body_charset('UTF8');
+    l_req := utl_http.begin_request(l_url, 'POST', 'HTTP/1.1');
+    utl_http.set_header(l_req,
+                        'Content-Type',
+                        'application/json;charset=UTF-8');
+    utl_http.set_header(l_req, 'Content-Length', length(l_params));
+    utl_http.write_text(l_req, l_params);
+
+    l_resp := utl_http.get_response(l_req);
+    begin
+      loop
+        utl_http.read_text(l_resp, l_buffer, 32000);
+        dbms_lob.writeappend(l_content, length(l_buffer), l_buffer);
+      end loop;
+    exception
+      when utl_http.end_of_body then
+        utl_http.end_response(l_resp);
+    end;
+
+    l_Input := JSON_OBJECT_T.parse(l_content);
+
+    pRecDocType := l_Input.get_Number('pdoc_type');
+    pRecPassportSeries := l_Input.get_string('ppassportSeries');
+    pRecPassportNumber := l_Input.get_string('ppassporNumber');
+    pRecIssueDate := l_Input.get_Date('pissueDate');
+    pRecExpirationDate := l_Input.get_Date('pexpirationDate');
+    pRecIssuedBy := l_Input.get_string('pissuedBy');
+    pUpdateResult := l_Input.get_string('pupdateResult');
+    pResultCode    := '0' || l_resp.status_code;
+    pResultMessage := l_Input.get_string('perrorText');
+    dbms_lob.freetemporary(l_content);
+  exception
+    when others then
+      pResultCode    := '0' || l_resp.status_code;
+      pResultMessage := substr('Could not connect to API (' || l_Url || '):' || SQLERRM,1,1000);
+  end pGetEgovCliPass;
+
+  /** Запрос в EGOV для получения кол-во сотрудников
+  * @param pDepId Подразделение клиента
+  * @param pId Идентификатор клиента
+  * @param pResultCode Код ответа (0 - все хорошо)
+  * @param pResultMessage Текст ответа
+  * @param pEmpCount Количество сотрудников
+  * @param pPosCount Количество позиций
+  */
+  procedure pGetEgovStaffCount(pDepId         G_CLI.DEP_ID%type,
+                               pId            G_CLI.ID%type,
+                               pResultCode    out varchar2,
+                               pResultMessage out varchar2,
+                               pEmpCount      out number,
+                               pPosCount      out number) is
+    l_req     utl_http.req;
+    l_resp    utl_http.resp;
+    l_content clob;
+    l_buffer  varchar2(32767);
+    l_params  varchar2(4000);
+    sTokenUrl varchar2(200) := 'http://172.22.13.10:9444/oauth2/token';
+    sUrl      varchar2(200) := 'http://172.22.13.10:8243/labour/service/staffcount/v1';
+    sAuth     varchar2(4000);
+    sTin      varchar2(100);
+    jResponse JSON_OBJECT_T;
+    jResult   JSON_OBJECT_T;
+    jData     JSON_OBJECT_T;
+
+    ----------------------------------------------
+    procedure request(sUrl         varchar2,
+                      sContentType varchar2) is
+    begin
+      dbms_lob.createtemporary(l_content, false);
+      utl_http.set_response_error_check(ENABLE => TRUE);
+      utl_http.set_detailed_excp_support(ENABLE => TRUE);
+      utl_http.set_body_charset('UTF8');
+      l_req := utl_http.begin_request(sUrl, 'POST', 'HTTP/1.1');
+      utl_http.set_header(l_req, 'Authorization', sAuth);
+      utl_http.set_header(l_req, 'Content-Type', sContentType);
+      utl_http.set_header(l_req, 'Content-Length', length(l_params));
+      utl_http.write_text(l_req, l_params);
+
+      l_resp := utl_http.get_response(l_req);
+      begin
+        loop
+          utl_http.read_text(l_resp, l_buffer, 32000);
+          dbms_lob.writeappend(l_content, length(l_buffer), l_buffer);
+        end loop;
+      exception
+        when utl_http.end_of_body then
+          utl_http.end_response(l_resp);
+      end;
+
+      jResponse := JSON_OBJECT_T.parse(l_content);
+    end;
+
+  begin
+    sTin     := g_pkgcliidn.fCliIdn_Fld(pDepId, pid, 'TAXCODE');
+
+    sAuth    := 'Basic MXU1TjdPYk5VX3l5VDdKM0VpakVtdFNPcTJFYTpLeHNtVUhSRkJORlhQbnN3T1hSUk9pZUppaUVh';
+    l_params := format('grant_type=password&username=%s&password=%s', vargs('aloqa_user1', 'e0mEeZtbPbiQCG4o6ypj'));
+
+    request(sTokenUrl, 'application/x-www-form-urlencoded');
+
+    sAuth    := 'Bearer ' || jResponse.get_String('access_token');
+    l_params := format('{"tin":"%s","request_id":"1"}', vargs(to_char(sTin)));
+
+    request(sUrl, 'application/json');
+
+    jResult        := jResponse.get_Object('result');
+    pResultCode    := jResult.get_String('code');
+    pResultMessage := jResult.get_String('message');
+
+    if pResultCode = '0' then
+      jData     := jResult.get_Object('data');
+      pEmpCount := jData.get_Number('employees_count');
+      pPosCount := jData.get_Number('positions_count');
+    end if;
+
+    dbms_lob.freetemporary(l_content);
+
+    Z_116_PKG_EXTERNAL_REQUEST.pSaveLog(sState    => 'SUCCESS',
+                                        sOrigin   => 'CBS',
+                                        sService  => sUrl,
+                                        sPinfl    => sTin,
+                                        sRequest  => l_params,
+                                        sResponse => jResult.To_Clob);
+  exception
+    when others then
+      pResultCode    := '0' || l_resp.status_code;
+      pResultMessage := substr('Could not connect to API. SQLERRM: ' || SQLERRM, 1, 1000);
+
+      Z_116_PKG_EXTERNAL_REQUEST.pSaveLog(sState    => 'FAIL',
+                                          sOrigin   => 'CBS',
+                                          sService  => sUrl,
+                                          sPinfl    => sTin,
+                                          sRequest  => l_params,
+                                          sResponse => SQLERRM);
+  end;
+
+  /**
+  * @param pDepId Подразделение клиента
+  * @param pId Идентификатор клиента
+  * @param pRecDocType Новый тип документа
+  * @param pRecPassportSeries Новая серия паспорта
+  * @param pRecPassportNumber Новый номер паспорта
+  * @param pRecIssueDate Новая дата выдачи паспорта
+  * @param pRecExpirationDate Новый срок действия удостоверяющего документа
+  * @param pRecIssuedBy Новый орган, выдавший документ
+  * @param pResultMessage Текст ответа
+  */
+  procedure pCheckDiff(pDepId                G_CLI.DEP_ID%type,
+                       pId                   G_CLI.ID%type,
+                       pRecDocType           in number,
+                       pRecPassportSeries    in varchar2,
+                       pRecPassportNumber    in varchar2,
+                       pRecIssueDate         in date,
+                       pRecExpirationDate    in date,
+                       pRecIssuedBy          in varchar2,
+                       pResultMessage        out varchar2,
+                       pIsNewDoc             out number) is
+    rec_G_CLIDOC_BASIC G_CLIDOC%ROWTYPE;
+    nPASSTYP_ID        G_CLIDOC.PASSTYP_ID%type;
+    CRLF               varchar2(5) := chr(13) || chr(10);
+  begin
+
+    nPASSTYP_ID := G_PKGCLIIDENTDOC.fAltCode2Id('NIBBD',
+                                                pRecDocType);
+
+    select *
+      into rec_G_CLIDOC_BASIC
+      from G_CLIDOC
+     where DEP_ID = pDepID
+       and ID = pID
+       and BASICFL = '1';
+
+    if nPASSTYP_ID = rec_G_CLIDOC_BASIC.PASSTYP_ID and
+       pRecPassportSeries = rec_G_CLIDOC_BASIC.PASSSER and
+       pRecPassportNumber = rec_G_CLIDOC_BASIC.PASSNUM then
+
+      pResultMessage := LOCALIZE('По данному клиенту отсутствует информация о новом удостоверяющем документе.' || CRLF ||
+                                 'Необходимо обратиться к самому клиенту за  информацией о его действующих удостоверяющих документах.');
+      pIsNewDoc      := 0;
+    else
+      pResultMessage := format('Тип документа:%CRLF' || ' -> Новый:%s%CRLF' ||
+                               ' -> Старый:%s%CRLF' || 'Серия:%CRLF' ||
+                               ' -> Новая:%s%CRLF' || ' -> Старая:%s%CRLF' ||
+                               'Номер:%CRLF' || ' -> Новый:%s%CRLF' ||
+                               ' -> Старый:%s%CRLF' ||
+                               '*** Подтвердить входящие изменения?',
+                               vargs(g_pkgcliidentdoc.fGetName(nPASSTYP_ID),
+                                     g_pkgcliidentdoc.fGetName(rec_G_CLIDOC_BASIC.PASSTYP_ID),
+                                     trim(to_char(pRecPassportSeries)),
+                                     trim(to_char(rec_G_CLIDOC_BASIC.PASSSER)),
+                                     to_char(pRecPassportNumber),
+                                     to_char(rec_G_CLIDOC_BASIC.PASSNUM)));
+      pIsNewDoc      := 1;
+    end if;
+
+  end pCheckDiff;
+
+  /** Основная функция для обновления паспортных данных по клиенту из АБС
+  * @param pCliDepId Подразделение клиента
+  * @param pCliId Идентификатор клиента
+  * @param pRecDocType Новый тип документа
+  * @param pRecPassportSeries Новая серия паспорта
+  * @param pRecPassportNumber Новый номер паспорта
+  * @param pRecIssueDate Новая дата выдачи паспорта
+  * @param pRecExpirationDate Новый срок действия удостоверяющего документа
+  * @param pRecIssuedBy Новый орган, выдавший документ
+  * @param pOldPasstypId Старый тип документа
+  * @param pOldPassSer Старая серия паспорта
+  * @param pOldPassNum Старый номер паспорта
+  */
+  procedure pUpdateClientPassportOne(pCliDepId          Z_116_EGOV_CLI_DATA.DEP_ID%type,
+                                     pCliId             Z_116_EGOV_CLI_DATA.ID%type,
+                                     pRecDocType        in number,
+                                     pRecPassportSeries in varchar2,
+                                     pRecPassportNumber in varchar2,
+                                     pRecIssueDate      in date,
+                                     pRecExpirationDate in date,
+                                     pRecIssuedBy       in varchar2,
+                                     pOldPasstypId      Z_116_EGOV_CLI_DATA.PASSTYP_ID%type,
+                                     pOldPassSer        Z_116_EGOV_CLI_DATA.PASSSER%type,
+                                     pOldPassNum        Z_116_EGOV_CLI_DATA.PASSNUM%type,
+                                     pUpdateResultABS   out number) is
+    vTmpVar number;
+  begin
+
+    pUpdateClientPassport(pDepId             => pCliDepId,
+                          pId                => pCliId,
+                          pDocType           => pRecDocType,
+                          pPassportSeries    => pRecPassportSeries,
+                          pPassportNumber    => pRecPassportNumber,
+                          pIssueDate         => pRecIssueDate,
+                          pExpirationDate    => pRecExpirationDate,
+                          pIssuedBy          => pRecIssuedBy,
+                          pOldDocType        => pOldPasstypId,
+                          pOldPassportSeries => pOldPassSer,
+                          pOldPassportNumber => pOldPassNum);
+
+  /* Проверка что данные клиента обновились */
+   begin
+      select d.passtyp_id
+        into vTmpVar
+        from G_CLIDOC d
+       where d.DEP_ID = pCliDepId
+         and d.ID = pCliId
+         and d.BASICFL = '1'
+         and d.passtyp_id =
+             G_PKGCLIIDENTDOC.fAltCode2Id('NIBBD', to_char(pRecDocType))
+         and d.passser = pRecPassportSeries
+         and d.passnum = pRecPassportNumber;
+      pUpdateResultABS := 0;
+    exception
+      when no_data_found then
+        pUpdateResultABS := 1;
+    end;
+
+  end pUpdateClientPassportOne;
+
+end Z_116_EGOV;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_BOP"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIDOC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_EGOV_CLI_DATA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_EGOV_CLI_DATA_EXP_DATA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_EGOV_CLI_IDN_JRN"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_CODEUS"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_LOCID"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDENTDOC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLINIBBD"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGDBLCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGRUNOPRUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_PKG_EXTERNAL_REQUEST"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

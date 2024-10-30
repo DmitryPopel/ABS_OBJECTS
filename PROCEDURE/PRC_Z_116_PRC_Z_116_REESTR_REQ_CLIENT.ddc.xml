@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PRC" 
+  KEY="Z_116_PRC_Z_116_REESTR_REQ_CLIENT" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="E5FAF29E12D7C21EA46EED3B0260CE12">
+  <PRC 
+    NAME="Z_116_PRC_Z_116_REESTR_REQ_CLIENT">
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace procedure COLVIR.Z_116_PRC_Z_116_REESTR_REQ_CLIENT (pFromDate date, pToDate date)
+
+as
+  nMainSID number := sys_context('USERENV','SID');
+
+begin
+
+  --удалить свои
+  delete from Z_116_REESTR_REQ_CLIENTS where SID = nMainSID;
+  --удалить не существующие
+  delete from Z_116_REESTR_REQ_CLIENTS where SID not in (SELECT t.SID FROM v$session t);
+  commit;
+
+  insert into Z_116_REESTR_REQ_CLIENTS
+  select /*+ ordered*/
+        nMainSID,
+        null as reqID,
+        z.date_oper,
+        decode(error_text,null,'Новые данные','Данные для обновления совпадают с исходными данными по клиенту.','Старые данные','Ошибка') as EgovStatus,
+        decode(update_result,0,'Обновлено',decode(error_text,'Данные для обновления совпадают с исходными данными по клиенту.','Пауза','Ошибка')) as AbsStatus,
+        (select code from T_ACCGRP where id = h.aut_id)  as grObsl,
+        c.code,
+        nvl(G_PKGCLIIDN.fCliIDN(c.dep_id, c.id, G_PKGIDN.fId('IDN_NIBBD')),G_PKGCLIIDN.fCliIDN(c.dep_id, c.id, G_PKGIDN.fId('IDN_NIBBDF'))) as nibdd,
+        nvl(G_PKGCLIIDN.fCliIDN(c.dep_id, c.id, G_PKGIDN.fId('IDN_PRS_UZ')),0) as pinfl,
+        h.longname as name,
+        G_PKGCLIIDENTDOC.fGetName(G_PKGCLIIDENTDOC.fAltCode2Id('NIBBD', to_char(z.passtyp_id))),
+        G_PKGCLIIDENTDOC.fAltCode2Id('NIBBD', to_char(z.passtyp_id)),
+        z.passser,
+        z.passnum,
+        c.id,
+        c.dep_id,
+        Z_116_get_old_data_Client(z.id,z.dep_id,z.passser,z.passnum, 'TypeID'),
+        Z_116_get_old_data_Client(z.id,z.dep_id,z.passser,z.passnum, 'Passser'),
+        Z_116_get_old_data_Client(z.id,z.dep_id,z.passser,z.passnum, 'Passnum'),
+        Z_116_get_old_data_Client(z.id,z.dep_id,z.passser,z.passnum, 'Passfin'),
+        decode(update_result,1,trunc(sysdate)-trunc(date_oper),null) as days,
+        z.error_text
+   from Z_116_EGOV_CLI_IDN_JRN z, g_cli c, g_clihst h
+  where 1 = 1
+    and c.id = z.id
+    and c.dep_id = z.dep_id
+    and h.id = c.id
+    and h.dep_id = c.dep_id
+    and sysdate between fromdate and todate
+    and z.date_oper between pFromDate and pToDate + 1;
+
+end Z_116_PRC_Z_116_REESTR_REQ_CLIENT;
+]]>
+    </LOB_FIELD>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ACCGRP"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_EGOV_CLI_IDN_JRN"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_REESTR_REQ_CLIENTS"/>
+    </PRCDPNENT>
+    <PRCDPNFNC>
+      <LINK:FNC 
+        REF_NAME="Z_116_GET_OLD_DATA_CLIENT"/>
+    </PRCDPNFNC>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDENTDOC"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PRCDPNPKG>
+  </PRC>
+</DDC>

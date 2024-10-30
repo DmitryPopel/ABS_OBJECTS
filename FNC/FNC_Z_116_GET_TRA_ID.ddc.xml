@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="FNC" 
+  KEY="Z_116_GET_TRA_ID" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="F5794EF1FBD2732551F78F5EF7BCCE14">
+  <FNC 
+    NAME="Z_116_GET_TRA_ID">
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace function COLVIR.Z_116_GET_TRA_ID (pID number, pNjrn number)
+  return number
+
+ as
+
+  vChildID number;
+  vTra_id  number;
+
+begin
+
+  -- select tra_id into vTra_id from T_OPERJRN j where ord_id = pID and dep_id = pNjrn;
+  select tra_id
+    into vTra_id
+    from T_OPERJRN j
+   where id = pID
+     and njrn = pNjrn;
+  if vTra_id is not null then
+    return vTra_id;
+  else
+
+    -- пока не побежим по всей иерархии (проверим нужно ли это)
+    select child_id
+      into vChildID
+      from t_procinh
+     where parent_id = pID
+       and njrn = pNjrn;
+
+    select tra_id into vTra_id from T_OPERJRN j where id = vChildID;
+
+    return vTra_id;
+
+  end if;
+
+exception
+  when others then
+    return 0;
+
+end Z_116_GET_TRA_ID;
+]]>
+    </LOB_FIELD>
+    <FNCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </FNCDPNENT>
+    <FNCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCINH"/>
+    </FNCDPNENT>
+  </FNC>
+</DDC>

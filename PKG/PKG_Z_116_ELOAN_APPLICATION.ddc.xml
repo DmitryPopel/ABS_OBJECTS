@@ -1,0 +1,975 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_ELOAN_APPLICATION" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="8D9778F23667224F6E13117CF487403E">
+  <PKG 
+    NAME="Z_116_ELOAN_APPLICATION">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_ELOAN_APPLICATION is
+/**
+* Пакет для реализации методов работы с заявкой
+*
+* @author Ахмеджанов Сардор
+* @author Алешкевич Дмитрий
+* @version 3.0
+* @headcom
+*
+* Copyright (c) 2023 By Aloqabank. All Rights Reserved.
+*/
+
+/** Поиск не завершенной заявки
+* <br/><i>С версии 1.0</i>
+* @param pInput ПИНФЛ клиента
+* @param pOutput Параметры
+*/
+procedure pGetNotFinishedApplication(pInput in Clob,
+                                     pOutput out Clob);
+
+/** Контроль одной заявки в день
+* <br/><i>С версии 1.0</i>
+* @param pInput ПИНФЛ клиента
+* @param pOutput Параметры
+*/
+procedure pGetApplicationToday(pInput in Clob,
+                               pOutput out Clob);
+
+/** Поиск информации о департаменте
+* <br/><i>С версии 1.0</i>
+* @param pInput depCode код департамента
+* @param pOutput Параметры
+*/
+procedure pGetApplicationDepartmentInfo(pInput in clob,
+                                        pOutput out clob);
+
+/** Поиск информации о департаменте (json)
+* <br/><i>С версии 1.0</i>
+* @param sDepartmentCode код департамента
+* @param jDepartmentInfo Параметры json
+*/
+procedure pGetApplicationDepartmentInfoJson(sDepartmentCode in varchar2,
+                                            jDepartmentInfo out JSON_OBJECT_T);
+
+
+/** Генерация ApplicationId
+* <br/><i>С версии 1.0</i>
+* @param sApplicationId сгенерированный id заявки
+*/
+procedure pGenerateApplicationId(sApplicationId out varchar2);
+
+/** Генерация ApplicationCode
+* <br/><i>С версии 1.0</i>
+* @param sApplicationCode сгенерированный код заявки
+*/
+procedure pGenerateApplicationCode(sApplicationCode out varchar2);
+
+/** Генерация id и кода заявки
+* <br/><i>С версии 1.0</i>
+* @param pInput пустые параметры
+* @param pOutput Параметры
+*/
+procedure pGenerateApplicationIdAndCode(pInput in clob,
+                                        pOutput out clob);
+
+/** Получение района подачи заявок
+* <br/><i>С версии 1.0</i>
+* @param pInput код подразделения
+* @param pOutput Параметры json
+*/
+procedure pGetApplicationDistrictByDepCode(pInput in clob,
+                                           pOutput out clob);
+
+/** Получение района подачи заявок
+* <br/><i>С версии 1.0</i>
+* @param depCode код подразделения
+* @param jApplicationDistrict Параметры json
+*/
+procedure pGetApplicationDistrictByDepCodeJson(depCode in out varchar2,
+                                               jApplicationDistrict out JSON_OBJECT_T);
+
+/** Сохранение заявки
+* <br/><i>С версии 1.0</i>
+* @param depId, id, code
+* @param json Параметры json
+*/
+procedure pSaveApplicationJson(depId in out number,
+                               id in out number,
+                               code in out varchar2,
+                               jsonIn clob);
+/** Сохранение заявки
+* <br/><i>С версии 1.0</i>
+* @param pInput id, depId, code, json
+* @param pOutput Параметры
+*/
+procedure pSaveApplication(pInput in clob,
+                           pOutput out clob);
+
+/** Получение заявки json
+* <br/><i>С версии 1.0</i>
+* @param depId, id заявки
+* @param jApp json заявки
+*/
+procedure pGetApplicationJson(nDepId in number,
+                              nId in number,
+                              jApp out JSON_OBJECT_T);
+
+/** Получение заявки
+* <br/><i>С версии 1.0</i>
+* @param pInput depId, id заявки
+* @param pOutput Параметры
+*/
+procedure pGetApplicationDetails(pInput in clob,
+                                 pOutput out clob);
+
+/** Обновление поля json в заявке
+* <br/><i>С версии 1.0</i>
+* @param pInput depId, id заявки
+* @param pOutput Параметры
+*/
+procedure pUpdateApplicationJson(pInput in clob,
+                                 pOutput out clob);
+
+/** Обновление значения ключа указанного атрибута в заявке
+* <br/><i>С версии 1.0</i>
+* @param pInput depId, id заявки, attrValue значение атрибута, attrKey ключ атрибута
+* @param pOutput Параметры
+*/
+procedure pUpdateAttributeJson(nDepId number,
+                               nId number,
+                               attrKey varchar2,
+                               attrValue json_object_t,
+                               bResult out boolean);
+
+/** Обновление решения, принятого по заявке
+* <br/><i>С версии 1.0</i>
+* @param pInput depId, id заявки, json - объект решения
+* @param pOutput Параметры
+*/
+procedure pUpdateDecisions(pInput in clob,
+                           pOutput out clob);
+
+/** Обновление статуса заявки в КФО
+* <br/><i>С версии 2.0</i>
+* @param pInput depId, id, state, stage заявки
+* @param pOutput Параметры
+*/
+procedure pSetKFOState(pInput in clob,
+                       pOutput out clob);
+
+/** Установка id заявки для КФО
+* <br/><i>С версии 2.0</i>
+* @param pInput depId, id, appId заявки
+* @param pOutput Параметры
+*/
+procedure pSetKFOAppId(pInput in clob,
+                       pOutput out clob);
+
+/** Обновление значения указанного ключа в заявке
+* <br/><i>С версии 3.0</i>
+* @param pInput depId, id - заявка, key - ключь, value - значение
+* @param pOutput Параметры
+*/
+procedure pUpdateApplicationKey(pInput in clob,
+                                pOutput out clob);
+end Z_116_ELOAN_APPLICATION;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_ELOAN_APPLICATION is
+
+procedure pGetNotFinishedApplication(pInput in Clob,
+                                     pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  sPinfl Varchar2(50);
+  aResult JSON_OBJECT_T;
+  nCliDepId number;
+  nCliId number;
+  sClientCode g_cli.code%type;
+  sAppId L_REQDEA_EXT.appid%Type;
+  dRegistrationDate date;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sPinfl := aInput.get_string('pinfl');
+  aResult := JSON_OBJECT_T();
+  Z_116_ELOAN_CLIENT.pGetClientIdByPinfl(pPinfl => sPinfl,
+                                         pDepId => nCliDepId,
+                                         pId    => nCliId,
+                                         pCode  => sClientCode);
+  if nCliId is not null then
+    begin
+      select
+        re.appid,
+        to_date(substr(json_value(r.json, '$.app.registrationDate'), 1, 10), 'YYYY-MM-DD') as REGISTRATION_DATE
+      into
+        sAppId,
+        dRegistrationDate
+      from T_ORD o
+      join T_DEA d on d.dep_id = o.dep_id and d.id = o.id
+      join L_REQDEA r on r.dep_id = d.dep_id and r.id = d.id
+      join L_REQDEA_EXT re on re.dep_id = r.dep_id and re.id = r.id
+      join g_cli c on c.dep_id = d.cli_dep_id and c.id = d.cli_id
+      where d.cli_dep_id = nCliDepId
+      and   d.cli_id = nCliId
+      and   re.state in ('START', 'ON_REVIEW', 'CREDEA')
+      and   json_value(r.json, '$.app.isImported') is null
+      and   rownum = 1;
+    exception
+      when no_data_found then
+        sAppId := null;
+        dRegistrationDate := null;
+    end;
+  end if;
+  aResult.put('clientCode', sClientCode);
+  aResult.put('applicationId', sAppId);
+  aResult.put('applicationDate', dRegistrationDate);
+  pOutput := aResult.To_Clob;
+end pGetNotFinishedApplication;
+
+procedure pGetApplicationToday(pInput in Clob,
+                               pOutput out Clob)
+is
+  aInput JSON_OBJECT_T;
+  sPinfl Varchar2(50);
+  aResult JSON_OBJECT_T;
+  nCliDepId number;
+  nCliId number;
+  sClientCode g_cli.code%type;
+  sAppId L_REQDEA_EXT.appid%Type;
+  dRegistrationDate date;
+begin
+  c_pkgconnect.pOpen();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  sPinfl := aInput.get_string('pinfl');
+  aResult := JSON_OBJECT_T();
+  Z_116_ELOAN_CLIENT.pGetClientIdByPinfl(pPinfl => sPinfl,
+                                         pDepId => nCliDepId,
+                                         pId    => nCliId,
+                                         pCode  => sClientCode);
+  if nCliId is not null then
+    begin
+      select
+        re.appid,
+        to_date(substr(json_value(r.json, '$.app.registrationDate'), 1, 10), 'YYYY-MM-DD') as REGISTRATION_DATE
+      into
+        sAppId,
+        dRegistrationDate
+      from T_ORD o
+      join T_DEA d on d.dep_id = o.dep_id and d.id = o.id
+      join L_REQDEA r on r.dep_id = d.dep_id and r.id = d.id
+      join L_REQDEA_EXT re on re.dep_id = r.dep_id and re.id = r.id
+      join g_cli c on c.dep_id = d.cli_dep_id and c.id = d.cli_id
+      where d.cli_dep_id = nCliDepId
+      and   d.cli_id = nCliId
+      and   re.state in ('DEA_REGISTERED', 'REFUSAL_BANK')
+      and   to_date(substr(json_value(r.json, '$.app.registrationDate'), 1, 10), 'YYYY-MM-DD') >= trunc(sysdate)
+      and   rownum = 1;
+    exception
+      when no_data_found then
+        dRegistrationDate := null;
+    end;
+  end if;
+  aResult.put('clientCode', sClientCode);
+  aResult.put('applicationId', sAppId);
+  aResult.put('applicationDate', dRegistrationDate);
+  pOutput := aResult.To_Clob;
+end pGetApplicationToday;
+
+procedure pGetApplicationDepartmentInfo(pInput in clob,
+                                        pOutput out clob)
+is
+  jInput JSON_OBJECT_T;
+  jDepartmentInfo JSON_OBJECT_T;
+  sDepCode varchar2(50);
+begin
+  C_PKGCONNECT.POPEN();
+  jInput := JSON_OBJECT_T.parse(pInput);
+  sDepCode := jInput.get_string('depCode');
+  pGetApplicationDepartmentInfoJson(sDepartmentCode => sDepCode,
+                                    jDepartmentInfo => jDepartmentInfo);
+  pOutput := jDepartmentInfo.TO_CLOB();
+end pGetApplicationDepartmentInfo;
+
+procedure pGetApplicationDepartmentInfoJson(sDepartmentCode in varchar2,
+                                            jDepartmentInfo out JSON_OBJECT_T)
+is
+  nId number;
+  sCode varchar2(50);
+  sLongName varchar2(500);
+begin
+  C_PKGCONNECT.POPEN();
+  jDepartmentInfo := JSON_OBJECT_T();
+  select
+    ID,
+    CODE,
+    LONGNAME
+  into
+    nId,
+    sCode,
+    sLongName
+  from c_dep
+  where code = sDepartmentCode;
+  jDepartmentInfo.put('id', nId);
+  jDepartmentInfo.put('code', sCode);
+  jDepartmentInfo.put('name', sLongName);
+  jDepartmentInfo.put('result', true);
+exception
+  when no_data_found then
+    jDepartmentInfo.put('result', false);
+end pGetApplicationDepartmentInfoJson;
+
+procedure pGenerateApplicationId(sApplicationId out varchar2)
+is
+begin
+  sApplicationId := L_UZ_UNIQNUMREQ_KEY.nextval;
+end pGenerateApplicationId;
+
+procedure pGenerateApplicationCode(sApplicationCode out varchar2)
+is
+  sTmp varchar2(250);
+begin
+  bs_rules.Get4MaskEditByRuleCode ('L_REQDEACODE', null, sTmp, sApplicationCode);
+end pGenerateApplicationCode;
+
+procedure pGenerateApplicationIdAndCode(pInput in clob,
+                                        pOutput out clob)
+is
+  jOutput JSON_OBJECT_T;
+  sAppId varchar2(50);
+  sAppCode varchar2(50);
+begin
+  jOutput := JSON_OBJECT_T();
+  pGenerateApplicationId(sAppId);
+  pGenerateApplicationCode(sAppCode);
+  jOutput.put('id', sAppId);
+  jOutput.put('code', sAppCode);
+  pOutput := jOutput.TO_CLOB();
+end pGenerateApplicationIdAndCode;
+
+procedure pGetApplicationDistrictByDepCode(pInput in clob,
+                                           pOutput out clob)
+is
+  aInput JSON_OBJECT_T;
+  sDepCode varchar2(50);
+  jApplicationDistrict JSON_OBJECT_T;
+begin
+  C_PKGCONNECT.POPEN();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  jApplicationDistrict := JSON_OBJECT_T();
+  sDepCode := aInput.get_string('depCode');
+  pGetApplicationDistrictByDepCodeJson(depCode => sDepCode, jApplicationDistrict => jApplicationDistrict);
+  pOutput := jApplicationDistrict.TO_CLOB();
+end pGetApplicationDistrictByDepCode;
+
+procedure pGetApplicationDistrictByDepCodeJson(depCode in out varchar2,
+                                               jApplicationDistrict out JSON_OBJECT_T)
+is
+  adrType varchar2(60);
+  depCliCode varchar2(60);
+  idCliDep number;
+  idCli number;
+  idAppDep number;
+  depName varchar2(500);
+  region varchar2(500);
+  regionName varchar2(500);
+  district varchar2(500);
+  districtName varchar2(500);
+  address varchar2(500);
+begin
+  C_PKGCONNECT.POPEN();
+  jApplicationDistrict := JSON_OBJECT_T();
+  -- Тип адреса в карточке подразделения
+  adrType := nvl(
+    C_PkgPrm.fGetValPrm('CDEPADRTYPE'),
+    GCLIADR_FACT
+  );
+
+  if depCode is not null then
+    idAppDep := C_PkgDep.fGetIdDep(depCode);
+  else
+    idAppDep := P_IDDEP2;
+  end if;
+
+  depCode := C_PkgDep.fGetCodeDep(idAppDep);
+  depName := C_PkgDep.fGetNameDep(idAppDep);
+
+  depCliCode := C_PkgPrm.fGetValPrm('CDEPCLIENT', idAppDep);
+  if depCliCode is null then
+    raise_application_error(-20000, localfrmt(
+      'Для подразделения %%0:s не задана карточка клиента, системный параметр CDEPCLIENT',
+       vargs(C_pkgDep.fGetCodeDep(idAppDep))
+    ));
+  end if;
+
+  begin
+    select dep_id, id into idCliDep, idCli from G_CLI where CODE = depCliCode;
+  exception when no_data_found then
+    null;
+  end;
+
+  if idCli is not null then
+    begin
+      select
+        g_pkgaddress_uz.fgetObl(a.ID) OBL_CODE,
+        U_PKGUNIREF_UZ.fgetOblNameByCode(g_pkgaddress_uz.fgetObl(a.ID)) OBL_NAME,
+        g_pkgaddress_uz.fgetRn(a.ID) RN_CODE,
+        U_PKGUNIREF_UZ.fgetRnNameByCode(g_pkgaddress_uz.fgetRn(a.ID)) RN_NAME,
+        g_pkgaddress.fGetFullAddr(a.ID, G_ADDR_CNTR) ADDRESS
+      into region, regionName, district, districtName, address
+      from G_ADDRESS a
+      where a.id = (select g_pkgaddress.fCliAddrId(idCliDep, idCli, adrType) from dual);
+      jApplicationDistrict.put('region', region);
+      jApplicationDistrict.put('regionName', regionName);
+      jApplicationDistrict.put('district', district);
+      jApplicationDistrict.put('districtName', districtName);
+      jApplicationDistrict.put('address', address);
+      jApplicationDistrict.put('depCode', depCode);
+      jApplicationDistrict.put('depName', depName);
+    exception when no_data_found then
+      null;
+    end;
+  end if;
+end pGetApplicationDistrictByDepCodeJson;
+
+procedure pSaveApplicationJson(depId in out number,
+                               id in out number,
+                               code in out varchar2,
+                               jsonIn clob)
+is
+  bNew boolean;
+  idReqDep number := depId;
+  idReq number := id;
+  sCode varchar2(60);
+  idCliDep number;
+  idCli number;
+  sDclCode varchar2(60);
+  idDcl number;
+  sSelDep C_DEP.CODE%type;
+  sCliCode varchar2(60);
+  sAppId varchar2(50);
+  sAppCode varchar2(50);
+  nInterest number;
+  -- Получение срока по продукту
+  function getDurationCode(pNum in number, pDim in varchar2, pDclCode in varchar2) return varchar is
+    sDurationCode T_DEAPRD_STD.CODE%type;
+  begin
+    C_PKGCONNECT.POPEN();
+    select
+      (select p.code
+      from T_DEALNKPRD m, T_DEAPRD_STD p, T_DEACLS_STD t
+      where m.PRD_ID = p.ID and m.DCL_ID = t.ID and t.code = pDclCode
+        and p.time_type = pDim and p.time_unit = pNum
+      )
+    into sDurationCode
+    from dual;
+    if sDurationCode is null then
+      raise_application_error(-20000, LocalFrmt(
+          'Для продукта %%0:s не настроен срок договора %%1:s %%2:s',
+          vargs(pDclCode, pNum, pDim)
+      ));
+    end if;
+    return sDurationCode;
+  end;
+
+  -- Получение цели использования по продукту
+  function getPurposeCode(pDclCode in varchar2) return varchar2 is
+    sPurCode L_PURDSC_STD.CODE%type;
+  begin
+    C_PKGCONNECT.POPEN();
+    select
+      (select d.CODE
+      from L_DEAPUR l, L_PURDSC_STD d, T_DEACLS_STD t
+      where l.PUR_ID = d.ID and l.DCL_ID = t.ID and t.CODE = pDclCode
+      and rownum=1)
+    into sPurCode from dual;
+
+    if sPurCode is null then
+      raise_application_error(-20000, LocalFrmt(
+          'Для продукта %%0:s не задана цель использования',
+          vargs(pDclCode)
+      ));
+    end if;
+    return sPurCode;
+  end;
+
+begin
+  C_PKGCONNECT.POPEN();
+  bNew := idReq is null;
+
+  -- Получаем ID карточки клиента
+  sCliCode := json_value(jsonIn, '$.client.code');
+  G_PkgCli.pGetCliId(sCliCode, idCliDep, idCli);
+
+  -- Получаем ID продукта
+  sDclCode := json_value(jsonIn, '$.app.productCode');
+  idDcl := T_PkgDea.fDclId(sDclCode);
+
+  if idReqDep is null then
+    idReqDep := p_iddep2;
+  end if;
+
+  sSelDep := C_PkgDep.fGetCodeDep(idReqDep);
+
+  sCode := json_value(jsonIn, '$.app.code');
+
+  L_BSREQDEA.pSave(
+    nDEP_ID         => idReqDep,
+    nID             => idReq,
+    sCODE           => sCode,
+    sSell_Dep_Code  => sSelDep,
+    sCli_Code       => sCliCode,
+    sDcl_Code       => sDclCode,
+    nAmount         => json_value(jsonIn, '$.app.amount'),
+    nReq_Type_Id    => 2,
+    sPrd_Code       => getDurationCode(json_value(jsonIn, '$.app.duration'), 'M', sDclCode),
+    sPur_Code       => getPurposeCode(sDclCode),
+    dRecv           => to_date(substr(json_value(jsonIn, '$.app.registrationDate'),1,10), 'YYYY-MM-DD'),
+    sExternalfl     => case when json_value(jsonIn, '$.isExternal') = 'true' then '1' else '0' end,
+    sPrim           => ''
+  );
+
+  sAppId := json_value(jsonIn, '$.app.appId');
+  sAppCode := json_value(jsonIn, '$.app.code');
+  if bNew then
+    -- Зачитаем созданный номер заявки
+    if sCode is null then
+      select CODE into sCode from T_ORD where DEP_ID = idReqDep and ID = idReq;
+    end if;
+    insert into L_REQDEA_EXT (
+      DEP_ID, ID,
+      -- Идентификатор заявки
+      APPID,
+      -- Номер завки
+      APPNO,
+      -- Состояние заявки
+      STATE
+    ) values (
+      idReqDep, idReq,
+      -- Идентификатор заявки
+      sAppId,
+      -- Номер завки
+      sAppCode,
+      -- Состояние заявки
+      'START'
+    );
+  else
+    update L_REQDEA_EXT
+    set    APPID = sAppId,
+           APPNO = sAppCode
+    where  dep_id = idReqDep
+    and    id = idReq;
+  end if;
+
+  nInterest := json_value(jsonIn, '$.app.interest');
+  update L_REQDEA
+  set    RATE_REQ = nInterest,
+         JSON = jsonIn
+  where DEP_ID = idReqDep
+  and   ID = idReq;
+
+  depId := idReqDep;
+  id := idReq;
+  code := sCode;
+end pSaveApplicationJson;
+
+procedure pSaveApplication(pInput in clob,
+                           pOutput out clob)
+is
+  aInput JSON_OBJECT_T;
+  aOutput JSON_OBJECT_T;
+  nDepId number;
+  nId number;
+  sCode varchar2(50);
+begin
+  aInput := JSON_OBJECT_T.parse(pInput);
+  nDepId := aInput.get_string('depId');
+  nId := aInput.get_number('id');
+  sCode := Nvl(aInput.get_string('code'), '');
+  pSaveApplicationJson(nDepId, nId, sCode, aInput.get_object('json').TO_CLOB());
+  aOutput := JSON_OBJECT_T();
+  aOutput.put('depId', nDepId);
+  aOutput.put('id', nId);
+  aOutput.put('code', sCode);
+  pOutput := aOutput.TO_CLOB();
+end pSaveApplication;
+
+procedure pGetApplicationJson(nDepId in number,
+                              nId in number,
+                              jApp out JSON_OBJECT_T)
+is
+  cApplication clob;
+begin
+  C_PKGCONNECT.POPEN();
+  jApp := JSON_OBJECT_T();
+  select r.JSON
+  into cApplication
+  from T_ORD o, L_REQDEA r, L_REQDEA_EXT re
+  where r.DEP_ID = nDepId and r.ID = nId and o.dep_id = r.dep_id and o.id = r.id
+    and re.dep_id = r.dep_id and re.id = r.id;
+  jApp := JSON_OBJECT_T.parse(cApplication);
+end pGetApplicationJson;
+
+procedure pGetApplicationDetails(pInput in clob,
+                                 pOutput out clob)
+is
+  aInput JSON_OBJECT_T;
+  jApplication JSON_OBJECT_T;
+begin
+  C_PKGCONNECT.POPEN();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  pGetApplicationJson(aInput.get_number('depId'), aInput.get_number('id'), jApplication);
+  pOutput := jApplication.TO_CLOB();
+end pGetApplicationDetails;
+
+procedure pUpdateApplicationJson(pInput in clob,
+                                 pOutput out clob)
+is
+  aInput JSON_OBJECT_T;
+  aOutput JSON_OBJECT_T;
+  json clob;
+  prevJson clob;
+  idDep number;
+  id number;
+  idOrd number;
+  sAppId varchar2(100);
+  changePoint varchar2(60);
+begin
+  C_PKGCONNECT.POPEN();
+  aInput := JSON_OBJECT_T.parse(pInput);
+  aOutput := JSON_OBJECT_T();
+  idDep := aInput.get_number('depId');
+  id := aInput.get_number('id');
+  sAppId := aInput.get_string('appId');
+  json := json_value(pInput, '$.json');
+
+  if (idDep is null or idOrd is null) and sAppId is not null then
+    select dep_id, max(id) as id into idDep, idOrd from l_reqdea_ext where appid = sAppId group by dep_id;
+  end if;
+
+  -- Проверка изменений
+  select to_char(nn) into changePoint from T_ORD where dep_id = idDep and id = idOrd;
+  if changePoint <> nvl(changePoint, '*') then
+    raise_application_error(-20000, Localize(
+        'Заявка изменена в другой задаче или другим пользователем. Сохранение данных запрещено.'
+    ));
+  end if;
+
+  select JSON into prevJson from l_reqdea where DEP_ID=idDep and ID=idOrd;
+  update L_REQDEA set JSON = json where DEP_ID = idDep and ID = idOrd;
+
+  -- Обновляем атрибуты, которые должны лежать и в таблицах
+  if json_value(prevJson, '$.app.registrationDate') <> json_value(json, '$.app.registrationDate') then
+      update l_reqdea set
+          dop = to_date(substr(json_value(json, '$.app.registrationDate'), 1,10), 'YYYY-MM-DD')
+      where DEP_ID = idDep and ID = idOrd;
+  end if;
+
+  if json_value(prevJson, '$.app.appId') <> json_value(json, '$.app.appId') then
+      update l_reqdea_ext set
+          appId = json_value(json, '$.app.appId')
+      where DEP_ID=idDep and ID=idOrd;
+  end if;
+
+  -- Меняем точку изменений
+  update T_ORD set
+      NN = to_number(changePoint)+1
+  where dep_id = idDep and id = idOrd
+  returning to_char(NN) into changePoint;
+
+  aOutput.put('changePoint', changePoint);
+  pOutput := aOutput.TO_CLOB();
+end pUpdateApplicationJson;
+
+procedure pUpdateAttributeJson(nDepId number,
+                               nId number,
+                               attrKey varchar2,
+                               attrValue json_object_t,
+                               bResult out boolean)
+is
+  json_data clob;
+  json_a json_object_t;
+  json_b json_object_t;
+  json_t json_object_t;
+  keys JSON_KEY_LIST;
+  r L_REQDEA%rowtype;
+  i integer;
+  nCnt integer;
+begin
+  select JSON into json_data from L_REQDEA
+  where DEP_ID = nDepId and ID = nId;
+
+  json_a := treat(json_element_t.parse(nvl(json_data, '{}')) as json_object_t);
+  json_b := attrValue;
+
+  if attrKey is not null then
+    json_t := json_a.get_object(attrKey);
+    if json_t is null then
+      json_a.put(attrKey, json_object_t());
+      json_t := json_a.get_object(attrKey);
+    end if;
+  else
+    json_t := json_a;
+  end if;
+
+  keys := json_b.get_keys();
+  i := keys.first();
+  while i is not null loop
+    json_t.put(keys(i), json_b.get(keys(i)));
+    i := keys.next(i);
+  end loop;
+
+  json_data := json_a.to_clob();
+
+  update L_REQDEA set JSON = json_data
+  where DEP_ID = nDepId and ID = nId;
+
+  --
+  -- Обновляем атрибуты, которые должны лежать и в таблицах
+  --
+  if attrValue.get_String('registrationDate') is not null then
+    update l_reqdea set
+      dop = to_date(substr(attrValue.get_String('registrationDate'), 1,10), 'YYYY-MM-DD')
+    where DEP_ID = nDepId and ID = nId;
+  end if;
+  bResult := true;
+end pUpdateAttributeJson;
+
+procedure pUpdateDecisions(pInput in clob,
+                           pOutput out clob)
+is
+  bResult   boolean        := false;
+  depId     number(10)     := json_value(pInput, '$.depId');
+  id        number(10)     := json_value(pInput, '$.id');
+  aJson     json_object_t;
+  aInput    json_object_t;
+  aOutput   json_object_t;
+
+begin
+  c_pkgconnect.pOpen;
+  aInput := json_object_t.parse(pInput);
+  aJson := aInput.get_Object('json');
+  aOutput := json_object_t();
+  pUpdateAttributeJson(depId, id, 'decisions', aJson, bResult);
+  aOutput.put('result', bResult);
+  pOutput := aOutput.To_Clob;
+end pUpdateDecisions;
+
+procedure pSetKFOState(pInput in clob,
+                       pOutput out clob)
+is
+--'state': 'ON_REVIEW', 'stage': 'START' пример
+  bResult   boolean := false;
+  nDepId    number;
+  nId       number;
+  sState    varchar2(30);
+  sStage    varchar2(30);
+  aInput    json_object_t;
+  aOutput   json_object_t;
+begin
+  c_pkgconnect.pOpen;
+  aInput := json_object_t.parse(pInput);
+  nDepId := aInput.get_Number('depId');
+  nId    := aInput.get_Number('id');
+  sState := aInput.get_String('state');
+  sStage := aInput.get_String('stage');
+  aOutput := json_object_t();
+
+  -- Если передан sState
+  if sState is not null then
+    update L_REQDEA_EXT t
+    set    t.state = sState
+    where  t.DEP_ID = nDepId
+    and    t.ID = nId;
+    bResult:=true;
+  end if;
+
+  -- Если передан sStage
+  if sStage is not null then
+    update L_REQDEA_EXT t
+    set    t.reviewstage = sStage
+    where  t.DEP_ID = nDepId
+    and    t.ID = nId;
+    bResult:=true;
+  end if;
+
+  aOutput.put('result', bResult);
+  pOutput := aOutput.To_Clob;
+end pSetKFOState;
+
+procedure pSetKFOAppId(pInput in clob,
+                       pOutput out clob)
+is
+--'state': 'ON_REVIEW', 'stage': 'START' пример
+  bResult   boolean := false;
+  nDepId    number;
+  nId       number;
+  sAppId    varchar2(30);
+  sAppNo    varchar2(30);
+  aInput    json_object_t;
+  aOutput   json_object_t;
+begin
+  c_pkgconnect.pOpen;
+  aInput := json_object_t.parse(pInput);
+  nDepId := aInput.get_Number('depId');
+  nId    := aInput.get_Number('id');
+  sAppId := aInput.get_String('appId');
+  sAppNo := aInput.get_String('appNo');
+  aOutput := json_object_t();
+
+  update L_REQDEA_EXT t
+  set    t.appid = sAppId, t.appno=sAppNo
+  where  t.DEP_ID = nDepId
+  and    t.ID = nId;
+
+  commit;
+
+  bResult:=true;
+  aOutput.put('result', bResult);
+  pOutput := aOutput.To_Clob;
+end pSetKFOAppId;
+
+procedure pUpdateApplicationKey(pInput in clob,
+                                pOutput out clob)
+is
+  bResult   boolean        := false;
+  depId     number(10)     := json_value(pInput, '$.depId');
+  id        number(10)     := json_value(pInput, '$.id');
+  aKey      varchar2(30);
+  aValue    json_object_t;
+  aInput    json_object_t;
+  aOutput   json_object_t;
+
+begin
+  c_pkgconnect.pOpen;
+  aInput := json_object_t.parse(pInput);
+  aValue := aInput.get_Object('value');
+  aKey := aInput.get_String('key');
+  aOutput := json_object_t();
+  pUpdateAttributeJson(depId, id, aKey, aValue, bResult);
+  aOutput.put('result', bResult);
+  pOutput := aOutput.To_Clob;
+end pUpdateApplicationKey;
+
+end Z_116_ELOAN_APPLICATION;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_RULES"/>
+    </PKGDPNBSN>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="L_BSREQDEA"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="C_DEP"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ADDRESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEAPUR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_PURDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REQDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_REQDEA_EXT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEACLS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEALNKPRD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPRD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_IDDEP2"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_LOCID"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDEP"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGADDRESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGADDRESS_UZ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEA"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="U_PKGUNIREF_UZ"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_ELOAN_CLIENT"/>
+    </PKGDPNPKG>
+    <PKGDPNSEQ>
+      <LINK:SEQ 
+        REF_NAME="L_UZ_UNIQNUMREQ_KEY"/>
+    </PKGDPNSEQ>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="G_ADDRESS_PART"/>
+    </PKGDPNDOM>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="G_CLIADR_TYPE"/>
+    </PKGDPNDOM>
+  </PKG>
+</DDC>

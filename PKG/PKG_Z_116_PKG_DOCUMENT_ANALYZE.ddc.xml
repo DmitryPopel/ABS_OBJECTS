@@ -1,0 +1,749 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_DOCUMENT_ANALYZE" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="585A1F5D728816FD21ABDDE93F3553FD">
+  <PKG 
+    NAME="Z_116_PKG_DOCUMENT_ANALYZE">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_DOCUMENT_ANALYZE is
+  /**
+  * Пакет для Анализа документов кредитных договоров
+  *
+  * @author Самадов Сирож
+  * @version 1.0
+  *
+  * Copyright (c) 2023 By Aloqabank. All Rights Reserved.
+  */
+
+  /** Список кредитных договоров
+  * <i>С версии 1.0</i>
+  * @param pParams Параметры для фильтра
+  * @param oResult Результат
+  */
+  procedure pGetLoanList(pParams in clob,
+                         oResult out clob);
+
+  /** Санкционирование операций
+  * <i>С версии 1.0</i>
+  * @param nDepId Подразделение
+  * @param nId ИД договора
+  * @param nApprove Решение (Одобрение -1, Отказ - 0)
+  * @param sReason Причина решения (если отказ)
+  * @param oResult Результат операции
+  * @param oError Текст ошибки
+  */
+  procedure pAcceptOrDeclineOperation(nDepId   in number,
+                                      nId      in number,
+                                      sApprove in varchar2,
+                                      sReason  in varchar2,
+                                      oResult  out varchar2,
+                                      oError   out varchar2);
+  /** Получение файла в Base64
+  * <i>С версии 1.0</i>
+  * @param nDecId Идентификатор файла
+  * @param oResult Содержание файла
+  */
+  procedure pGetFileContent(nDecId  in number,
+                            oResult out blob);
+
+  /** Получение файлов договора
+  * <i>С версии 1.0</i>
+  * @param nDepId Подразделение
+  * @param nId ИД договора
+  * @param oResult Список файлов
+  */
+  procedure pGetLoanFiles(nDepId  in number,
+                          nId     in number,
+                          oResult out clob);
+
+  /** Получение данных договора
+  * <i>С версии 1.0</i>
+  * @param nDepId Подразделение
+  * @param nId ИД договора
+  * @param oResult Данные
+  */
+  procedure pGetLoanData(nDepId  in number,
+                         nId     in number,
+                         oResult out clob);
+end Z_116_PKG_DOCUMENT_ANALYZE;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_DOCUMENT_ANALYZE is
+  -- Список кредитных договоров
+  procedure pGetLoanList(pParams in clob,
+                         oResult out clob) is
+    vLoan json_object_t;
+    vList json_array_t := new json_array_t;
+  begin
+    C_PKGCONNECT.pOpen();
+
+    if pParams is not null then
+      null;
+    end if;
+
+    for r in (with registered as
+                 (select id, nord
+                   from T_BOP_STAT_STD
+                  where code in ('REGISTERED', 'ACTUAL')),
+                operjrn as
+                 (select id
+                   from T_OPERJRN j
+                  where j.DOPER = P_OPERDAY --to_date('17.01.2024', 'dd.mm.yyyy')
+                    and j.RAT_ID is not null
+                    and exists (select 1
+                           from T_SCEN_VRF
+                          where j.BOP_ID = ID
+                            and j.NOPER = NORD))
+                select d.dep_id,
+                       d.id,
+                       d.fromdate,
+                       T_PkgDeaPrm.fDeaParByCode(d.id,
+                                                 d.dep_id,
+                                                 'L_UZ_UNIQNUM') uniqnum,
+                       substr(G_PkgCli.fGetCliLongName(d.CLI_DEP_ID,
+                                                       d.CLI_ID,
+                                                       P_OPERDAY),
+                              1,
+                              250) as CLI_NAME,
+                       (select c.LONGNAME
+                          from T_DEACLS c
+                         where c.id = d.dcl_id) as dcl_name
+                  from T_DEA d, T_PROCMEM m, T_PROCESS p
+                 where d.DEP_ID = m.DEP_ID
+                   and d.ID = m.ORD_ID
+                   and m.MAINFL = '1'
+                   and p.ID = m.ID
+                   and m.id in (select * from operjrn)
+                   and exists
+                 (select 1
+                          from T_OPERJRN j
+                         WHERE j.id = to_number(p.id)
+                           and j.bop_id = (select s.ID
+                                             from T_SCEN_STD s
+                                            where s.code = 'SETALLOWOUT'
+                                              and s.ID = j.BOP_ID)
+                           and j.UNDOFL = '0'
+                           and j.cancelfl = '0'
+                           and exists
+                         (select oj.EXECDT -- Выполнение операции
+                                  from T_OPERJRN oj
+                                 where oj.ID = j.id
+                                   AND oj.NJRN = j.njrn
+                                   and oj.Id_User is not null))
+                   and (p.BOP_ID, p.NSTAT) in (select * from registered)
+                union all
+                select d.dep_id,
+                       d.id,
+                       d.fromdate,
+                       T_PkgDeaPrm.fDeaParByCode(d.id,
+                                                 d.dep_id,
+                                                 'L_UZ_UNIQNUM') uniqnum,
+                       substr(G_PkgCli.fGetCliLongName(d.CLI_DEP_ID,
+                                                       d.CLI_ID,
+                                                       P_OPERDAY),
+                              1,
+                              250) as CLI_NAME,
+                       (select c.LONGNAME
+                          from T_DEACLS c
+                         where c.id = d.dcl_id) as dcl_name
+                  from T_DEA d, T_ORD o
+                 where o.dep_id = d.dep_id and o.id = d.id and
+                 o.code = '502F002621')
+    loop
+      vLoan := new json_object_t();
+      vLoan.put('dep_id', r.dep_id);
+      vLoan.put('id', r.id);
+      vLoan.put('loan_date', to_char(r.fromdate, 'dd.mm.yyyy'));
+      vLoan.put('uniqnum', r.uniqnum);
+      vLoan.put('client_name', r.cli_name);
+      vLoan.put('product_name', r.dcl_name);
+
+      vList.append(vLoan);
+    end loop;
+
+    oResult := vList.To_Clob;
+  end;
+
+  -- Санкционирование операций
+  procedure pAcceptOrDeclineOperation(nDepId   in number,
+                                      nId      in number,
+                                      sApprove in varchar2,
+                                      sReason  in varchar2,
+                                      oResult  out varchar2,
+                                      oError   out varchar2) is
+    nProcId      number;
+    nNJRN        number;
+    vCFORMVRF    varchar2(255);
+    vCFORMPARAMS varchar2(255);
+  begin
+    C_PKGCONNECT.pOpen();
+
+    select j.ID, j.NJRN
+      into nProcId, nNJRN
+      From T_DEA d, T_PROCMEM m, T_OPERJRN j
+     Where d.DEP_ID = m.DEP_ID
+       and d.ID = m.ORD_ID
+       and m.MAINFL = '1'
+       and d.dep_id = nDepId
+       and d.id = nId
+       and j.id = m.id
+       and exists (select 1
+              from T_SCEN_VRF
+             where j.BOP_ID = ID
+               and j.NOPER = NORD
+               and j.rat_id is not null)
+       and rownum = 1;
+
+    if sApprove = '1' then
+      BS_OPERATION.PVERIFY(P_PROC       => nProcId,
+                           P_OPER       => nNJRN,
+                           IDTUS        => null,
+                           ICOMMIT      => null,
+                           CMETHOD      => null,
+                           BISAFTERFORM => False,
+                           CFORMPARAMS  => '');
+    else
+      BS_OPERATION.PREFUSE(P_PROC      => nProcId,
+                           P_OPER      => nNJRN,
+                           P_LAST      => 0,
+                           P_TXT       => sReason,
+                           IDTUS       => null,
+                           ICOMMIT     => null,
+                           CMETHOD     => null,
+                           CFORMVRF    => vCFORMVRF,
+                           CFORMPARAMS => vCFORMPARAMS,
+                           BSRV        => null);
+    end if;
+
+    COMMIT;
+
+    oResult := '1';
+    oError  := '';
+
+  exception
+    when others then
+      oResult := '0';
+      oError  := regexp_substr(sqlerrm, 'ORA-\d+:\s*(.+)', 1, 1, '', 1);
+  end;
+
+  -- Получение файла в Base64
+  procedure pGetFileContent(nDecId  in number,
+                            oResult out blob) is
+    sBlob blob;
+    --     nStep pls_integer := 12000;
+  begin
+    select d.docblb into sBlob from T_DOCECPY d where d.id = nDecId;
+    oResult := sBlob;
+    /*
+    for i in 0 .. TRUNC((DBMS_LOB.getlength(sBlob) - 1) / nStep)
+    loop
+      if oResult is not null then
+        oResult := oResult || chr(13);
+      end if;
+
+      oResult := oResult ||
+                 UTL_RAW.cast_to_varchar2(UTL_ENCODE.base64_encode(DBMS_LOB.substr(sBlob,
+                                                                                   nStep,
+                                                                                   i *
+                                                                                   nStep + 1)));
+    end loop;*/
+  end;
+
+  -- Получение файлов договора
+  procedure pGetLoanFiles(nDepId  in number,
+                          nId     in number,
+                          oResult out clob) is
+    vFile json_object_t;
+    vList json_array_t := new json_array_t;
+  begin
+    C_PKGCONNECT.pOpen();
+
+    for r in (select t.longname, t.dec_id
+                from (select docls.longname, v.dec_id
+                        from (select l.longname,
+                                     l.id,
+                                     l.nord,
+                                     (select max(v.NVER)
+                                        from T_DOCFRMVER v
+                                       where v.ID = L.ID
+                                         and v.NORD = l.NORD
+                                         and ARCFL = '0') as MAXNVER
+                                from T_DOCDOS ds, T_DOCLST L, T_DOCRPTDSC r
+                               where ds.DEP_ID = nDepId
+                                 and ds.ORD_ID = nId
+                                 and l.ID = ds.ID
+                                 and r.ddd_ID = ds.Ddd_Id
+                                 and r.id = l.drp_id) Docls,
+                             T_DOCFRMVER v,
+                             T_DOCECPY e
+                       where Docls.ID = v.Id(+)
+                         and Docls.NORD = v.NORD(+)
+                         and Docls.MAXNVER = v.Nver(+)
+                         and e.id(+) = v.Dec_ID
+                         and C_PkgGrant.fChkDeaDoc(Docls.ID, Docls.NORD, 1) = 1
+                      union all
+                      select docls.longname,
+                             (case
+                               when not v.indate is null and
+                                    not v2.indate is null and
+                                    v.indate > v2.indate or
+                                    not v.indate is null then
+                                v.Dec_Id
+                               else
+                                v2.Dec_Id
+                             end) as Dec_Id
+                        from (select l.*,
+                                     (select max(v.NVER)
+                                        from T_DOCCLIVER v
+                                       where v.ID = L.ID_CLI
+                                         and v.NORD = l.NORD_CLI
+                                         and ARCFL = '0'
+                                         and (v.Ddo_Id in
+                                             (select s.ddo_id
+                                                 from t_docrefset s,
+                                                      t_docdos    d,
+                                                      t_doclst    ls
+                                                where d.ID = ls.ID
+                                                  and s.DDD_ID = d.DDD_ID
+                                                  and l.DRF_ID = s.ID
+                                                  and l.ID = ls.ID
+                                                  and l.NORD = ls.NORD) and
+                                             v.INDATE =
+                                             (select max(INDATE)
+                                                 from T_DOCCLIVER
+                                                where ID = v.ID
+                                                  and NORD = v.NORD
+                                                  and ARCFL = '0') or
+                                             l.DRF_ID is null)) as MAXNVER2,
+                                     (select max(v.NVER)
+                                        from T_DOCCLIVER v
+                                       where v.ID = L.ID
+                                         and v.NORD = l.NORD
+                                         and ARCFL = '0'
+                                         and (v.Ddo_Id in
+                                             (select s.ddo_id
+                                                 from t_docrefset s,
+                                                      t_docdos    d,
+                                                      t_doclst    ls
+                                                where d.ID = ls.ID
+                                                  and s.DDD_ID = d.DDD_ID
+                                                  and l.DRF_ID = s.ID
+                                                  and l.ID = ls.ID
+                                                  and l.NORD = ls.NORD) and
+                                             v.INDATE =
+                                             (select max(INDATE)
+                                                 from T_DOCCLIVER
+                                                where ID = v.ID
+                                                  and NORD = v.NORD
+                                                  and ARCFL = '0') or
+                                             l.DRF_ID is null)) as MAXNVER
+                                from (select 0 CLIFL, t.id
+                                        from T_DOCDOS t
+                                       where t.DEP_ID = nDepId
+                                         and t.ORD_ID = nId
+                                      union all
+                                      select 1 CLIFL, t.id
+                                        from T_DOCDOS t
+                                       where (t.DEP_ID, t.ORD_ID) in
+                                             (select g.DEP_ID, g.ORD_ID
+                                                from G_CLI g, T_DEA d
+                                               where d.DEP_ID = nDepId
+                                                 and d.ID = nId
+                                                 and g.DEP_ID = d.CLI_DEP_ID
+                                                 and g.ID = d.CLI_ID)) ds,
+                                     T_DOCLST L,
+                                     T_DOCREFDSC r,
+                                     T_DEADOC_STD dd,
+                                     T_DOCLSTSTOR s
+                               where (ds.CLIFL = 0 or
+                                     (ds.CLIFL = 1 and l.ARCFL = '0' and
+                                     dd.DOSSIEFL = '1'))
+                                 and (c_fprm('DOCDOS_DOCCLIFL') = '1' or
+                                     dd.id in
+                                     (select ddo_id from t_docrefset))
+                                 and l.id_cli is null
+                                 and l.ID = ds.ID
+                                 and r.id(+) = l.drf_id
+                                 and s.ID(+) = nvl(L.ID_CLI, L.ID)
+                                 and s.NORD(+) = nvl(L.NORD_CLI, L.NORD)
+                                 and s.DDO_ID(+) = L.DDO_ID
+                                 and dd.ID(+) = l.ddo_id
+                                 and l.Drp_Id is null) Docls,
+                             T_DOCCLIVER v,
+                             T_DOCECPY e,
+                             T_DOCECPY e2,
+                             T_DOCCLIVER v2
+                       where Docls.ID_CLI = v2.Id(+)
+                         and Docls.NORD_CLI = v2.NORD(+)
+                         and Docls.MAXNVER2 = v2.Nver(+)
+                         and Docls.ID = v.Id(+)
+                         and Docls.NORD = v.NORD(+)
+                         and Docls.MAXNVER = v.Nver(+)
+                         and e.id(+) = v.Dec_ID
+                         and e2.id(+) = v2.Dec_ID
+                         and C_PkgGrant.fChkDeaDoc(Docls.ID, Docls.NORD, 1) = 1) t
+                join T_DOCECPY d
+                  on d.id = t.dec_id)
+    loop
+      vFile := new json_object_t();
+      vFile.put('dec_id', r.dec_id);
+      vFile.put('longname', r.longname);
+
+      vList.append(vFile);
+    end loop;
+
+    oResult := vList.To_Clob();
+  end;
+
+  -- Получение данных договора
+  procedure pGetLoanData(nDepId  in number,
+                         nId     in number,
+                         oResult out clob) is
+    vData         json_object_t;
+    sParticipants varchar2(500);
+  begin
+    C_PKGCONNECT.pOpen();
+
+    vData := new json_object_t();
+
+    for r in (select cv.CLINAME as client, -- Ф.И.О.
+                     cv.PASSSER || cv.PASSNUM as passport, -- серия и номер паспорта
+                     --                        cv.PASSSER as pass_serial, -- серия паспорта
+                     --                        cv.PASSNUM as pass_number, -- номер паспорта
+                     cv.pinfl, -- ПИНФЛ
+                     to_char(cv.PASSDAT, 'dd.mm.yyyy') as pass_date, -- дата выдачи
+                     --                        cv.passorg, -- а также кем был выдан
+                     to_char(cv.CLIBIRDATE, 'dd.mm.yyyy') as birthdate, -- Дата рождения
+                     cv.SCLIADDR as address, -- Адрес места жительства
+                     cv.SCLIADDR_LIVE as live_address,
+                     td.SDOK as loan_amount, -- сумма кредита
+                     T_PkgArl.fPcnValByArlAlias(td.DEP_ID,
+                                                td.ID,
+                                                'INTEREST',
+                                                P_OPERDAY,
+                                                1) as loan_percent, -- процентная ставка по кредиту
+                     (case
+                       when p.ID is not null then
+                        T_PkgDeaPer.fPerMonths(d.PRD_ID)
+                       when p.ID is null then
+                        round(months_between(td.TODATE, td.FROMDATE))
+                     end) as loan_duration, -- срок кредитования
+                     to_char(o.DORD, 'dd.mm.yyyy') as dea_date, -- дата
+                     o.code as dea_code, -- номер подписания кредитного договора
+                     nvl(L_PKGDEAUNIREF.fGetDeaRefValCode(d.DEP_ID,
+                                                          d.ID,
+                                                          U_PKGUNIREF.fRefCode2Id('UZ_VIDCRED')),
+                         L_PKGDEAUNIREF.fGetClsRefValCode(td.dcl_id,
+                                                          U_PKGUNIREF.fRefCode2Id('UZ_VIDCRED'))) as loan_type,
+                     --                        (select dd.LONGNAME from t_deacls dd where dd.ID = td.dcl_id) as product_name, -- название кредитного продукта
+                     nvl(t_pkgdeaprm.fParByCode(d.ID, d.DEP_ID, 'LPAYDAY'),
+                         t_pkgdeaprm.fParByCode(d.ID, d.DEP_ID, 'LPAYDAYOD')) as payday, -- число месяца в которой производится ежемесячная выплата
+                     to_char(td.TODATE, 'dd.mm.yyyy') as loan_end_date, -- дата полного погашения кредита
+                     --                        (select sum(SUM_PRC)
+                     --                           from APR_CALCFLOW
+                     --                          where (ID, NJRN) = any
+                     --                          (select min(ID), min(NJRN) from L_APRRECALC where ID = m.ID)
+                     --                            and SUM_OD > 0) as NPRC, -- сумма выплат по процентам кредита
+                     --                        ch.ADDRESS as bank_adr, -- Адрес банка
+                     --                        '10301000100000401001' as SPC, -- расчётный счёт
+                     --                        c_pkgDep.fGetCodeDep(td.SRV_DEP_ID) as DEPCODE, -- МФО
+                     --                       '200829053' as SINN, -- ИНН
+                     G_pkgCli.fGetCliLongName(a1.PRSDEP_ID, a1.PRS_ID) as dep_boss, -- Ф.И.О. директора центра
+                     --                        c_pkgDep.fGetNameDep(td.SRV_DEP_ID) as DEPNAME, -- Название центра
+                     --                        a1.NUM, -- номер выдачи доверенности
+                     to_char(a1.BEGDATE, 'dd.mm.yyyy') as BEGDATE -- дата выдачи доверенности
+                from T_PROCMEM m,
+                     (select DEP_ID, ID, PRD_ID, PUR_ID
+                        from L_DEA
+                      union all
+                      select DEP_ID, ID, PRD_ID, PUR_ID
+                        from L_LDEA) d,
+                     T_ORD o,
+                     T_DEA td,
+                     G_CLI c,
+                     G_CLIHST ch,
+                     table(G_PKGCLIAUTHPRS.fGetAuthPrsTbl(c.DEP_ID,
+                                                          c.ID,
+                                                          C_SIGN_CHEEF)) A1,
+                     T_DEAPRD p,
+                     LV_RPTUZLN_CLI cv
+               where m.DEP_ID = d.DEP_ID
+                 and m.ORD_ID = d.ID
+                 and m.MAINFL = '1'
+                 and c.DEPCRD_ID = td.SRV_DEP_ID
+                 and o.DEP_ID = d.DEP_ID
+                 and o.ID = d.ID
+                 and td.DEP_ID = d.DEP_ID
+                 and td.ID = d.ID
+                 and p.ID(+) = d.PRD_ID
+                 and c.ID = ch.ID
+                 and c.DEP_ID = ch.DEP_ID
+                 and P_OPERDAY between ch.FROMDATE and ch.TODATE
+                 and A1.DEP_ID(+) = c.DEP_ID
+                 and A1.ID(+) = c.ID
+                 and cv.CLI_DEP_ID(+) = td.CLI_DEP_ID
+                 and cv.CLI_ID(+) = td.CLI_ID
+                 and d.dep_id = nDepId
+                 and d.id = nId
+                 and rownum = 1)
+    loop
+      sParticipants := r.client;
+      vData.put('loan_type', r.loan_type); -- MANDATORY FIELD
+      vData.put('client', r.client);
+      vData.put('passport', r.passport);
+      vData.put('pinfl', r.pinfl);
+      vData.put('pass_date', r.pass_date);
+      vData.put('birthdate', r.birthdate);
+      vData.put('address', r.address);
+      vData.put('live_address', r.live_address);
+      vData.put('loan_amount', r.loan_amount);
+      vData.put('loan_percent', r.loan_percent);
+      vData.put('loan_duration', r.loan_duration);
+      vData.put('dea_date', r.dea_date);
+      vData.put('dea_code', r.dea_code);
+      vData.put('payday', r.payday);
+      vData.put('loan_end_date', r.loan_end_date);
+      vData.put('dep_boss', r.dep_boss);
+    end loop;
+
+    for r in (select c.CLINAME, -- Ф.И.О.
+                     rownum as rn, -- TODO: temporary
+                     c.PASSSER || c.PASSNUM as PASSPORT, -- серия и номер паспорта
+                     to_char(c.PASSDAT, 'dd.mm.yyyy') as PASSDAT, -- дата выдачи
+                     c.PASSORG, -- а также кем был выдан
+                     to_char(c.CLIBIRDATE, 'dd.mm.yyyy') as CLIBIRDATE, -- Дата рождения
+                     c.PINFL -- ПИНФЛ
+                from M_DEAPRS o, LV_RPTUZLN_CLI c
+               where o.PRSDEP_ID = c.CLI_DEP_ID
+                 and o.PRS_ID = c.CLI_ID
+                 and o.DEP_ID = nDepId
+                 and o.ID = nId
+                 and (G_PKGCLIROLE.fIsSetRole(o.ROLES, 'DBT') = 1 or
+                     G_PKGCLIROLE.fIsSetRole(o.ROLES, 'CODBT') = 1)
+                 and o.ARESTFL <> '1')
+    loop
+      sParticipants := sParticipants || ', ' || r.cliname;
+
+      if r.rn = 1 then
+        vData.put('co-borrowers', r.cliname);
+        vData.put('co-borrowers_passport', r.passport);
+        vData.put('co-borrowers_pass_date', r.passdat);
+      end if;
+    end loop;
+
+    for r in (select c.CLINAME, -- Ф.И.О.
+                     rownum as rn, -- TODO: temporary
+                     c.PASSSER || c.PASSNUM as PASSPORT, -- серия и номер паспорта
+                     to_char(c.PASSDAT, 'dd.mm.yyyy') as PASSDAT, -- дата выдачи
+                     c.PASSORG, -- а также кем был выдан
+                     to_char(c.CLIBIRDATE, 'dd.mm.yyyy') as CLIBIRDATE, -- Дата рождения
+                     c.PINFL -- ПИНФЛ
+                from l_mrtdea md
+                join l_mortgage m
+                  on m.dep_id = md.mrt_dep_id
+                 and m.id = md.mrt_id
+                 and m.ens_id = (select id from l_ensdsc where code = '41')
+                join lv_rptuzln_cli c
+                  on c.cli_dep_id = md.cli_dep_id
+                 and c.cli_id = md.cli_id
+               where md.dea_dep_id = nDepId
+                 and md.dea_id = nId)
+    loop
+      sParticipants := sParticipants || ', ' || r.cliname;
+
+      if r.rn = 1 then
+        vData.put('guarantors', r.cliname);
+        vData.put('guarantors_passport', r.passport);
+        vData.put('guarantors_pass_date', r.passdat);
+      end if;
+    end loop;
+
+    vData.put('participants', sParticipants);
+
+    oResult := vData.To_Clob();
+  end;
+
+end Z_116_PKG_DOCUMENT_ANALYZE;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_OPERATION"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="LV_RPTUZLN_CLI"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_ENSDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_LDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MORTGAGE"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_MRTDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="M_DEAPRS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEACLS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEADOC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEAPRD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCCLIVER"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCDOS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCECPY"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCFRMVER"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCLST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCLSTSTOR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCREFDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCREFSET"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DOCRPTDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_SCEN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_SCEN_VRF"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="C_FPRM"/>
+    </PKGDPNFNC>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGGRANT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIAUTHPRS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIROLE"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGDEAUNIREF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPER"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="U_PKGUNIREF"/>
+    </PKGDPNPKG>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="G_CLIPRS_NSIGN"/>
+    </PKGDPNDOM>
+  </PKG>
+</DDC>

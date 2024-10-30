@@ -1,0 +1,469 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGLOANNTF" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="36B5F5DBE87D05E2853E34541BDF27D0">
+  <PKG 
+    NAME="Z_116_PKGLOANNTF">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGLOANNTF is
+
+/**
+* Методы обработки межмодульных сообщений кредитного модуля
+*
+* @author Бондаренко Анатолий
+* @version 1.0
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+  /** Функция-селектор - проверка необходимости обработки проводки по карточному счету кредитной карты
+  * @param lsKey набор значений для параметров
+  * @param cNTF ММС (код)
+  * @param cRCV Получатель (код)
+  * @param idProc Процесс получателя (если известен)
+  * @return признак необходимости обработки (1-необходимо обработать; 0-пропустить)
+  */
+  function fChkPostCC(lsKey in C_PkgStr.TPrmTBlLst
+                    ,cNTF in varchar2
+                    ,cRCV in varchar2
+                    ,idProc in number
+                  ) return integer;
+
+  /** Обработка проводки по карточному счету кредитной карты
+  * <br/><i>С версии 1.0</i>
+  * @param rHdr заголовок сообщения
+  * @param lsKey набор значений для параметров
+  * @param idProc Процесс получателя (если известен)
+  * @param iNJrn номер по журналу процесса отправителя
+  * @param cErrMsg Процесс отправител
+  * @return признак обработки
+  */
+  function fPostCC(
+     rHdr C_PkgNtf.TMsgHdr
+    ,lsKey in C_PkgStr.TPrmTBlLst
+    ,idProc in out number
+    ,iNJrn out number
+    ,cErrMsg out varchar2
+  ) return integer;
+
+  /** Перекрытие красного сальдо по счету кредитной карты за счет ссудной задолженности
+  * <br/><i>С версии 1.0</i>
+  * @param rHdr заголовок сообщения
+  * @param lsKey набор значений для параметров
+  * @param idProc Процесс получателя (если известен)
+  * @param iNJrn номер по журналу процесса отправителя
+  * @param cErrMsg Процесс отправител
+  * @return признак обработки
+  */
+  function fDoRSPay(
+     rHdr C_PkgNtf.TMsgHdr
+    ,lsKey in C_PkgStr.TPrmTBlLst
+    ,idProc in out number
+    ,iNJrn out number
+    ,cErrMsg out varchar2
+  ) return integer;
+
+end Z_116_PKGLOANNTF;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGLOANNTF is
+
+  PKG             constant varchar2(32) := 'PKG';
+  PKG_CODE        constant varchar2(50)  := 'Z_116_PKGLOANNTF';
+  idBopCrdtrn     T_BOP_DSCR_STD.ID%type := bs_bop.fGetBopId('CRDTRN');
+
+  type rTrnInf is record(
+    ID         t_trndtl.id%type,             -- проводка в АБС
+    NORD       t_trndtl.nord%type,           -- Номер проводки
+    DOPER      date,                         -- Дата проводки
+    SDOK       number(18,2),                 -- Сумма проводки
+    --NATSDOK    number(18,2),                 -- Сумма проводки в нац валюте
+    --SDOK2      number(18,2),                 -- Сумма проводки 2
+    VAL_ID     t_val.ID%type,                -- Валюта проводки
+    DEA_DEP_ID T_DEA.DEP_ID%type,            -- идентификатор подразделения договора СКС
+    DEA_ID     T_DEA.ID%type,                -- идентификатор договора СКС
+    TRN_ID     N_CRDINTRN.ID%type,           -- транзакция из ПЦ
+    DTRN       N_CRDINTRN.TRN_DATE%type,
+    MCC        N_CRDINTRN.MCC_CODE%type,
+    TRNTYPE    N_CRDINTRN.TRN_TYPE%type,
+    CARDNO     N_CRDINTRN.CARD_NO%type,
+    MERCH      N_CRDINTRN.Merch_Num%type,
+    CARDIDN    N_CRDINTRN.Cardidn%type,
+    TERMID     N_CRDINTRN.Term_Id%type,
+    CARDACC    N_CRDINTRN.Card_Acc%type
+
+  /*  DOPER date,         -- Дата проводки
+    SDOK number(18,2),  -- Сумма проводки
+    SDOK2 number(18,2), -- Сумма проводки 2
+    VAL_ID integer,     -- Валюта
+
+    BOP_ID integer,    -- Сценарий документа
+    PROC_ID integer,   -- Процесс документа
+    NJRN integer,      -- Журнал документа
+    RUN_ID integer,    -- Журнал отката операции
+
+    DSCR varchar2(500), -- описание операции
+
+    DB_DEP_ID number(10),
+    DB_ACC_ID number(10),
+    DB_DEA_DEP_ID number(10),
+    DB_DEA_ID number(10),
+    DB_CLI_DEP_ID number(10),
+    DB_CLI_ID number(10),
+
+    CR_DEP_ID number(10),
+    CR_ACC_ID number(10),
+    CR_DEA_DEP_ID number(10),
+    CR_DEA_ID number(10),
+    CR_CLI_DEP_ID number(10),
+    CR_CLI_ID number(10)*/
+  );
+
+  -- Подтвержденные проводки по счету кред карты
+  type tTrnInf is table of rTrnInf index by varchar2(15 char);
+  tblTrn tTrnInf;
+
+  -- Функция-селектор - проверка необходимости обработки проводки по карточному счету кредитной карты
+  function fChkPostCC(lsKey in C_PkgStr.TPrmTBlLst
+                      ,cNTF in varchar2
+                      ,cRCV in varchar2
+                      ,idProc in number
+                    ) return integer is
+
+    rInf            rTrnInf;
+    iCnt            integer;
+    idChildProc     T_PROCESS.ID%type;
+    idParentProc    T_PROCESS.ID%type;
+  begin
+    if t_log.IsEnabled then
+      t_log.debug('Проверка проводки по счету кредитной карты:', sType=>PKG, sCode=>PKG_CODE);
+    end if;
+
+    -- Обрабатываем только проводки по балансовым счетам
+    if C_PkgNtf.fGetAttr(lsKey,'TRNTYP') <> C_JRN_ACCBLN then
+      return 0;
+    end if;
+
+    rInf.ID   := C_PkgNtf.fGetAttr(lsKey,'ID');
+    rInf.NORD := C_PkgNtf.fGetAttr(lsKey,'NORD');
+
+    -- Исключаем переоценку
+    select count(t.id) into iCnt
+      from t_trndtl t
+      where t.id = rInf.ID and t.nord = rInf.NORD
+        and nvl(t.sdok,0) = 0 and t.nat_sdok <> 0
+        and nvl(t.val_id,p_natval) <> p_natval;
+    if iCnt > 0 then
+      if t_log.IsEnabled then
+        t_log.debug('  Проводка переоценки, пропускаем.', sType=>PKG, sCode=>PKG_CODE);
+      end if;
+      return 0;
+    end if;
+
+    -- Проверим, что транзакция не является отложенной
+    begin
+      select ID into idChildProc
+        from T_OPERJRN
+        where TRA_ID=rInf.ID;
+    exception
+      when NO_DATA_FOUND then
+        t_log.debug('  Отложенная проводка, пропускаем', sType=>PKG, sCode=>PKG_CODE);
+        return 0;
+    end;
+
+    -- Проверим, что транзакция инициирована при загрузке операций по нашим картам
+    begin
+      select p.id into idParentProc --count(1) into iCnt
+        from T_PROCESS p, T_PROCINH pi
+          where p.ID = pi.PARENT_ID
+            and p.BOP_ID = idBopCrdtrn
+            start with pi.CHILD_ID = idChildProc
+            connect by prior pi.PARENT_ID = pi.CHILD_ID;
+    exception
+      when NO_DATA_FOUND then
+        if t_log.IsEnabled then
+          t_log.debug('  Проводка инициирована не при загрузке операций по картам, пропускаем.', sType=>PKG, sCode=>PKG_CODE);
+        end if;
+        return 0;
+    end;
+
+    -- информация по проводке в АБС
+    begin
+      select td1.sdok, td1.val_id, td1.doper
+        into rInf.SDOK, rInf.VAL_ID, rInf.DOPER
+            from t_trndtl td1
+              where td1.id = rInf.ID and td1.nord = rInf.NORD and td1.incomfl = '1';
+    exception
+      when NO_DATA_FOUND then
+        if t_log.IsEnabled then
+          t_log.debug('  Проводка не найдена, пропускаем.', sType=>PKG, sCode=>PKG_CODE);
+        end if;
+        return 0;
+    end;
+
+    -- проверим, что это транзакция оплаты с кредитной карты
+    begin
+      select --count(1) into iCnt
+             d.dea_dep_id, d.dea_id, c.id, c.trn_date, c.mcc_code, c.trn_type, c.card_no, c.merch_num, c.cardidn, c.term_id, c.card_acc
+        into rInf.DEA_DEP_ID, rInf.DEA_ID, rInf.TRN_ID, rInf.DTRN, rInf.MCC, rInf.TRNTYPE, rInf.CARDNO, rInf.MERCH, rInf.CARDIDN, rInf.TERMID, rInf.CARDACC
+        from T_PROCESS p, T_PROCMEM pm, N_TRNOPR o, N_CRDINTRN c
+                , N_CRD nc, T_DEA d
+          where p.id = pm.id and pm.mainfl = '1'
+            and p.id = idParentProc
+            and pm.DEP_ID = o.DEP_ID and pm.ORD_ID = o.ID
+            and o.TRN_ID = c.ID
+            and c.debfl = '1' and c.reversfl = '0'  -- дебет, прямая транзакция
+            and c.cardidn = nc.cardidn
+            and nc.dep_id = d.dep_id and nc.id = d.id
+            and nvl(t_pkgdeaprm.fParByCode(d.dea_id, d.dea_dep_id, 'Z_116_CRDLOANFL'), '0') = '1';
+/*    if iCnt > 0 then
+      if t_log.IsEnabled then
+        t_log.debug('  Проводка по счету кредитной карты не подтверждена.', sType=>PKG, sCode=>PKG_CODE);
+      end if;
+      return 0;
+    end if;  */
+    exception
+      when NO_DATA_FOUND then
+        if t_log.IsEnabled then
+          t_log.debug('  Проводка по счету кредитной карты не подтверждена.', sType=>PKG, sCode=>PKG_CODE);
+        end if;
+        return 0;
+    end;
+
+    if t_log.IsEnabled then
+      t_log.debug('  Проводка по счету кредитной карты подтверждена.', sType=>PKG, sCode=>PKG_CODE);
+    end if;
+
+    tblTrn(rInf.ID) := rInf;
+    return 1;
+
+  end fChkPostCC;
+
+  -- Обработка проводки по карточному счету кредитной карты
+  function fPostCC(
+     rHdr C_PkgNtf.TMsgHdr
+    ,lsKey in C_PkgStr.TPrmTBlLst
+    ,idProc in out number
+    ,iNJrn out number
+    ,cErrMsg out varchar2
+  ) return integer is
+    rInf   rTrnInf;
+    lsPrm  C_PkgStr.TPrmTBlLst;
+  begin
+    if t_log.IsEnabled then
+      t_log.debug('Обработка проводки по счету кредитной карты:', sType=>PKG, sCode=>PKG_CODE);
+    end if;
+    rInf.ID   := C_PkgNtf.fGetAttr(lsKey,'ID');
+    rInf.NORD := C_PkgNtf.fGetAttr(lsKey,'NORD');
+
+    if not tblTrn.exists(rInf.ID) then
+      if t_log.IsEnabled then
+        t_log.debug('  Транзакции %0:s нет среди подтвержденных', vargs(rInf.ID), sType=>PKG, sCode=>PKG_CODE);
+      end if;
+      return 1;
+    end if;
+
+    rInf := tblTrn(rInf.ID);
+
+    -- Формируем асинхронное сообщение по перекрытию красного сальдо по счету кредитной карты за счет ссудной задолженности
+    C_PkgStr.pSetPrm(lsPrm, 'DEP_ID', rInf.DEA_DEP_ID);
+    C_PkgStr.pSetPrm(lsPrm, 'DEA_ID', rInf.DEA_ID);
+    C_PkgStr.pSetPrm(lsPrm, 'TRN_ID', rInf.TRN_ID);
+    C_PkgStr.pSetPrm(lsPrm, 'SDOK', T_PKGMONEY.fNumber2Canonical(rInf.SDOK));
+    C_PkgStr.pSetPrm(lsPrm, 'VAL_ID', rInf.VAL_ID);
+    C_PkgStr.pSetPrm(lsPrm, 'DOPER', rInf.DOPER);
+    C_PkgStr.pSetPrm(lsPrm, 'TRN_TYPE', rInf.TRNTYPE);
+    C_PkgStr.pSetPrm(lsPrm, 'DTRN', rInf.DTRN);
+    C_PkgStr.pSetPrm(lsPrm, 'CARDNO', rInf.CARDNO);
+    C_PkgStr.pSetPrm(lsPrm, 'MCC', rInf.MCC);
+    C_PkgStr.pSetPrm(lsPrm, 'TERM_ID', rInf.TERMID);
+    C_PkgStr.pSetPrm(lsPrm, 'CARDACC', rInf.CARDACC);
+
+    C_PkgNtf.PostRow('Z_116_CREDCRD.RSPAY', 'ANY', lsPrm);
+
+    if t_log.IsEnabled then
+      t_log.debug('Обработка проводки окончена', sType=>PKG, sCode=>PKG_CODE);
+    end if;
+
+    tblTrn.delete(rInf.ID);
+    return 1;
+
+  end fPostCC;
+
+  -- Перекрытие красного сальдо по счету кредитной карты за счет ссудной задолженности
+  function fDoRSPay(
+     rHdr C_PkgNtf.TMsgHdr
+    ,lsKey in C_PkgStr.TPrmTBlLst
+    ,idProc in out number
+    ,iNJrn out number
+    ,cErrMsg out varchar2
+  ) return integer is
+    idDep     T_DEA.DEP_ID%type;
+    idDea     T_DEA.ID%type;
+    nSDok     number(18,2);
+    idVal     t_ord.val_id%Type;
+    dTrn      date;
+    dOper     date;
+    nTrnId    N_CRDINTRN.ID%type;
+    cTrnType  N_CRDINTRN.TRN_TYPE%type;
+    cMcc      N_CRDINTRN.Mcc_Code%type;
+    cCardNo   N_CRDINTRN.Card_No%type;
+    cTermId   N_CRDINTRN.TERM_ID%type;
+    cAccCode  N_CRDINTRN.Card_Acc%type;
+    Lst       C_PkgDecTbl.tNamedAttrList;
+    sValue    varchar2(30);
+  begin
+    if t_log.IsEnabled then
+      t_log.debug('Перекрытие красного сальдо по счету кредитной карты', sType=>PKG, sCode=>PKG_CODE);
+    end if;
+
+    idDep := C_PkgNtf.fGetAttr(lsKey,'DEP_ID');
+    idDea := C_PkgNtf.fGetAttr(lsKey,'DEA_ID');
+    nSDok := T_PKGMONEY.fCanonical2Number(C_PkgNtf.fGetAttr(lsKey,'SDOK'));
+    idVal := C_PkgNtf.fGetAttr(lsKey,'VAL_ID');
+
+    nTrnId   := C_PkgNtf.fGetAttr(lsKey,'TRN_ID');
+    cTrnType := C_PkgNtf.fGetAttr(lsKey,'TRN_TYPE');
+    dOper := C_PkgNtf.fGetAttr(lsKey,'DOPER');
+    dTrn  := C_PkgNtf.fGetAttr(lsKey,'DTRN');
+    cMcc  := C_PkgNtf.fGetAttr(lsKey,'MCC');
+    cCardNo  := C_PkgNtf.fGetAttr(lsKey,'CARDNO');
+    cTermId  := C_PkgNtf.fGetAttr(lsKey,'TERM_ID');
+    cAccCode := C_PkgNtf.fGetAttr(lsKey,'CARDACC');
+
+    -- по ТР определим тип транзакции - нал/безнал/иное (реверс и т.п.)
+    C_PkgDecTbl.pAddName(Lst, 'TRN_TYPE', cTrnType);
+    sValue := C_PkgDecTbl.fDecision('Z_116_CREDCRDTT', Lst);
+    if t_log.IsEnabled then
+      t_log.debug('  Тип транзакции %0:s, решение по ТР Z_116_CREDCRDTT: %1:s', vargs(cTrnType, sValue), sType=>PKG, sCode=>PKG_CODE);
+    end if;
+
+    if sValue is null then
+      cErrMsg := localfrmt('Неизвестный тип транзакции: %0:s, необходимо настроить ТР Z_116_CREDCRDTT!', vargs(cTrnType), PKG, PKG_CODE);
+      return 2;
+    end if;
+
+    -- открытие кредитного лимита
+    if T_PkgRunOprUtl.fOprAvailable(idDep, idDea, 'Z_116_CREDLINE') > 1 then
+      T_PkgRunOprUtl.pRunOprByMainOrd(idDep, idDea, 'Z_116_CREDLINE',
+          'DATE_OPER=>'||dOper||
+          --',RUNOPERJRN=>'||idRun||
+          ',AMOUNT=>'||nSDok||',VAL_CODE=>'||t_pkgval.fGetCode(idVal)||
+          ',ACC_CODE=>'||cAccCode||',TTFL=>'||sValue
+        );
+    else
+      if t_log.IsEnabled then
+        t_log.debug('  Ошибка: операция "Открытие кредитного лимита" не доступна.', sType=>PKG, sCode=>PKG_CODE);
+      end if;
+      cErrMsg := Localize('Операция "Открытие кредитного лимита" не доступна.', PKG, PKG_CODE);
+      return 2;
+    end if;
+
+    return 1;
+  end fDoRSPay;
+
+end Z_116_PKGLOANNTF;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_BOP"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDINTRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_TRNOPR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_DSCR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCINH"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNDTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_VAL"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_NATVAL"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDECTBL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGNTF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGSTR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGMONEY"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGRUNOPRUTL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PKGDPNPKG>
+    <PKGDPNDOM>
+      <LINK:DOM 
+        REF_NAME="T_TRNDTL_DET"/>
+    </PKGDPNDOM>
+  </PKG>
+</DDC>

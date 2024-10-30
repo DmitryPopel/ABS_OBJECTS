@@ -1,0 +1,378 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKGAPR" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="CE18494A8637D1D075A7CE636C5FE1FC">
+  <PKG 
+    NAME="Z_116_PKGAPR">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKGAPR is
+/**
+* Пакет для кастомного функционала 116 по расчету ЭПС
+*
+* @author Анатолий Бондаренко
+* @version 4.0
+* @headcom
+*
+* Copyright (c) 2024 By Aloqabank. All Rights Reserved.
+*/
+
+  /** Расчет значения ЭПС по заполненным потокам
+  * @param nPROC_ID идентифиактор процесса документа
+  * @param nNJRN номер по журналу операции с расчетом графика
+  * @param fAprPrc значение ЭПС
+  */
+  procedure pGetCalcApr(
+    nPROC_ID in T_PROCESS.ID%type,
+    nNJRN    in T_OPERJRN.Njrn%type,
+    fAprPrc  out float
+  );
+
+  /** Заполнение потоков по рассрочке
+  * <br/><i>Появилась в 2.0</i>
+  * @param nPROC_ID Идентификатор процесса
+  * @param nNJRN Номер операции по журналу
+  * @param dOp Дата
+  * @param cFullCalcFl Признак полного расчета
+  */
+  procedure pAprFillRass(
+    nPROC_ID in integer,
+    nNJRN in integer,
+    dOp in date default p_operday,
+    cFullCalcFl in char default '1'
+  );
+
+  /** Обработка ММС по автоматическому пересчету ЭПС (LOAN.APRCLC)
+  * <br/><i>Появилась в 3.0</i>
+  * @param rHdr Заголовок сообщения
+  * @param lsKey Список ключевых атрибутов
+  * @param idProc Процесс-получатель
+  * @param iNJrn Номер по журналу, если выполняется операция
+  * @param cErrMsg Сообщение, если обработано с ошибкой
+  * @return 0-не обработано, 1-успешно обработано, 2-ошибка обработки
+  */
+  function fAprReCalc(
+    rHdr C_PkgNtf.TMsgHdr,
+    lsKey in C_PkgStr.TPrmTBlLst,
+    idProc in out number,
+    iNJrn out number,
+    cErrMsg out varchar2
+  ) return integer;
+
+
+  /** Селектор ММС по автоматическому пересчету ЭПС (LOAN.APRCLC)
+  * <br/><i>Появилась в 4.0</i>
+  * @param lsKey Список ключевых атрибутов
+  * @param cNTF Код формата
+  * @param cRCV Код получателя
+  * @param idProc Процесс-получатель
+  * @return 0-не обрабатывать, 1-необходимо обработать
+  */
+  function fSelectAprReCalc
+  ( lsKey in C_PkgStr.TPrmTBlLst
+  , cNTF in varchar2
+  , cRCV in varchar2
+  , idProc in number
+  ) return integer;
+
+end Z_116_PKGAPR;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKGAPR is
+
+  -- построение структуры с потоками данных
+  function fBuildCF(nPROC_ID in integer, nNJRN in integer) return L_PkgApr.TblCashFlow as
+    aCashFlow L_PkgApr.TblCashFlow;
+    i integer := 0;
+  begin
+    for rec in (select AMOUNT, DAYCNT, DOPER from APR_CALCFLOW
+      where ID = nPROC_ID and NJRN = nNJRN
+      order by DOPER
+    ) loop
+      aCashFlow(i).iPer := i;
+      aCashFlow(i).dDop := rec.DOPER;
+      aCashFlow(i).nAmount := rec.AMOUNT;
+      aCashFlow(i).fDayCnt := rec.DAYCNT;
+      i := i + 1;
+    end loop;
+    return aCashFlow;
+  end;
+
+  -- Расчет значения ЭПС по заполненным потокам
+  procedure pGetCalcApr(
+    nPROC_ID in T_PROCESS.ID%type,
+    nNJRN    in T_OPERJRN.Njrn%type,
+    fAprPrc  out float
+  ) is
+    nSumPrc      number(18,2);
+    nSumCms      number(18,2);
+    nSumAdd      number(18,2);
+    nSumPay      number(18,2);
+    nDeaDepId    T_DEA.DEP_ID%type;
+    nDeaId       T_DEA.ID%type;
+    i            pls_integer;
+    nPcnId       T_PCN.ID%type;
+    fPcn         float;
+  begin
+    -- посчитаем обязательные платежи по договору по потокам
+    select nvl(sum(a.sum_prc),0), nvl(sum(a.sum_cms),0), nvl(sum(a.sum_pay),0)
+      into nSumPrc, nSumCms, nSumPay
+      from APR_CALCFLOW a where a.id = nPROC_ID and a.njrn = nNJRN;
+    -- посчитаем платежи третьим сторонам
+    i := t_pkgprocess.fGetMainOrdById(nPROC_ID, nDeaDepId, nDeaId);
+    if i = 1 then
+      select nvl(sum(nvl(t.sdokval, t.sdok)),0)
+        into nSumAdd
+        from APR_THIRDPAYMENTS t where t.dep_id = nDeaDepId and t.dea_id = nDeaId;
+      begin
+        Select PCN_ID into nPcnId
+          from TV_ARLDEA a where a.DEP_ID = nDeaDepId and a.ORD_ID = nDeaId and  a.ALIAS = 'INTEREST';
+      exception
+        when no_data_found then
+          nPcnId := null;
+      end;
+
+      if nPcnId is null then
+        fPcn := L_PkgAprSetClc.fGetPcnDea(nDeaDepId, nDeaId);
+      else
+        fPcn := T_PkgArl.fPcnVal(nDeaDepId, nDeaId, nPcnId);
+      end if;
+
+      -- расчет ЭПС
+      fAprPrc := (nSumPrc + nSumCms + nSumPay + nSumAdd) * (fPcn/100)/nSumPrc;
+    else
+      t_log.debug('Z_116_PKGAPR.pGetCalcApr. Договор процесса %0:s не найден.', vargs(nPROC_ID), 'PKG', 'Z_116_PKGAPR');
+      return;
+    end if;
+
+  end pGetCalcApr;
+
+  -- Заполнение потоков
+  procedure pAprFillRass(
+    nPROC_ID in integer,
+    nNJRN in integer,
+    dOp in date default p_operday,
+    cFullCalcFl in char default '1'
+  ) as
+    sArlName T_ARLDSC.LONGNAME%type;
+    nPntId T_DEASHDPNT.ID%type;
+    idDep T_OPERJRN.DEP_ID%type;
+    idDea T_OPERJRN.ORD_ID%type;
+  begin
+    if cFullCalcFl <> '1' then
+      select j.DEP_ID, j.ORD_ID into idDep, idDea from T_OPERJRN j
+      where j.ID = nPROC_ID and j.NJRN = nNJRN;
+      select a.LONGNAME into sArlName from TV_ARLDEA a
+              where a.ALIAS = 'COM_RASS' and a.DEP_ID = idDep and a.ORD_ID = idDea;
+      T_PkgArlClc.pUpdDeaShdPnt(nPntId, sArlName, dOp, t_pkgdeaacc.fDeaAccBal(idDep, idDea, 'CR_COMIS_AC', dop => dOp), 't_ds_hand', null, nPROC_ID, nNJRN);
+    end if;
+
+    L_PKGAPRSETCLC.pAprFill(nPROC_ID,nNJRN,dOp,cFullCalcFl);
+
+    if nPntId is not null then
+      T_PkgArlClc.pDelDeaShdPnt(nPntId,nPROC_ID, nNJRN);
+    end if;
+
+  end pAprFillRass;
+
+  -- Обработка межмодульных сообщений по автоматическому пересчету ЭПС (LOAN.APRCLC)
+  function fAprReCalc(
+    rHdr C_PkgNtf.TMsgHdr,
+    lsKey in C_PkgStr.TPrmTBlLst,
+    idProc in out number,
+    iNJrn out number,
+    cErrMsg out varchar2
+  ) return integer is
+    idDep T_DEA.DEP_ID%type;
+    idDea T_DEA.ID%type;
+    cReason char(1 byte);
+    idRun  T_OPRRUN.ID%type;
+    iCnt integer;
+    idDcl  t_Deacls_Std.Id%type;
+    cDclCode  t_Deacls_Std.Code%type;
+    Lst C_PkgDecTbl.tNamedAttrList;
+    cDicision varchar2(250);
+  begin
+    t_log.debug('Z_116_PKGAPR.fAprReCalc. Автоматический пересчет ЭПС.', sType => 'PKG', sCode => 'Z_116_PKGAPR');
+
+    idDep := C_PkgNtf.fGetAttr(lsKey,'DEP_ID');
+    idDea := C_PkgNtf.fGetAttr(lsKey,'ID');
+    cReason := C_PkgNtf.fGetAttr(lsKey,'REASON');
+    idDcl :=  C_PkgNtf.fGetAttr(lsKey,'DCL_ID');
+
+    -- Проверим, не отменили ли операцию
+    select count(*) into iCnt from T_OPERJRN j where j.ID=rHdr.PROC_ID and j.NJRN=rHdr.NJRN and j.UNDOFL='0';
+
+    if iCnt=0 then
+      cErrMsg := Localize('Опрерация отменена');
+      return 1;
+    end if;
+
+    cDclCode := T_PKGDEA.fDclCode(idDcl);
+
+    -- проверка необходимости переопределения причины по ТР Z_116_APR_REASON
+    C_PkgDecTbl.pAddName(Lst, 'KRDOG_KOD', cDclCode);
+    cDicision := C_PkgDecTbl.fDecision('Z_116_APR_REASON', Lst);
+    t_log.debug('Z_116_PKGAPR.fAprReCalc. Результат проверки по таблице решений Z_116_APR_REASON = %0:s', vargs(cDicision), 'PKG', 'Z_116_PKGAPR');
+
+    if cDicision is not null then -- значит переопределим причину пересчета ЭПС cReason
+      cReason := cDicision;
+    end if;
+
+    begin
+      savepoint apr_recalc;
+      idRun := T_PkgOprRun.fCreJrn(rHdr.PROC_ID, rHdr.NJRN);
+
+      if T_PkgRunOprUtl.fOprAvailable(idDep, idDea, 'CREDITRATE') > 1 then
+        T_PkgRunOprUtl.pRunOprByMainOrd(idDep, idDea, 'CREDITRATE','RES_VALUE=>'||cReason||',RUNOPERJRN=>'||idRun);
+      end if;
+    exception
+      when others then
+        cErrMsg := SUBSTR(SQLERRM||CHR(13)||CHR(10)||DBMS_UTILITY.FORMAT_ERROR_BACKTRACE,1,2000);
+        rollback to apr_recalc;
+        return 2;
+    end;
+
+    t_log.debug('Z_116_PKGAPR.fAprReCalc. Автоматический пересчет ЭПС окончен.', sType => 'PKG', sCode => 'Z_116_PKGAPR');
+    return 1;
+
+  end fAprReCalc;
+
+  -- Селектор ММС по автоматическому пересчету ЭПС (LOAN.APRCLC)
+  function fSelectAprReCalc
+  ( lsKey in C_PkgStr.TPrmTBlLst
+  , cNTF in varchar2
+  , cRCV in varchar2
+  , idProc in number
+  ) return integer as
+    iRes  pls_integer := 0;
+    idDep T_DEA.DEP_ID%type;
+    idDea T_DEA.ID%type;
+  begin
+    idDep := C_PkgNtf.fGetAttr(lsKey,'DEP_ID');
+    idDea := C_PkgNtf.fGetAttr(lsKey,'ID');
+    if nvl(T_PkgDeaPrm.fParByCode(idDea, idDep, 'Z_116_RECLCAPR_FL'),'0') = '1' then
+      iRes := 1;
+    end if;
+    return(iRes);
+  end;
+
+end Z_116_PKGAPR;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="T_ANLACC"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="APR_CALCFLOW"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="APR_THIRDPAYMENTS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="TV_ARLDEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ARLDSC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEACLS"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEASHDPNT"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPRRUN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PCN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PKGDPNENT>
+    <PKGDPNFNC>
+      <LINK:FNC 
+        REF_NAME="P_OPERDAY"/>
+    </PKGDPNFNC>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGDECTBL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGNTF"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGSTR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGAPR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGAPRSETCLC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_LOG"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGARLCLC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEA"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAACC"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGOPRRUN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGPROCESS"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGRUNOPRUTL"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

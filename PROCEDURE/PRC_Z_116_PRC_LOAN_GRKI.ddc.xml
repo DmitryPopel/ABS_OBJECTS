@@ -1,0 +1,401 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PRC" 
+  KEY="Z_116_PRC_LOAN_GRKI" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="BFFBAF4C145AB0AB0DAF4612CECD5EDC">
+  <PRC 
+    NAME="Z_116_PRC_LOAN_GRKI">
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace procedure COLVIR.Z_116_PRC_LOAN_GRKI
+as
+  nMainSID number := sys_context('USERENV','SID');
+
+  type Z_116_LoanDataGRKI_T is record (
+   dea_id Z_116_LoanDataGRKI.dea_id%TYPE,
+   dea_dep_id Z_116_LoanDataGRKI.dea_dep_id%TYPE
+   );
+
+  type loangrki is table of Z_116_LoanDataGRKI_T;
+  l_PID loangrki;
+
+  Cursor cur is
+   select dea_id,dea_dep_id from Z_116_LoanDataGRKI;
+
+begin
+
+  --удалить свои
+  delete from Z_116_LoanDataGRKI where SID = nMainSID;
+  --удалить не существующие
+  delete from Z_116_LoanDataGRKI where SID not in (SELECT t.SID FROM v$session t);
+  commit;
+
+  insert /*+ parallel(8)*/ into Z_116_LoanDataGRKI
+  With dea as
+  (select /*+ parallel(8) use_nl(td ld o p m bs g h)*/    1 as  crtype,
+           td.id ,
+           td.dep_id,
+           td.cli_id,
+           td.cli_dep_id,
+           td.sdok,
+           o.val_id,
+           td.fromdate,
+           td.todate,
+           td.srv_dep_id,
+           h.longname,
+           bs.Name as LoanState,
+           (select code from T_DEACLS_STD where id = td.dcl_id) as CodeProduct,
+           td.dcl_id,
+           ld.pur_id
+      from t_dea td,l_dea ld,t_process p, t_procmem m,t_ord o, t_bop_stat bs, g_cli g, g_clihst h
+   where --td.id = '15481844' and td.dep_id = 3053
+           ld.id = td.id  and ld.dep_id = td.dep_id
+           and p.id = m.id
+           and m.dep_id = td.dep_id and m.ord_id = td.id and m.mainfl = '1'
+           and o.dep_id = td.dep_id and o.id = td.id
+           and bs.id = p.bop_id
+           and bs.nord = p.nstat
+           and bs.code in ('PD_OFF','ACTUAL')
+           and td.cli_id = g.id
+           and td.cli_dep_id = g.dep_id
+           and g.id = h.id
+           and g.dep_id = h.dep_id
+           and sysdate between h.fromdate and h.todate)
+  select null  as uniq,
+         null as pinFl,
+         longname,
+         sdok,
+         null as TypeLoan,
+         null as Rate,
+         null as RateSubs,
+         null as purpose_112,   --Код цели кредитования (112-спр.)
+         null as source113,
+         null as  PurposeLoan,
+         null,
+         null as  PervVTOR ,
+         null as VIDCRED,
+         CodeProduct,
+         LoanState,
+         dea.ID,
+         dea.DEP_ID,
+         dea.cli_id,
+         dea.cli_dep_id,
+         dea.dcl_id,
+         dea.pur_id,
+         nmainsid
+ from dea;
+
+  commit;
+
+  -- кред линии
+  insert /*+ parallel(8)*/ into Z_116_LoanDataGRKI
+  With dea as
+  (select /*+ parallel(8) use_nl(td ld o p m bs g h)*/    1 as  crtype,
+           td.id ,
+           td.dep_id,
+           td.cli_id,
+           td.cli_dep_id,
+           td.sdok,
+           o.val_id,
+           td.fromdate,
+           td.todate,
+           td.srv_dep_id,
+           h.longname,
+           bs.Name as LoanState,
+           (select code from T_DEACLS_STD where id = td.dcl_id) as CodeProduct,
+           td.dcl_id,
+           ld.pur_id
+      from t_dea td,l_ldea ld,t_process p, t_procmem m,t_ord o, t_bop_stat bs, g_cli g, g_clihst h
+  where -- td.id = '15481844' and td.dep_id = 3053
+           ld.id = td.id  and ld.dep_id = td.dep_id
+           and nvl(Z_116_L_PKGRPT_L_UZ_LN00_003.fParByCodePRL(td.ID,td.DEP_ID,'LL_TECHOVER'),0) = 0
+           and p.id = m.id
+           and m.dep_id = td.dep_id and m.ord_id = td.id and m.mainfl = '1'
+           and o.dep_id = td.dep_id and o.id = td.id
+           and bs.id = p.bop_id
+           and bs.nord = p.nstat
+           and bs.code in ('PD_OFF','ACTUAL')
+           and td.cli_id = g.id
+           and td.cli_dep_id = g.dep_id
+           and g.id = h.id
+           and g.dep_id = h.dep_id
+           and sysdate between h.fromdate and h.todate)
+  select null  as uniq,
+         null as pinFl,
+         longname,
+         sdok,
+         null as TypeLoan,
+         null as Rate,
+         null as RateSubs,
+         null as purpose_112,   --Код цели кредитования (112-спр.)
+         null as source113,
+         null as  PurposeLoan,
+         null,
+         null as  PervVTOR ,
+         null as VIDCRED,
+         CodeProduct,
+         LoanState,
+         dea.ID,
+         dea.DEP_ID,
+         dea.cli_id,
+         dea.cli_dep_id,
+         dea.dcl_id,
+         dea.pur_id,
+         nmainsid
+ from dea;
+
+  commit;
+
+  update Z_116_LoanDataGRKI
+    set pinfl =  nvl(G_PKGCLIIDN.fCliIDN(cli_dep_id, cli_id, G_PKGIDN.fId('IDN_PRS_UZ')),0),
+        uniq = T_PkgDeaPrm.fParByCode(dea_id, dea_dep_id,'L_UZ_UNIQNUM')
+      where sid = nMainSID;
+
+begin
+  open cur;
+  loop
+    fetch cur
+    bulk collect into l_PID
+    limit 5000;
+
+
+
+  exit when l_PID.count = 0;
+    forall i in 1..l_PID.count
+
+    update Z_116_LoanDataGRKI set typeloan=
+ (select value from table(L_PKGDEAUNIREF.fGetTblRefsFromDea(dea_dep_id,  dea_id,  dcl_id)) where name='edCode1392')
+        where dea_id = l_PID(i).dea_id and dea_dep_id = l_PID(i).dea_dep_id and sid = nMainSID;
+
+      commit;
+ end loop;
+ close cur;
+end;
+
+ begin
+  open cur;
+  loop
+    fetch cur
+    bulk collect into l_PID
+    limit 5000;
+
+
+
+  exit when l_PID.count = 0;
+    forall i in 1..l_PID.count
+
+   update Z_116_LoanDataGRKI set purpose_112 =
+ (select value from table(L_PKGDEAUNIREF.fGetTblRefsFromDea(dea_dep_id,  dea_id,  dcl_id)) where name='edCode1393')
+        where   dea_id = l_PID(i).dea_id and dea_dep_id = l_PID(i).dea_dep_id and sid = nMainSID;
+
+      commit;
+ end loop;
+ close cur;
+end;
+
+
+ begin
+  open cur;
+  loop
+    fetch cur
+    bulk collect into l_PID
+    limit 5000;
+
+
+
+  exit when l_PID.count = 0;
+    forall i in 1..l_PID.count
+
+update Z_116_LoanDataGRKI set source113 =
+ (select value from table(L_PKGDEAUNIREF.fGetTblRefsFromDea(dea_dep_id,  dea_id,  dcl_id)) where name='edCode1394')
+        where   dea_id = l_PID(i).dea_id and dea_dep_id = l_PID(i).dea_dep_id and sid = nMainSID;
+      commit;
+ end loop;
+ close cur;
+end;
+
+
+
+ begin
+  open cur;
+  loop
+    fetch cur
+    bulk collect into l_PID
+    limit 5000;
+
+
+
+  exit when l_PID.count = 0;
+    forall i in 1..l_PID.count
+
+     update Z_116_LoanDataGRKI set pervvtor =
+ (select decode(value,'0303',1,2) from table(L_PKGDEAUNIREF.fGetTblRefsFromDea(dea_dep_id,  dea_id,  dcl_id)) where name='edCode1393')
+        where   dea_id = l_PID(i).dea_id and dea_dep_id = l_PID(i).dea_dep_id and sid = nMainSID;
+      commit;
+ end loop;
+ close cur;
+end;
+
+
+
+begin
+  open cur;
+  loop
+    fetch cur
+    bulk collect into l_PID
+    limit 5000;
+
+
+
+  exit when l_PID.count = 0;
+    forall i in 1..l_PID.count
+
+    update Z_116_LoanDataGRKI z set z.percentrate =
+(select pcn
+from LV_QR_ARL
+where DEP_ID = z.dea_dep_id
+  and ID = z.dea_id
+  and longname = 'Проценты по кредиту')
+        where dea_id = l_PID(i).dea_id and dea_dep_id = l_PID(i).dea_dep_id and sid = nMainSID;
+
+ commit;
+ end loop;
+  close cur;
+end;
+
+
+begin
+  open cur;
+  loop
+    fetch cur
+    bulk collect into l_PID
+    limit 5000;
+
+  exit when l_PID.count = 0;
+    forall i in 1..l_PID.count
+
+    update Z_116_LoanDataGRKI z set z.percentrate2 =
+(select pcn
+from LV_QR_ARL
+where DEP_ID = z.dea_dep_id
+  and ID = z.dea_id
+  and longname = 'Проценты по кредиту субсидированные'  )
+        where dea_id = l_PID(i).dea_id and dea_dep_id = l_PID(i).dea_dep_id and sid = nMainSID;
+
+  commit;
+ end loop;
+   close cur;
+end;
+
+    update Z_116_LoanDataGRKI dea set dea.purposeloan =
+  (select p.CODE||'-'||p.LONGNAME from L_PURDSC p where p.ID = dea.pur_id and rownum =1)
+    where sid = nMainSID;
+
+  -- sourcefinanc
+  update Z_116_LoanDataGRKI
+    set sourcefinanc =
+         L_PKGDEAUNIREF.fGetRefValCode(dea_dep_id, dea_id,'UZ_VIDIST')
+                 ||' - '||L_PKGDEAUNIREF.fGetRefValLongname(dea_dep_id, dea_id, u_PkgUniRef.fRefCode2Id('UZ_VIDIST'))
+             where sid = nMainSID;
+  -- VIDCRED
+   update Z_116_LoanDataGRKI v set VIDCRED =
+   (select u.CODE||'-'||u.LONGNAME
+        -- into pRec.VIDCRED
+       from U_UZ_VIDCRED u
+         where code in coalesce(L_PKGDEAUNIREF.fGetRefValCode(v.dea_dep_id, v.dea_id, 'UZ_VIDCRED'),
+                              L_PKGDEAUNIREF.fGetClsRefValCode(t_pkgdea.fDeaDclId(v.dea_dep_id, v.dea_id), u_pkguniref.fRefCode2Id('UZ_VIDCRED'))))
+      where sid = nMainSID;
+
+
+end Z_116_PRC_LOAN_GRKI;
+]]>
+    </LOB_FIELD>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLI"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIHST"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="LV_QR_ARL"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_DEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_LDEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="L_PURDSC"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_BOP_STAT"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEA"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_DEACLS"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ORD"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCESS"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_PROCMEM"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="U_UZ_VIDCRED"/>
+    </PRCDPNENT>
+    <PRCDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_LOANDATAGRKI"/>
+    </PRCDPNENT>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="L_PKGDEAUNIREF"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEA"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGDEAPRM"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="U_PKGUNIREF"/>
+    </PRCDPNPKG>
+    <PRCDPNPKG>
+      <LINK:PKG 
+        REF_NAME="Z_116_L_PKGRPT_L_UZ_LN00_003"/>
+    </PRCDPNPKG>
+  </PRC>
+</DDC>

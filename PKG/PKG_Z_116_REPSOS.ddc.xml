@@ -1,0 +1,306 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_REPSOS" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="438864D063CFF3724052C086741FE5B4">
+  <PKG 
+    NAME="Z_116_REPSOS">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_REPSOS as
+  /* Для отчета Z_116_TURNSOS17400
+  Author: Popel DA*/
+  procedure Z_116_PRC_TURNSOS17400(pBegDate date, pEnddate date);
+
+  function Z_116_get_cancelTrans_sos(pidDep integer,
+                                     pAcc   T_ACC.ID%TYPE,
+                                     pDate  date,
+                                     pIncom number) return number;
+  function Z_116_GetAddCancTrans_sos(pidDep integer,
+                                     pAcc   T_ACC.ID%TYPE,
+                                     pDate  date,
+                                     pIncom number) return number;
+  function Z_116_get_CreditTransaction(pAcc_DEP_ID in Z_116_SOS_PDA_ITOG.dep_id%type,
+                                       pAccID      in Z_116_SOS_PDA_ITOG.acc_id%type,
+                                       pDate       in Z_116_SOS_PDA_ITOG.transactiondate%type)
+    return number;
+
+end Z_116_REPSOS;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_REPSOS as
+  /* Для отчета Z_116_TURNSOS17400
+  Author: Popel DA*/
+  procedure Z_116_PRC_TURNSOS17400(pBegDate date, pEnddate date) as
+
+    vSum number;
+
+  begin
+
+    execute immediate 'truncate table Z_116_turnSoS';
+    execute immediate 'truncate table Z_116_SOS_PDA';
+    execute immediate 'truncate table Z_116_SOS_PDA_Itog';
+
+    insert /*+ append parallel(8) enable_parallel_dml */
+    into Z_116_turnSoS nologging
+      select /*+ parallel(8) */
+       a.id,
+       a.dep_id,
+       a.code,
+       h.longname,
+       nvl(h.val_id, 55),
+       h.activfl,
+       abs(T_PkgAccBal.fAccBal(a.dep_id,
+                               a.id,
+                               pBegDate,
+                               1,
+                               nvl(h.val_id, 55))),
+       abs(T_PkgAccBal.fAccBal(a.dep_id,
+                               a.id,
+                               pEnddate,
+                               0,
+                               nvl(h.val_id, 55))),
+       T_PkgVal.fGetCode(nvl(h.val_id, 55)),
+
+       nvl(T_PKGACCMOV.fGetAccMov(a.dep_id,
+                                  a.id,
+                                  pBegDate,
+                                  pEnddate,
+                                  nvl(h.val_id, 55),
+                                  flIncom => 0),
+           0),
+       0, --  T_PKGACCMOV.fGetAccMov(a.dep_id, a.id,  pBegDate, pEnddate ,nvl(h.val_id,55),flIncom =>1),
+       null
+        from g_accbln a, g_accblnhst h
+       where a.id = h.id
+         -- and a.code = '17409000900001092207'
+         and sysdate between h.fromdate and h.todate
+         and (code like '17401%' or code like '17409%');
+    commit;
+
+    -- По транзакции 1
+
+    insert /*+ append parallel(8) enable_parallel_dml*/
+    into Z_116_SOS_PDA
+      select /*+ parallel(8)*/
+       o.ID as ORD_ID, o.DEP_ID as DEP_ID, trunc(t.trn_date)
+        from N_DEVOPR o, N_CRDINEKV t
+       where o.TRN_ID(+) = t.ID
+         and trunc(t.trn_date) between pBegDate and pEnddate;
+
+    commit;
+
+    --- по транзакциям 2
+
+    insert /*+ append parallel(8) enable_parallel_dml*/
+    into Z_116_SOS_PDA
+      select /*+ parallel(8) leading(t o) index(t IE_N_CRDINTRN_TRN_DATE)*/
+       o.id as ord_id, o.DEP_ID as dep_id, trunc(t.trn_date)
+        from N_TRNOPR o, N_CRDINTRN t
+       where o.TRN_ID(+) = t.ID
+         and trunc(t.trn_date) between pBegDate and pEnddate;
+    commit;
+
+    insert /*+ append parallel(8) enable_parallel_dml*/
+    into Z_116_SOS_PDA_Itog
+      select /*+ parallel(8) index(trn PK_T_TRNDTL)*/
+       trn.acc_id,
+       trn.dep_id,
+       trn.val_id,
+       trn.sdok,
+       z.transactiondate,
+       trn.incomfl,
+       a.OPE_ID,
+       j.CHA_ID
+        from T_OPERJRN j, T_TRNATR a, t_trndtl trn, Z_116_SOS_PDA z
+       where j.TRA_ID = a.ID
+         and trn.id = a.id
+         and a.NORD = trn.NORD
+            --and j.ord_id=2765124358 and j.dep_id = 2056
+         and trn.incomfl in (0, 1) --0 условие для индекса
+         and z.ord_id = j.ord_id
+         and z.dep_ord_id = j.dep_id
+         and exists (select 1
+                from Z_116_TURNSOS
+               where idacc = trn.acc_id
+                 and acc_dep_id = trn.dep_id);
+
+    commit;
+
+    vSum := 0;
+    for rec in (select * from Z_116_turnSoS) loop
+      select sum(sdok)
+        into vSum
+        from Z_116_SOS_PDA_Itog
+       where turnprop = 0
+         and acc_id = rec.idacc;
+      update Z_116_turnSoS
+         set credsum = nvl(vSum, 0)
+       where idacc = rec.idacc;
+    end loop;
+    commit;
+
+    delete from Z_116_turnSoS
+     where restin = 0
+       and restout = 0
+       and debsum = 0
+       and credsum = 0;
+
+    commit;
+
+  end Z_116_PRC_TURNSOS17400;
+
+  function Z_116_get_cancelTrans_sos(pidDep integer,
+                                     pAcc   T_ACC.ID%TYPE,
+                                     pDate  date,
+                                     pIncom number) return number as
+
+    vAmount number;
+  begin
+
+    select /*+ index(t IE_T_TRNDTL_ACC)*/
+     sum(t.sdok)
+      into vAmount
+      from t_trndtl t, T_TRNATR a, T_OPERJRN j
+     where t.acc_id = pAcc
+       and t.dep_id = pidDep
+       and t.id = a.id
+       and a.NORD = t.NORD
+       and t.doper between pDate and pDate
+       and t.incomfl = pIncom --1
+       and j.TRA_ID = a.ID
+       and substr(T_PkgOprChr.fCode(nvl(a.OPE_ID, j.CHA_ID)), 1, 250) in
+           (select code
+              from T_OPRCHR t
+             where id_hi = 106914
+               and upper(longname) like '%ОТМЕНА%');
+
+    return nvl(vAmount, 0);
+
+  end Z_116_get_cancelTrans_sos;
+
+  function Z_116_GetAddCancTrans_sos(pidDep integer,
+                                     pAcc   T_ACC.ID%TYPE,
+                                     pDate  date,
+                                     pIncom number) return number as
+
+    vAmount number;
+
+  begin
+
+    select sum(sdok)
+      into vAmount
+      from Z_116_SOS_PDA_Itog
+     where turnprop = pIncom --1
+       and acc_id = pAcc
+       and dep_id = pidDep
+       and transactiondate = pDate
+       and substr(T_PkgOprChr.fCode(nvl(OPE_ID, CHA_ID)), 1, 250) in
+           (select code
+              from T_OPRCHR t
+             where id_hi = 106914
+               and upper(longname) like '%ОТМЕНА%');
+
+    return nvl(vAmount, 0);
+
+  end Z_116_GetAddCancTrans_sos;
+
+  function Z_116_get_CreditTransaction(pAcc_DEP_ID in Z_116_SOS_PDA_ITOG.dep_id%type,
+                                       pAccID      in Z_116_SOS_PDA_ITOG.acc_id%type,
+                                       pDate       in Z_116_SOS_PDA_ITOG.transactiondate%type)
+    return number as
+    v_sdok number;
+
+  begin
+    select sum(sdok)
+      into v_sdok
+      from Z_116_SOS_PDA_ITOG
+     where acc_id = pAccID
+       and turnprop = 0
+       and transactiondate = pDate;
+
+    return nvl(v_sdok, 0);
+
+  end Z_116_GET_CREDITTRANSACTION;
+end Z_116_REPSOS;
+]]>
+    </LOB_FIELD>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_ACCBLNHST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDINEKV"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_CRDINTRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_DEVOPR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="N_TRNOPR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_ACC"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPERJRN"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_OPRCHR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNATR"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="T_TRNDTL"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_SOS_PDA"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_SOS_PDA_ITOG"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="Z_116_TURNSOS"/>
+    </PKGDPNENT>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCBAL"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGACCMOV"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGOPRCHR"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="T_PKGVAL"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>

@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DDC 
+  CLASS="PKG" 
+  KEY="Z_116_PKG_GET_CLIENT_INFO" 
+  MODE="O" 
+  xmlns:LINK="ddc:link" 
+  xmlns:CFG="ddc:cfg" 
+  HASH="CA69AB39907F7803747FF4CA05D31E6D">
+  <PKG 
+    NAME="Z_116_PKG_GET_CLIENT_INFO">
+    <LOB_FIELD 
+      NAME="HEADER">
+      <![CDATA[create or replace package COLVIR.Z_116_PKG_GET_CLIENT_INFO is
+  ----------------------------------------------------------------------------------------------------
+  Procedure Get_Cli_Adms
+  (
+    Pinput  in clob,
+    Poutput out clob
+  );
+  ----------------------------------------------------------------------------------------------------
+  Procedure Get_Cli_Family
+  (
+    Pinput  in clob,
+    Poutput out clob
+  );
+  ----------------------------------------------------------------------------------------------------
+  Procedure Get_Cli_Owning_Companies
+  (
+    Pinput  in clob,
+    Poutput out clob
+  );
+
+end Z_116_PKG_GET_CLIENT_INFO;
+]]>
+    </LOB_FIELD>
+    <LOB_FIELD 
+      NAME="TEXT">
+      <![CDATA[create or replace package body COLVIR.Z_116_PKG_GET_CLIENT_INFO is
+  ----------------------------------------------------------------------------------------------------
+  Procedure Get_Cli_Adms
+  (
+    Pinput  in clob,
+    Poutput out clob
+  ) is
+    Jinput  Json_Object_t := Json_Object_t.Parse(Pinput);
+    Ninn    varchar2(50) := Jinput.Get_String('inn');
+    Jresult Json_Object_t := Json_Object_t();
+    Jlist   Json_Array_t := Json_Array_t();
+  begin
+    c_Pkgconnect.Popen();
+
+    for r in (select g_Pkgcliidn.Fcliidn(t.Cli_Dep_Id, t.Cli_Id, g_Pkgidn.Fid('IDN_JUR_UZ')) as Cli_Inn,
+                     g_Pkgcliidn.Fcliidn(t.Cli_Dep_Id, t.Cli_Id, g_Pkgidn.Fid('IDN_PRS_UZ')) as Cli_Pinfl,
+                     g_Pkgcli.Fgetclilongname(Iddep => t.Cli_Dep_Id, Idcli => t.Cli_Id) as Cli_Name,
+                     Substr(Bs_Dom.Dname('CLI_TYPE', Decode(t.Jurfl, 1, 0, 1)), 1, 250) as Cli_Type_Name,
+                     Decode(t.Jurfl, 1, 0, 1) as Cli_Type,
+                     t.Admrole
+                from g_Cliadmlst t
+               where (t.Dep_Id, t.Id) in
+                     (select *
+                        from table(g_Pkgcliidn.Fpipeclilst(Ninn, g_Pkgidn.Fid('IDN_JUR_UZ'))) Tt)
+                 and t.Admrole in ('01', '06'))
+    loop
+      Jresult := Json_Object_t();
+      Jresult.Put('cli_inn', r.Cli_Inn);
+      Jresult.Put('cli_pinfl', r.Cli_Pinfl);
+      Jresult.Put('cli_name', r.Cli_Name);
+      Jresult.Put('cli_type_name', r.Cli_Type_Name);
+      Jresult.Put('cli_type', r.Cli_Type);
+      Jresult.Put('admrole', r.Admrole);
+
+      Jlist.Append(Jresult);
+    end loop;
+
+    Poutput := Jlist.To_Clob;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  Procedure Get_Cli_Family
+  (
+    Pinput  in clob,
+    Poutput out clob
+  ) is
+    Jinput  Json_Object_t := Json_Object_t.Parse(Pinput);
+    Npinfl  varchar2(50) := Jinput.Get_String('pinfl');
+    Jresult Json_Object_t := Json_Object_t();
+    Jlist   Json_Array_t := Json_Array_t();
+  begin
+    c_Pkgconnect.Popen();
+
+    for r in (select g_Pkgcliidn.Fcliidn(t.Cli_Dep_Id, t.Cli_Id, g_Pkgidn.Fid('IDN_PRS_UZ')) as Cli_Pinfl,
+                     t.Name1 || ' ' || t.Name2 || ' ' || t.Name3 as Cli_Name,
+                     (select w.Longname
+                        from g_Clifam_Std w
+                       where w.Id = t.Fam_Id) as Cli_Fam
+                from g_Clifamily t
+               where (t.Dep_Id, t.Id) in
+                     (select *
+                        from table(g_Pkgcliidn.Fpipeclilst(Npinfl, g_Pkgidn.Fid('IDN_PRS_UZ'))) Tt))
+    loop
+      Jresult := Json_Object_t();
+      Jresult.Put('cli_pinfl', r.Cli_Pinfl);
+      Jresult.Put('cli_name', r.Cli_Name);
+      Jresult.Put('cli_fam', r.Cli_Fam);
+
+      Jlist.Append(Jresult);
+    end loop;
+
+    Poutput := Jlist.To_Clob;
+  end;
+
+  ----------------------------------------------------------------------------------------------------
+  Procedure Get_Cli_Owning_Companies
+  (
+    Pinput  in clob,
+    Poutput out clob
+  ) is
+    Jinput    Json_Object_t := Json_Object_t.Parse(Pinput);
+    Jresult   Json_Object_t := Json_Object_t();
+    Jlist     Json_Array_t := Json_Array_t();
+    Ncli_Type varchar2(1) := Jinput.Get_String('type');
+    Ncode     varchar2(50) := Jinput.Get_String('code');
+    Ntype     varchar2(50);
+  begin
+    c_Pkgconnect.Popen();
+
+    if Ncli_Type = '1' then
+      --fiz
+      Ntype := 'IDN_PRS_UZ';
+    else
+      --jur
+      Ntype := 'IDN_JUR_UZ';
+    end if;
+
+    for r in (select g_Pkgcliidn.Fcliidn(t.Dep_Id, t.Id, g_Pkgidn.Fid('IDN_JUR_UZ')) as Cli_Inn,
+                     g_Pkgcli.Fgetcliname(Ndepid => t.Dep_Id, Nid => t.Id) as Cli_Name
+                from g_Cliadmlst t
+               where (t.Cli_Dep_Id, t.Cli_Id) in
+                     (select *
+                        from table(g_Pkgcliidn.Fpipeclilst(Ncode, g_Pkgidn.Fid(Ntype))) Tt)
+                 and t.Admrole in ('01', '06'))
+    loop
+      Jresult := Json_Object_t();
+      Jresult.Put('cli_inn', r.Cli_Inn);
+      Jresult.Put('cli_name', r.Cli_Name);
+
+      Jlist.Append(Jresult);
+    end loop;
+
+    Poutput := Jlist.To_Clob;
+  end;
+
+end Z_116_PKG_GET_CLIENT_INFO;
+]]>
+    </LOB_FIELD>
+    <PKGDPNBSN>
+      <LINK:BSN 
+        REF_NAME="BS_DOM"/>
+    </PKGDPNBSN>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIADMLST"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIFAM"/>
+    </PKGDPNENT>
+    <PKGDPNENT>
+      <LINK:ENT 
+        REF_NAME="G_CLIFAMILY"/>
+    </PKGDPNENT>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="C_PKGCONNECT"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLI"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGCLIIDN"/>
+    </PKGDPNPKG>
+    <PKGDPNPKG>
+      <LINK:PKG 
+        REF_NAME="G_PKGIDN"/>
+    </PKGDPNPKG>
+  </PKG>
+</DDC>
